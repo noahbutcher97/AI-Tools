@@ -1,0 +1,9 @@
+{
+  "name": "miro-bridge-mcp",
+  "version": "1.0.0",
+  "description": "Miro MCP bridge with multi-org support",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": { "@modelcontextprotocol/sdk": "^1.12.1" }
+}

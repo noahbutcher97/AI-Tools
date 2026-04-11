@@ -1,0 +1,10 @@
+{
+  "name": "mcp-perforce",
+  "version": "1.0.0",
+  "description": "MCP server for Perforce operations",
+  "type": "module",
+  "main": "server.mjs",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
