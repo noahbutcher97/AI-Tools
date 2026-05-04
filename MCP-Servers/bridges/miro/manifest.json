@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0",
+  "name": "miro",
+  "displayName": "Miro",
+  "description": "Miro whiteboard board + item operations as MCP tools.",
+  "version": "1.0.0",
+  "main": "server.mjs",
+  "package": "package.json",
+  "fields": [
+    {
+      "name": "MIRO_ACCESS_TOKEN",
+      "label": "Miro access token",
+      "type": "string",
+      "secret": true,
+      "required": true,
+      "openUrl": "https://miro.com/app/settings/user-profile/apps",
+      "instructions": [
+        "Your browser will open the Miro user-profile apps page.",
+        "1. If your team already has a 'mcp-bridge' app installed, click it and copy the access token. Done.",
+        "2. Otherwise, click 'Create new app' (top right).",
+        "3. Name it 'mcp-bridge'.",
+        "4. Under Permissions, select at minimum: boards:read, boards:write.",
+        "5. Click 'Install app and get OAuth token'.",
+        "6. Pick the team where you want this to work.",
+        "7. Copy the access token shown after install.",
+        "Paste the token below."
+      ]
+    },
+    {
+      "name": "MIRO_ORG_NAME",
+      "label": "Miro org name (optional, display only)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "examplePlaceholder": "Optimum Athena"
+    }
+  ],
+  "validate": {
+    "type": "http",
+    "url": "https://api.miro.com/v2/boards?limit=1",
+    "method": "GET",
+    "auth": { "type": "bearer", "token": "{MIRO_ACCESS_TOKEN}" },
+    "expectStatus": 200,
+    "successMessage": "Token validated. {response.total} board(s) accessible to this app on {MIRO_ORG_NAME}.",
+    "errorHints": {
+      "401": "Token rejected. Token may be expired, revoked, or the app uninstalled from your team.",
+      "403": "Token missing required scopes. Make sure the app has at least 'boards:read'.",
+      "404": "Endpoint not found. Miro API may have changed; check for installer updates."
+    }
+  }
+}

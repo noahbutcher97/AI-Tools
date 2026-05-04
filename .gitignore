@@ -1,0 +1,20 @@
+# Bridge dependencies — installed by Install-MCP-Suite.bat (npm ci) on first run
+node_modules/
+
+# Date-stamped archive folders (manual culling, not for distribution)
+_archive_*/
+
+# Editor / OS junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs / temp / backups
+*.log
+*.tmp
+*.bak
+*.bak.*
+setup.log
+sync-error.log
+sync-output.log

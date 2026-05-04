@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0",
+  "name": "atlassian",
+  "displayName": "Atlassian (Jira + Confluence)",
+  "description": "Jira issue + Confluence page operations as MCP tools.",
+  "version": "1.0.0",
+  "main": "server.mjs",
+  "package": "package.json",
+  "fields": [
+    {
+      "name": "ATLASSIAN_SITE_NAME",
+      "label": "Atlassian site name",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "instructions": [
+        "The subdomain part of your Atlassian URL.",
+        "For 'optimum-athena.atlassian.net', enter 'optimum-athena'."
+      ],
+      "examplePlaceholder": "optimum-athena"
+    },
+    {
+      "name": "ATLASSIAN_USER_EMAIL",
+      "label": "Atlassian account email",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "autoDetect": "git-config-email",
+      "instructions": [
+        "The email address you use to log into Atlassian.",
+        "If you set 'git config user.email', the installer will offer that as a default."
+      ]
+    },
+    {
+      "name": "ATLASSIAN_API_TOKEN",
+      "label": "Atlassian API token",
+      "type": "string",
+      "secret": true,
+      "required": true,
+      "openUrl": "https://id.atlassian.com/manage-profile/security/api-tokens",
+      "instructions": [
+        "Your browser will open the Atlassian API token page.",
+        "1. Click 'Create API token (classic)'.",
+        "2. Give it a label like 'mcp-bridge'.",
+        "3. Click 'Create', then 'Copy'.",
+        "4. Paste the token below."
+      ]
+    }
+  ],
+  "validate": {
+    "type": "http",
+    "url": "https://{ATLASSIAN_SITE_NAME}.atlassian.net/rest/api/3/myself",
+    "method": "GET",
+    "auth": { "type": "basic", "user": "{ATLASSIAN_USER_EMAIL}", "pass": "{ATLASSIAN_API_TOKEN}" },
+    "expectStatus": 200,
+    "successMessage": "Authenticated as {response.displayName} <{response.emailAddress}>",
+    "errorHints": {
+      "401": "Token rejected. Most common: the email doesn't match the account that owns the token, or the token was revoked.",
+      "403": "Authenticated but lacking permission. Token might be from a different Atlassian site.",
+      "404": "Endpoint not found. Site name '{ATLASSIAN_SITE_NAME}' may be wrong (check your Atlassian URL)."
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "name": "perforce",
+  "displayName": "Perforce (P4)",
+  "description": "Perforce version control as MCP tools — list opened files, sync, describe changelists, diff, etc.",
+  "version": "1.0.0",
+  "main": "server.mjs",
+  "package": "package.json",
+  "fields": [
+    {
+      "name": "P4PORT",
+      "label": "Perforce server",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "instructions": [
+        "Format: ssl:host:port (e.g., ssl:perforce.example.com:1666)",
+        "Or just host:port for non-SSL connections."
+      ],
+      "examplePlaceholder": "ssl:209.205.239.138:1666"
+    },
+    {
+      "name": "P4USER",
+      "label": "Perforce username",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "examplePlaceholder": "your-username"
+    },
+    {
+      "name": "P4CLIENT",
+      "label": "Perforce client/workspace name",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "examplePlaceholder": "yourname_ProjectName"
+    },
+    {
+      "name": "P4DEPOT",
+      "label": "Depot path (without leading slashes)",
+      "type": "string",
+      "secret": false,
+      "required": true,
+      "instructions": [
+        "The depot path your workspace lives under, without the leading //.",
+        "Example: 'Project1/OnSight' (which becomes //Project1/OnSight/...)."
+      ],
+      "examplePlaceholder": "Project1/OnSight"
+    },
+    {
+      "name": "P4PASSWD",
+      "label": "Perforce password (optional)",
+      "type": "string",
+      "secret": true,
+      "required": false,
+      "instructions": [
+        "Leave empty if you have a cached p4 ticket (recommended).",
+        "Only paste here if you want the bridge to auto-login on startup.",
+        "Bridge will use this to run 'p4 login' on first start, then rely on the ticket."
+      ]
+    }
+  ],
+  "autoDetect": {
+    "type": "p4config",
+    "files": [".p4config", ".p4config.local"]
+  },
+  "validate": {
+    "type": "command",
+    "command": "p4",
+    "args": ["-p", "{P4PORT}", "-u", "{P4USER}", "-c", "{P4CLIENT}", "info"],
+    "expectExitCode": 0,
+    "successMessage": "Connected to {P4PORT} as {P4USER} (client {P4CLIENT}). {stdout.line1}",
+    "errorHints": {
+      "Connect to server failed": "P4PORT might be wrong, or server unreachable. Check the address and your network/VPN.",
+      "Your session has expired": "Run 'p4 login' manually to refresh your ticket, or set P4PASSWD.",
+      "User * doesn't exist": "P4USER doesn't match an account on this server. Check spelling/case.",
+      "Client * unknown": "P4CLIENT doesn't exist on this server. Create the workspace first or use an existing one."
+    }
+  }
+}

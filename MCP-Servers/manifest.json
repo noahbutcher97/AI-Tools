@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "version": "0.1.0",
+  "name": "noahbutcher97-ai-tools-mcp-bridges",
+  "description": "Central installer + curated MCP bridge bundles for Claude Code / Cowork.",
+  "homepage": "https://github.com/noahbutcher97/AI-Tools",
+  "minNodeVersion": "18.0.0",
+  "bridges": {
+    "perforce": {
+      "displayName": "Perforce (P4)",
+      "summary": "Version control operations as MCP tools.",
+      "source": { "type": "co-located", "path": "bridges/perforce" }
+    },
+    "atlassian": {
+      "displayName": "Atlassian (Jira + Confluence)",
+      "summary": "Issue + page operations as MCP tools.",
+      "source": { "type": "co-located", "path": "bridges/atlassian" }
+    },
+    "miro": {
+      "displayName": "Miro",
+      "summary": "Whiteboard board + item operations as MCP tools.",
+      "source": { "type": "co-located", "path": "bridges/miro" }
+    },
+    "uemcp": {
+      "displayName": "Unreal Engine MCP (UEMCP)",
+      "summary": "Unreal editor automation. Requires UE editor running.",
+      "source": {
+        "type": "remote-repo",
+        "repo": "noahbutcher97/UEMCP",
+        "release": "latest",
+        "subPath": "."
+      },
+      "fallback": {
+        "preserveLegacyConfig": true,
+        "manifestNeeded": "docs/UEMCP-MANIFEST-SPEC.md"
+      }
+    }
+  }
+}
