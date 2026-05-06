@@ -1,6 +1,10 @@
 # Bridge dependencies — installed by Install-MCP-Suite.bat (npm ci) on first run
 node_modules/
 
+# Installer idempotency sentinel — written after successful npm install
+# (lockfile SHA-256). Per-checkout state, not source.
+.npm-deps-state.json
+
 # Date-stamped archive folders (manual culling, not for distribution)
 _archive_*/
 

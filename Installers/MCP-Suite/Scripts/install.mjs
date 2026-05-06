@@ -15,10 +15,11 @@
 //
 // Repo: https://github.com/noahbutcher97/AI-Tools
 
-import { readFileSync, existsSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync } from "fs";
-import { fileURLToPath } from "url";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, rmSync } from "fs";
+import { fileURLToPath, pathToFileURL } from "url";
 import { dirname, resolve } from "path";
 import { spawnSync } from "child_process";
+import { createHash } from "crypto";
 
 import { safePath, safeJoin } from "./lib/safepath.mjs";
 import {
@@ -97,11 +98,14 @@ function parseArgs(argv) {
     bridges: null,
     update: false,
     enableUpdateChecks: false,
+    nonInteractive: false,
+    fieldOverrides: {}, // { FIELD_NAME: "value" } populated by --field=K=V
   };
   for (const a of argv.slice(2)) {
     if (a === "--doctor") args.mode = "doctor";
     else if (a === "--update") args.update = true;
     else if (a === "--enable-update-checks") args.enableUpdateChecks = true;
+    else if (a === "--non-interactive") args.nonInteractive = true;
     else if (a.startsWith("--workspace=")) args.workspace = a.slice("--workspace=".length);
     else if (a.startsWith("--bridges=")) {
       args.bridges = a
@@ -109,6 +113,15 @@ function parseArgs(argv) {
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+    } else if (a.startsWith("--field=")) {
+      // --field=KEY=VALUE — VALUE may itself contain '=' (e.g. base64 tokens).
+      const kv = a.slice("--field=".length);
+      const eq = kv.indexOf("=");
+      if (eq <= 0) {
+        console.error(`Invalid --field syntax: '${a}'. Expected --field=KEY=VALUE.`);
+        process.exit(2);
+      }
+      args.fieldOverrides[kv.slice(0, eq)] = kv.slice(eq + 1);
     } else if (a === "--help" || a === "-h") {
       printHelp();
       process.exit(0);
@@ -126,10 +139,23 @@ Usage: node install.mjs [options]
 Options:
   --workspace=PATH         Workspace dir (default: current directory)
   --bridges=NAMES          Comma-separated bridges to enable (skips menu)
+  --non-interactive        Resolve all fields from saved values + auto-detect +
+                           defaults + --field overrides; never prompt. Fails
+                           fast if a required field can't be resolved.
+  --field=KEY=VALUE        Override a single field for this run (highest
+                           priority — beats saved values). Repeatable.
   --doctor                 Inspect workspace config; no prompts
-  --update                 Force GitHub update check
+  --update                 Force cache refresh + redownload remote bridges
   --enable-update-checks   Add a daily update-nudge to CCD SessionStart hook
   --help                   Show this help
+
+Examples:
+  Wire atlassian + perforce into Phoenix without prompts:
+    node install.mjs --workspace=D:/UnrealProjects/5.6/OperationPhoenix \\
+      --bridges=atlassian,perforce --non-interactive \\
+      --field=P4DEPOT=Project1/Operation-Phoenix \\
+      --field=ATLASSIAN_SITE_NAME=optimum-athena \\
+      --field=ATLASSIAN_USER_EMAIL=posner.noah@gmail.com
 `);
 }
 
@@ -184,17 +210,47 @@ function bridgeSourceDir(bridgeEntry, bridgeName) {
   throw new Error(`Bridge '${bridgeName}' has unsupported source.type: ${src.type}`);
 }
 
-async function ensureBridgeAvailable(bridgeEntry, bridgeName) {
+async function ensureBridgeAvailable(bridgeEntry, bridgeName, opts = {}) {
+  const { forceRefresh = false } = opts;
   const src = bridgeEntry.source;
   if (src.type === "co-located") {
     const dir = bridgeSourceDir(bridgeEntry, bridgeName);
     if (!existsSync(dir)) throw new Error(`Co-located bridge missing on disk: ${dir}`);
+    // Self-bootstrap node_modules so a fresh clone of AI-Tools is runnable
+    // without manual `npm install` in each bridge dir. Idempotent — skipped
+    // when the lockfile hash matches the saved state. --update bypasses the
+    // skip and forces a re-install (transitive-dep refresh path).
+    try {
+      installNodeDepsRecursive(dir, { force: forceRefresh });
+    } catch (e) {
+      printWarn(`Dep install for co-located bridge '${bridgeName}' failed: ${e.message}`);
+      printWarn(`Bridge may not start until you run 'npm install' manually in ${dir}`);
+    }
     return dir;
   }
   if (src.type === "remote-repo") {
     const dir = bridgeVersionDir(bridgeName, "remote");
-    if (existsSync(safeJoin(dir, "manifest.json"))) {
-      return dir; // already cached
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+    const cached = existsSync(safeJoin(dir, "manifest.json"));
+
+    if (cached && forceRefresh) {
+      // --update path: blow away the cache so fetchRemoteBridge does a
+      // clean re-download + re-install. (Idempotent npm-state file is
+      // discarded along with the rest, so the new install always runs.)
+      console.log(`  Refreshing cache for ${bridgeName} (--update)...`);
+      try { rmSync(dir, { recursive: true, force: true }); }
+      catch (e) { printWarn(`Could not remove cache dir ${dir}: ${e.message}`); }
+    } else if (cached) {
+      // Cache hit. Still run the dep installer because (a) caches written
+      // by older installer versions may have no node_modules at all, and
+      // (b) it's idempotent — skips when the lockfile hash is unchanged.
+      try {
+        installNodeDepsRecursive(dir);
+      } catch (e) {
+        printWarn(`Dep install in cache failed: ${e.message}`);
+        printWarn(`Bridge may not start until you run 'npm install' manually in ${dir}`);
+      }
+      return dir;
     }
     console.log(`  Downloading ${bridgeName} from github.com/${src.repo}...`);
     await fetchRemoteBridge(src, dir);
@@ -224,6 +280,173 @@ async function fetchRemoteBridge(src, targetDir) {
   try {
     unlinkSync(tmpFile);
   } catch { /* ignore */ }
+
+  // Install Node deps for any package.json found in the bundle. Without
+  // this, the bridge's first import (e.g. @modelcontextprotocol/sdk) fails
+  // and Code drops it from the tool list with no surfaced error. Forcing
+  // refresh because this is a fresh extraction (no prior state to compare).
+  installNodeDepsRecursive(targetDir, { force: true });
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// npm install for downloaded bridges
+//
+// Tarballs from GitHub don't include node_modules (gitignored), so a freshly
+// extracted bridge will fail to start until its deps are installed. This
+// helper walks the bundle (bounded depth) and runs npm install — or npm ci
+// if a lockfile is present — in every subdir that has declared deps.
+//
+// Idempotency: after a successful install, the lockfile's SHA-256 is
+// recorded in .npm-deps-state.json. Subsequent calls hash the current
+// lockfile and skip install when it matches. Pass {force:true} to bypass.
+// ───────────────────────────────────────────────────────────────────────
+
+const NPM_INSTALL_TIMEOUT_MS = 300_000; // 5 minutes — typical bridge installs in <30s
+const NPM_DEPS_STATE_FILE = ".npm-deps-state.json";
+const NPM_DEPS_WALK_MAX_DEPTH = 2; // bridge root + immediate subdirs (UEMCP has /server)
+const NPM_DEPS_WALK_SKIP_DIRS = new Set(["node_modules", "plugin", "docs", ".git"]);
+
+function hashFile(path) {
+  // Inputs come from safeJoin'd paths anchored to the validated bridge dir.
+  if (!existsSync(path)) return null;
+  const h = createHash("sha256");
+  h.update(readFileSync(path));
+  return h.digest("hex");
+}
+
+function readDepsState(dir) {
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+  const path = safeJoin(dir, NPM_DEPS_STATE_FILE);
+  if (!existsSync(path)) return null;
+  try { return JSON.parse(readFileSync(path, "utf-8")); } catch { return null; }
+}
+
+function writeDepsState(dir, state) {
+  // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+  const path = safeJoin(dir, NPM_DEPS_STATE_FILE);
+  writeFileSync(path, JSON.stringify(state, null, 2) + "\n", "utf-8");
+}
+
+function pkgHasDeclaredDeps(pkg) {
+  if (!pkg) return false;
+  return Object.keys(pkg.dependencies || {}).length > 0 ||
+         Object.keys(pkg.devDependencies || {}).length > 0;
+}
+
+/**
+ * Run npm install / npm ci in any package.json-bearing dir under rootDir.
+ *
+ * @param {string} rootDir - validated absolute path to a bridge bundle root
+ * @param {object} [opts]
+ * @param {boolean} [opts.force=false] - run npm install even if the
+ *   lockfile hash matches the saved state (use after fresh tarball extract)
+ * @returns {Array<{dir, command, status, skipped?: boolean, reason?: string}>}
+ */
+export function installNodeDepsRecursive(rootDir, opts = {}) {
+  const { force = false } = opts;
+  const results = [];
+  const stack = [{ dir: rootDir, depth: 0 }];
+
+  while (stack.length > 0) {
+    const { dir, depth } = stack.pop();
+    if (depth > NPM_DEPS_WALK_MAX_DEPTH) continue;
+
+    // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+    const pkgPath = safeJoin(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      let pkg = null;
+      try { pkg = JSON.parse(readFileSync(pkgPath, "utf-8")); } catch { /* ignore */ }
+
+      if (pkgHasDeclaredDeps(pkg)) {
+        // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+        const lockPath = safeJoin(dir, "package-lock.json");
+        const hasLock = existsSync(lockPath);
+        const command = hasLock ? "ci" : "install";
+
+        // Idempotency check: skip if lockfile hash matches saved state
+        // and node_modules already exists. Force overrides.
+        const state = readDepsState(dir);
+        const currentHash = hasLock ? hashFile(lockPath) : null;
+        // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+        const nmExists = existsSync(safeJoin(dir, "node_modules"));
+
+        if (!force && nmExists && hasLock && state?.lockHash && state.lockHash === currentHash) {
+          results.push({ dir, command, status: 0, skipped: true, reason: "lockfile-unchanged" });
+          // Don't recurse below an already-installed package — its
+          // node_modules will contain its own nested package.jsons.
+        } else {
+          console.log(`  Running 'npm ${command}' in ${dir}...`);
+          // Windows: npm is a .cmd batch wrapper. Node 18.20+ rejects
+          // spawnSync("npm.cmd") directly with EINVAL (BatBadBut hardening,
+          // CVE-2024-27980). Mirror the pattern used by runBridgeOwnSetup
+          // for .bat/.cmd files: launch via `cmd.exe /c npm.cmd <args>`.
+          // POSIX: spawn npm directly. shell:false stays on both paths.
+          const isWin = process.platform === "win32";
+          const launcher     = isWin ? "cmd.exe" : "npm";
+          const launcherArgs = isWin
+            ? ["/c", "npm.cmd", command, "--no-audit", "--no-fund"]
+            : [command, "--no-audit", "--no-fund"];
+          // Security: launcher is one of {cmd.exe, npm} (platform-fixed),
+          // launcherArgs is an array of constant strings (no user input),
+          // shell:false explicit, cwd is a safeJoin'd absolute path. The
+          // /c arguments to cmd.exe are treated as separate tokens because
+          // shell:false bypasses cmd's command-line parsing.
+          // nosemgrep: javascript.lang.security.audit.detect-child-process.detect-child-process,javascript.lang.security.detect-child-process.detect-child-process,javascript.lang.security.audit.dangerous-spawn-shell.dangerous-spawn-shell
+          const r = spawnSync(launcher, launcherArgs, {
+            cwd: dir,
+            encoding: "utf-8",
+            shell: false,
+            timeout: NPM_INSTALL_TIMEOUT_MS,
+          });
+          // Stream npm output to the parent stderr so the user sees
+          // progress (and any peer-dep warnings) without depending on
+          // stdio:inherit semantics.
+          if (r.stdout) process.stdout.write(r.stdout);
+          if (r.stderr) process.stderr.write(r.stderr);
+          results.push({ dir, command, status: r.status });
+          if (r.status !== 0) {
+            const code = r.error?.code;
+            if (code === "ENOENT") {
+              throw new Error(
+                `'npm' not found on PATH. Install Node.js (which includes npm) and re-run.`,
+              );
+            }
+            const exitDesc = r.status !== null
+              ? `exit ${r.status}`
+              : (r.signal ? `signal ${r.signal}` : `error ${code || "unknown"}: ${r.error?.message || "(no detail)"}`);
+            throw new Error(
+              `npm ${command} failed in ${dir} (${exitDesc}). ` +
+              `The bridge will not be runnable until deps are installed.`,
+            );
+          }
+          // Success — record state for next-run idempotency.
+          writeDepsState(dir, {
+            command,
+            installedAt: new Date().toISOString(),
+            lockHash: currentHash,
+            lockFile: hasLock ? "package-lock.json" : null,
+          });
+        }
+        // Don't descend — package boundaries shouldn't recurse.
+        continue;
+      }
+    }
+
+    // Walk subdirs (skip noise + already-installed deps)
+    if (depth < NPM_DEPS_WALK_MAX_DEPTH) {
+      let entries = [];
+      try { entries = readdirSync(dir, { withFileTypes: true }); } catch { /* ignore */ }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (NPM_DEPS_WALK_SKIP_DIRS.has(entry.name)) continue;
+        if (entry.name.startsWith(".")) continue;
+        // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
+        stack.push({ dir: safeJoin(dir, entry.name), depth: depth + 1 });
+      }
+    }
+  }
+
+  return results;
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -320,7 +543,8 @@ function normalizeValue(value) {
 // Credential flow per bridge
 // ───────────────────────────────────────────────────────────────────────
 
-async function gatherCredentials(bridgeManifest, autoDetected, existingPublic, existingSecrets) {
+async function gatherCredentials(bridgeManifest, autoDetected, existingPublic, existingSecrets, opts = {}) {
+  const { nonInteractive = false, fieldOverrides = {} } = opts;
   const publicValues = {};
   const secretValues = {};
 
@@ -329,10 +553,22 @@ async function gatherCredentials(bridgeManifest, autoDetected, existingPublic, e
     // can label it accurately. (Auto-detected != saved-existing!)
     // ALL values are normalized (trim + strip surrounding quotes) before use,
     // because a previous install run may have saved a noisy value.
+    //
+    // Resolution order (highest priority first):
+    //   1. --field=KEY=VALUE override (explicit operator intent — even
+    //      beats saved values, so an operator can correct stale config)
+    //   2. existing secret value (saved in .mcp.local.json)
+    //   3. existing public value (saved in .mcp.json)
+    //   4. auto-detected (.p4config etc.)
+    //   5. git-config-email (for atlassian's email field)
+    //   6. manifest default
     let value = undefined;
     let source = "";
 
-    if (existingSecrets[field.name] !== undefined && existingSecrets[field.name] !== "") {
+    if (fieldOverrides[field.name] !== undefined && fieldOverrides[field.name] !== "") {
+      value = normalizeValue(fieldOverrides[field.name]);
+      source = "--field override";
+    } else if (existingSecrets[field.name] !== undefined && existingSecrets[field.name] !== "") {
       value = normalizeValue(existingSecrets[field.name]);
       source = "saved";
     } else if (existingPublic[field.name] !== undefined && existingPublic[field.name] !== "") {
@@ -351,6 +587,26 @@ async function gatherCredentials(bridgeManifest, autoDetected, existingPublic, e
       value = normalizeValue(field.default);
       source = "default";
     }
+
+    // Non-interactive shortcut: never prompt, never open URLs. Just consume
+    // the resolved value (if any) and fail-fast for missing required fields.
+    if (nonInteractive) {
+      if (value !== undefined && value !== "") {
+        const display = field.secret ? `<${String(value).length} chars hidden>` : value;
+        printInfo(`${field.name} (${source}): ${display}`);
+        if (field.secret) secretValues[field.name] = value;
+        else publicValues[field.name] = value;
+      } else if (field.required) {
+        throw new Error(
+          `Required field ${field.name} not resolved in non-interactive mode. ` +
+          `Provide via --field=${field.name}=VALUE, or save it to ` +
+          `.mcp.json/.mcp.local.json before re-running.`,
+        );
+      }
+      continue;
+    }
+
+    // ─── Interactive path (unchanged from previous behavior) ─────────
 
     // Section header for the field (consistent across bridges)
     printStep(field.label + (field.required ? " (required)" : " (optional)"));
@@ -748,6 +1004,14 @@ async function runInstall(args, rootManifest) {
     chosen = args.bridges.filter((n) => rootManifest.bridges[n]);
     const bad = args.bridges.filter((n) => !rootManifest.bridges[n]);
     if (bad.length > 0) console.log(`Skipping unknown: ${bad.join(", ")}`);
+  } else if (args.nonInteractive) {
+    // Non-interactive without --bridges= isn't actionable — there's no
+    // menu to fall back to. Tell the operator how to proceed.
+    console.error(
+      `Non-interactive mode requires --bridges=NAMES. ` +
+      `Available bridges: ${Object.keys(rootManifest.bridges).join(", ")}`,
+    );
+    return 2;
   } else {
     const items = allBridges.map(([name, entry]) => ({
       name,
@@ -762,9 +1026,17 @@ async function runInstall(args, rootManifest) {
     return 0;
   }
 
-  // Disable bridges that were previously enabled but not selected this run
+  // Disable bridges that were previously enabled but not selected this run.
+  // In non-interactive mode, default to "preserve" — operators that want a
+  // bridge disabled can pass it explicitly or edit config directly. (We
+  // don't want a non-interactive run to silently disable bridges the user
+  // simply didn't include in --bridges= because they were focused on others.)
   for (const [name] of allBridges) {
     if (previouslyEnabled.has(name) && !chosen.includes(name)) {
+      if (args.nonInteractive) {
+        printInfo(`'${name}' was enabled before but not in --bridges=; preserving as-is (non-interactive).`);
+        continue;
+      }
       const disable = await confirm(
         `'${name}' was enabled before but is not selected now. Mark disabled? (config is preserved)`,
         true,
@@ -779,19 +1051,24 @@ async function runInstall(args, rootManifest) {
     const entry = rootManifest.bridges[name];
     printSection(`Configure: ${entry.displayName || name}`);
 
-    // Make bridge files available (download if remote)
+    // Make bridge files available (download if remote). --update forces
+    // a cache refresh for remote-repo bridges (re-download + re-install).
     let bridgeDir;
     try {
-      bridgeDir = await ensureBridgeAvailable(entry, name);
+      bridgeDir = await ensureBridgeAvailable(entry, name, { forceRefresh: args.update });
     } catch (e) {
       printErr(`Could not fetch bridge: ${e.message}`);
       continue;
     }
 
-    // If bridge has its own setup script, prefer that
+    // If bridge has its own setup script, prefer that. In non-interactive
+    // mode default to "yes" — the script's existence implies intent that
+    // it runs as part of the standard install flow.
     if (entry.setup?.command) {
       printInfo(`This bridge has its own setup script: ${entry.setup.command}`);
-      const useOwn = await confirm(`  Run ${entry.setup.command}?`, true);
+      const useOwn = args.nonInteractive
+        ? true
+        : await confirm(`  Run ${entry.setup.command}?`, true);
       if (useOwn) {
         const result = runBridgeOwnSetup(entry, bridgeDir, workspaceDir);
         if (!result.ok) {
@@ -861,18 +1138,22 @@ async function runInstall(args, rootManifest) {
     };
 
     // Gather + validate, with retry loop so user can correct creds
-    // without re-running the installer.
+    // without re-running the installer. In non-interactive mode the
+    // retry loop collapses: one attempt, fail-fast on validation error.
     let creds;
     let allValues;
     let validationOk = false;
     let abandoned = false;
     let inheritedPublic = existingPublic;
     let inheritedSecrets = existingSecrets;
-    const MAX_ATTEMPTS = 3;
+    const MAX_ATTEMPTS = args.nonInteractive ? 1 : 3;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
-        creds = await gatherCredentials(bridgeManifest, detected, inheritedPublic, inheritedSecrets);
+        creds = await gatherCredentials(bridgeManifest, detected, inheritedPublic, inheritedSecrets, {
+          nonInteractive: args.nonInteractive,
+          fieldOverrides: args.fieldOverrides,
+        });
       } catch (e) {
         printErr(`Aborted: ${e.message}`);
         abandoned = true;
@@ -891,6 +1172,14 @@ async function runInstall(args, rootManifest) {
       }
 
       printErr(`Validation failed: ${result.error || "(no details)"}`);
+
+      // Non-interactive mode: no retry, no save-anyway prompt. Skip this
+      // bridge so the rest of the chosen list still gets a chance.
+      if (args.nonInteractive) {
+        printWarn(`Skipped '${name}' (non-interactive — fix creds and re-run).`);
+        abandoned = true;
+        break;
+      }
 
       if (attempt < MAX_ATTEMPTS) {
         const retry = await confirm(`  Re-enter credentials and try again?`, true);
@@ -993,23 +1282,32 @@ function enableSessionStartHook(workspaceDir, rootManifest) {
 // Main
 // ───────────────────────────────────────────────────────────────────────
 
-(async () => {
-  const args = parseArgs(process.argv);
-  const rootManifest = loadRootManifest();
+// Only run the install flow when invoked directly (e.g., `node install.mjs`).
+// When this module is imported by another script (tests, drivers), skip the
+// IIFE so the importer can call individual exports without triggering the
+// whole interactive install pipeline.
+const invokedDirectly =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-  if (args.mode === "doctor") {
-    const workspace = safePath(args.workspace || process.cwd(), { label: "workspace" });
-    const code = runDoctor(workspace, rootManifest);
+if (invokedDirectly) {
+  (async () => {
+    const args = parseArgs(process.argv);
+    const rootManifest = loadRootManifest();
+
+    if (args.mode === "doctor") {
+      const workspace = safePath(args.workspace || process.cwd(), { label: "workspace" });
+      const code = runDoctor(workspace, rootManifest);
+      process.exit(code);
+    }
+
+    const code = await runInstall(args, rootManifest);
     process.exit(code);
-  }
-
-  const code = await runInstall(args, rootManifest);
-  process.exit(code);
-})().catch((e) => {
-  if (e && typeof e.message === "string" && e.message.includes("Cancelled by user")) {
-    console.log("\nCancelled.");
-    process.exit(130);
-  }
-  console.error(`Installer error: ${e.stack || e.message}`);
-  process.exit(99);
-});
+  })().catch((e) => {
+    if (e && typeof e.message === "string" && e.message.includes("Cancelled by user")) {
+      console.log("\nCancelled.");
+      process.exit(130);
+    }
+    console.error(`Installer error: ${e.stack || e.message}`);
+    process.exit(99);
+  });
+}
