@@ -113,11 +113,25 @@ class AtlassianClient {
     return data.values.map(p => ({ key: p.key, name: p.name, id: p.id, style: p.style, lead: p.lead?.displayName }));
   }
 
-  async searchIssues(jql, maxResults = 50, startAt = 0, fields = null) {
-    const params = { jql, maxResults, startAt };
-    if (fields) params.fields = fields;
-    const data = await this.request("/rest/api/3/search", params);
-    return { total: data.total, startAt: data.startAt, maxResults: data.maxResults, issues: data.issues.map(i => this._formatIssue(i)) };
+  async searchIssues(jql, maxResults = 50, nextPageToken = null, fields = null) {
+    // Atlassian removed /rest/api/3/search in their April 2025 changelog
+    // (CHANGE-2046). The replacement /rest/api/3/search/jql differs in two
+    // material ways:
+    //   1. Pagination is token-based (nextPageToken), not offset-based
+    //      (startAt). Response no longer includes `total` or `startAt`.
+    //   2. The default `fields` set is now {id} only — old endpoint
+    //      returned the full *navigable set. We default to "*all" so the
+    //      bridge's _formatIssue() keeps populating key/summary/status/etc.
+    //      Callers can still pass an explicit field list to narrow the
+    //      payload (e.g. "summary,status,priority" for terse summaries).
+    const params = { jql, maxResults, fields: fields || "*all" };
+    if (nextPageToken) params.nextPageToken = nextPageToken;
+    const data = await this.request("/rest/api/3/search/jql", params);
+    return {
+      issues: data.issues.map(i => this._formatIssue(i)),
+      nextPageToken: data.nextPageToken || null,
+      isLast: data.isLast === true,
+    };
   }
 
   async getIssue(issueKey) {
@@ -435,12 +449,16 @@ server.tool("jira_list_projects", "List all Jira projects accessible with curren
   async () => { const p = await client.listProjects(); return { content: [{ type: "text", text: JSON.stringify(p, null, 2) }] }; });
 
 // ── jira_search ──
-server.tool("jira_search", "Search Jira issues using JQL", {
+// Hits /rest/api/3/search/jql (the post-CHANGE-2046 endpoint). Pagination
+// is token-based: pass nextPageToken from a previous response to get the
+// next page. Response includes {issues, nextPageToken, isLast}; total/
+// startAt are no longer returned by Atlassian on this endpoint.
+server.tool("jira_search", "Search Jira issues using JQL (cursor-paginated via nextPageToken)", {
   jql: z.string().describe("JQL query string"),
   maxResults: z.number().optional().default(50).describe("Max results (1-100)"),
-  startAt: z.number().optional().default(0).describe("Pagination offset")
-}, async ({ jql, maxResults, startAt }) => {
-  const r = await client.searchIssues(jql, Math.min(maxResults, 100), startAt);
+  nextPageToken: z.string().optional().describe("Pagination cursor from a previous response. Omit for first page.")
+}, async ({ jql, maxResults, nextPageToken }) => {
+  const r = await client.searchIssues(jql, Math.min(maxResults, 100), nextPageToken);
   return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
 });
 
