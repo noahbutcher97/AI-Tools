@@ -199,12 +199,82 @@ if (Test-Path $bridgesRoot) {
     }
 }
 
+# ─── Update mode: auto-discover currently-enabled bridges ────────────
+# When -Update is set without an explicit -Bridges, read the workspace's
+# .mcp.json and re-target whichever bridges are already enabled there.
+# This is what makes Update-MCP-Suite.bat a true "double-click and go"
+# experience: no menu, no creds prompt — just refresh what's there.
+if ($Update -and -not $Bridges) {
+    $mcpJsonPath = Join-Path $Workspace ".mcp.json"
+    if (-not (Test-Path $mcpJsonPath)) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "No .mcp.json found at:`n$mcpJsonPath`n`nNothing to update — run Install-MCP-Suite first to wire bridges into this workspace.",
+            "MCP Updater",
+            "OK", "Information"
+        ) | Out-Null
+        exit 1
+    }
+
+    try {
+        $cfg = Get-Content $mcpJsonPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Could not parse $mcpJsonPath as JSON:`n`n$_",
+            "MCP Updater",
+            "OK", "Error"
+        ) | Out-Null
+        exit 1
+    }
+
+    # Modern layout: cfg.bridges.<name>.enabled (default true if present and
+    # not explicitly disabled). Legacy fallback: cfg.mcpServers.<name>
+    # presence. PowerShell PSCustomObject member access is tolerant of
+    # missing properties (returns $null) so the same code handles both.
+    $discoveredBridges = @()
+    $bridgesObj   = $cfg.bridges
+    $serversObj   = $cfg.mcpServers
+    $candidateNames = @()
+    if ($bridgesObj) { $candidateNames += $bridgesObj.PSObject.Properties.Name }
+    if ($serversObj) { $candidateNames += $serversObj.PSObject.Properties.Name }
+    $candidateNames = $candidateNames | Sort-Object -Unique
+
+    foreach ($name in $candidateNames) {
+        $declared = $bridgesObj.$name
+        $legacy   = $serversObj.$name
+        # enabled if: (declared is present AND its enabled is not false) OR (legacy is present)
+        $isEnabled = $false
+        if ($declared) {
+            if ($null -eq $declared.enabled -or $declared.enabled -eq $true) { $isEnabled = $true }
+        } elseif ($legacy) {
+            $isEnabled = $true
+        }
+        if ($isEnabled) { $discoveredBridges += $name }
+    }
+
+    if ($discoveredBridges.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "No enabled bridges found in $mcpJsonPath`n`nNothing to update.",
+            "MCP Updater",
+            "OK", "Information"
+        ) | Out-Null
+        exit 1
+    }
+
+    $Bridges = $discoveredBridges -join ","
+    Write-Host "Update mode: refreshing bridges -> $Bridges" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # ─── Build args for install.mjs ──────────────────────────────────────
 $nodeArgs = @($installScript, "--workspace=$Workspace")
 if ($Doctor)             { $nodeArgs += "--doctor" }
 if ($Update)             { $nodeArgs += "--update" }
 if ($Bridges)            { $nodeArgs += "--bridges=$Bridges" }
 if ($EnableUpdateChecks) { $nodeArgs += "--enable-update-checks" }
+# In update mode, run non-interactively — saved values from .mcp.json +
+# .mcp.local.json are the authoritative source. Don't re-prompt for
+# things the user already configured.
+if ($Update)             { $nodeArgs += "--non-interactive" }
 
 # ─── Hand off to Node ─────────────────────────────────────────────────
 & node @nodeArgs
