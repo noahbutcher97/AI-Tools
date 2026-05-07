@@ -268,11 +268,19 @@ async function fetchRemoteBridge(src, targetDir) {
 
   // Extract via system `tar` (available on Win10+). Write the tarball to
   // a temp file then extract. Simpler than implementing tar in JS.
+  //
+  // GNU tar (which Git for Windows ships) treats `host:path` as a remote
+  // spec — so `tar -xzf C:/Users/...` errors with "Cannot connect to C:
+  // resolve failed". To stay compatible with both GNU tar and bsdtar
+  // without conditional flags, chdir into the target dir and use a
+  // relative tarball path (no drive letters in args).
   const tmpFile = safeJoin(targetDir, "_download.tar.gz");
   writeFileSync(tmpFile, buf);
-  const r = spawnSync("tar", ["-xzf", tmpFile, "-C", targetDir, "--strip-components=1"], {
+  const r = spawnSync("tar", ["-xzf", "_download.tar.gz", "--strip-components=1"], {
     encoding: "utf-8",
     timeout: 120000,
+    cwd: targetDir,
+    shell: false,
   });
   if (r.status !== 0) {
     throw new Error(`tar extraction failed: ${r.stderr || r.stdout}`);
@@ -933,10 +941,15 @@ function runBridgePostSetup(bridgeManifest, bridgeDir, allValues, workspaceDir) 
 
   // Security review: same as runBridgeOwnSetup — launcher is from a fixed
   // whitelist, cmdPath is safeJoin-anchored to bridgeDir, args are array,
-  // shell:false explicit.
+  // shell:false explicit. Stdin is "ignore" (not inherit) because postSetup
+  // hooks are declarative deployment scripts — sync-plugin.bat in
+  // particular runs with --yes. Inheriting stdin from a non-TTY parent
+  // (e.g., the installer launched from a piped PowerShell context, or
+  // from CI) caused the .bat interpreter to read stray bytes as command
+  // names, surfacing as "'n.bat' is not recognized" failures.
   // nosemgrep: javascript.lang.security.audit.detect-child-process.detect-child-process,javascript.lang.security.detect-child-process.detect-child-process,javascript.lang.security.audit.dangerous-spawn-shell.dangerous-spawn-shell
   const r = spawnSync(launcher, launcherArgs, {
-    stdio: "inherit",
+    stdio: ["ignore", "inherit", "inherit"],
     cwd: bridgeDir,
     shell: false,
   });
