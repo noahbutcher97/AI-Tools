@@ -86,7 +86,7 @@ if (-not $node) {
 }
 
 # ─── Workspace selection ──────────────────────────────────────────────
-# Note: do NOT name the variable `$input` — that is a PowerShell automatic
+# Note: do NOT name the variable `$input` -- that is a PowerShell automatic
 # variable (pipeline input enumerator) and assignments to it can behave
 # unexpectedly in script scope.
 if (-not $Workspace) {
@@ -104,7 +104,7 @@ if (-not $Workspace) {
         Write-Host "Opening folder picker..." -ForegroundColor DarkGray
 
         # Use Shell.Application COM (native Windows folder browser).
-        # Reliable from a PowerShell script — no WinForms message pump needed.
+        # Reliable from a PowerShell script -- no WinForms message pump needed.
         # Flag values:
         #   0x00000040 = BIF_NEWDIALOGSTYLE (resizable, drag-drop, modern look)
         #   0x00000010 = BIF_RETURNONLYFSDIRS (only filesystem dirs)
@@ -203,12 +203,12 @@ if (Test-Path $bridgesRoot) {
 # When -Update is set without an explicit -Bridges, read the workspace's
 # .mcp.json and re-target whichever bridges are already enabled there.
 # This is what makes Update-MCP-Suite.bat a true "double-click and go"
-# experience: no menu, no creds prompt — just refresh what's there.
+# experience: no menu, no creds prompt -- just refresh what's there.
 if ($Update -and -not $Bridges) {
     $mcpJsonPath = Join-Path $Workspace ".mcp.json"
     if (-not (Test-Path $mcpJsonPath)) {
         [System.Windows.Forms.MessageBox]::Show(
-            "No .mcp.json found at:`n$mcpJsonPath`n`nNothing to update — run Install-MCP-Suite first to wire bridges into this workspace.",
+            "No .mcp.json found at:`n$mcpJsonPath`n`nNothing to update -- run Install-MCP-Suite first to wire bridges into this workspace.",
             "MCP Updater",
             "OK", "Information"
         ) | Out-Null
@@ -271,7 +271,7 @@ if ($Doctor)             { $nodeArgs += "--doctor" }
 if ($Update)             { $nodeArgs += "--update" }
 if ($Bridges)            { $nodeArgs += "--bridges=$Bridges" }
 if ($EnableUpdateChecks) { $nodeArgs += "--enable-update-checks" }
-# In update mode, run non-interactively — saved values from .mcp.json +
+# In update mode, run non-interactively -- saved values from .mcp.json +
 # .mcp.local.json are the authoritative source. Don't re-prompt for
 # things the user already configured.
 if ($Update)             { $nodeArgs += "--non-interactive" }
