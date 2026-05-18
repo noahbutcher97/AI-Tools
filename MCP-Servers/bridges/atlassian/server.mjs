@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { z } from "zod/v3";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
+import { toolJsonResult } from "../../lib/tool-result.mjs";
 
 // Load manifest so the shared resolver knows what fields to look for, then
 // inject resolved values into process.env. The legacy resolveCredentials()
@@ -398,26 +399,6 @@ class ConfluenceClient {
   }
 }
 
-// ── Output helpers ──
-function compactJson(obj) {
-  // Recursively strip null values, empty arrays, and empty strings to reduce token usage
-  if (Array.isArray(obj)) return obj.map(compactJson).filter(v => v !== undefined);
-  if (obj && typeof obj === "object") {
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) {
-      if (v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) continue;
-      out[k] = compactJson(v);
-    }
-    return Object.keys(out).length > 0 ? out : undefined;
-  }
-  return obj;
-}
-
-function jsonOut(data, compact = false) {
-  const output = compact ? compactJson(data) : data;
-  return { content: [{ type: "text", text: JSON.stringify(output, null, compact ? 0 : 2) }] };
-}
-
 // ── MCP SERVER INIT ──
 const creds = resolveCredentials();
 if (!creds) {
@@ -437,16 +418,16 @@ const server = new McpServer({
 
 // ── connection_info ──
 server.tool("connection_info", "Show which Atlassian org this server is connected to and where credentials came from", {},
-  async () => ({ content: [{ type: "text", text: JSON.stringify({
+  async () => toolJsonResult({
     site: creds.siteName + ".atlassian.net", products: ["Jira", "Confluence"],
     user: creds.userEmail?.replace(/(.{3}).*(@.*)/, "$1***$2"),
     confluenceUser: creds.confluence ? creds.confluence.userEmail?.replace(/(.{3}).*(@.*)/, "$1***$2") : "(same as Jira)",
     credentialSource: creds.source
-  }, null, 2) }] }));
+  }));
 
 // ── jira_list_projects ──
 server.tool("jira_list_projects", "List all Jira projects accessible with current credentials", {},
-  async () => { const p = await client.listProjects(); return { content: [{ type: "text", text: JSON.stringify(p, null, 2) }] }; });
+  async () => { const p = await client.listProjects(); return toolJsonResult(p); });
 
 // ── jira_search ──
 // Hits /rest/api/3/search/jql (the post-CHANGE-2046 endpoint). Pagination
@@ -459,7 +440,7 @@ server.tool("jira_search", "Search Jira issues using JQL (cursor-paginated via n
   nextPageToken: z.string().optional().describe("Pagination cursor from a previous response. Omit for first page.")
 }, async ({ jql, maxResults, nextPageToken }) => {
   const r = await client.searchIssues(jql, Math.min(maxResults, 100), nextPageToken);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── jira_get_issue ──
@@ -467,15 +448,28 @@ server.tool("jira_get_issue", "Get full details of a single Jira issue by key", 
   issueKey: z.string().describe("Issue key, e.g. 'OS-123'")
 }, async ({ issueKey }) => {
   const i = await client.getIssue(issueKey);
-  return { content: [{ type: "text", text: JSON.stringify(i, null, 2) }] };
+  return toolJsonResult(i);
 });
 
 // ── jira_list_boards ──
-server.tool("jira_list_boards", "List Jira/agile boards, optionally filtered by project", {
-  projectKey: z.string().optional().describe("Filter by project key")
+// Without projectKey, the underlying /rest/agile/1.0/board endpoint returns
+// every board the credential can see across the entire Atlassian instance.
+// Callers that meant "boards in my project" need a way to notice that fact,
+// so the response is wrapped with scope/warning fields when projectKey is
+// absent. See _handoffs/2026-05-18-bridge-scope-leak-audit.md.
+server.tool("jira_list_boards", "List Jira/agile boards. With projectKey: scoped to that project. WITHOUT projectKey: returns boards across the ENTIRE Atlassian instance (response includes a scope warning).", {
+  projectKey: z.string().optional().describe("Project key to scope to. Strongly recommended — omitting it returns boards from every project the credential can access.")
 }, async ({ projectKey }) => {
-  const b = await client.listBoards(projectKey);
-  return { content: [{ type: "text", text: JSON.stringify(b, null, 2) }] };
+  const boards = await client.listBoards(projectKey);
+  if (projectKey) {
+    return toolJsonResult({ scope: `project: ${projectKey}`, count: boards.length, boards });
+  }
+  return toolJsonResult({
+    scope: "ENTIRE_INSTANCE",
+    warning: `No projectKey provided — returning ${boards.length} boards across all projects the credential can access. Pass projectKey to scope.`,
+    count: boards.length,
+    boards,
+  });
 });
 
 // ── jira_list_sprints ──
@@ -484,7 +478,7 @@ server.tool("jira_list_sprints", "List sprints for a board", {
   state: z.string().optional().default("active,future").describe("Sprint states: active, future, closed")
 }, async ({ boardId, state }) => {
   const s = await client.listSprints(boardId, state);
-  return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
+  return toolJsonResult(s);
 });
 
 // ── jira_get_sprint_issues ──
@@ -492,7 +486,7 @@ server.tool("jira_get_sprint_issues", "Get all issues in a sprint", {
   sprintId: z.number().describe("Sprint ID (from jira_list_sprints)")
 }, async ({ sprintId }) => {
   const d = await client.getSprintIssues(sprintId);
-  return { content: [{ type: "text", text: JSON.stringify(d, null, 2) }] };
+  return toolJsonResult(d);
 });
 
 // ── jira_list_epics ──
@@ -500,7 +494,7 @@ server.tool("jira_list_epics", "List all epics in a project", {
   projectKey: z.string().describe("Project key")
 }, async ({ projectKey }) => {
   const d = await client.listEpics(projectKey);
-  return { content: [{ type: "text", text: JSON.stringify(d, null, 2) }] };
+  return toolJsonResult(d);
 });
 
 // ── jira_project_summary ──
@@ -518,27 +512,34 @@ server.tool("jira_project_summary", "High-level project summary: status counts, 
     byType[issue.issueType || "Unknown"] = (byType[issue.issueType || "Unknown"] || 0) + 1;
     if (issue.priority === "Highest" || issue.priority === "Blocker") blockerCount++;
   }
-  return { content: [{ type: "text", text: JSON.stringify({
+  return toolJsonResult({
     project: projectKey, site: creds.siteName + ".atlassian.net", totalIssues: statusData.total,
     byStatusCategory: byStatus, byPriority, byAssignee, byIssueType: byType, blockerCount,
     completionRate: byStatus["Done"] ? ((byStatus["Done"] / statusData.total) * 100).toFixed(1) + "%" : "0%"
-  }, null, 2) }] };
+  });
 });
 
 // ── jira_dashboard_export ──
+// Pagination is token-based since CHANGE-2046 (April 2025). The previous
+// implementation walked `startAt`/`total` against the old endpoint; both
+// fields were removed when the endpoint changed, so the loop either stopped
+// after one page or never advanced. See _handoffs/2026-05-18-bridge-scope-leak-audit.md.
 server.tool("jira_dashboard_export", "Export all project issues as flat JSON for dashboard consumption", {
   projectKey: z.string().describe("Project key"),
   maxResults: z.number().optional().default(200).describe("Max issues")
 }, async ({ projectKey, maxResults }) => {
   const all = [];
-  let startAt = 0;
-  while (startAt < maxResults) {
-    const batch = await client.searchIssues(`project = "${projectKey}" ORDER BY rank ASC`, Math.min(100, maxResults - startAt), startAt);
+  const jql = `project = "${projectKey}" ORDER BY rank ASC`;
+  const pageSize = 100;
+  let nextPageToken = null;
+  while (all.length < maxResults) {
+    const remaining = maxResults - all.length;
+    const batch = await client.searchIssues(jql, Math.min(pageSize, remaining), nextPageToken);
     all.push(...batch.issues);
-    if (all.length >= batch.total || batch.issues.length === 0) break;
-    startAt += batch.issues.length;
+    if (batch.isLast || !batch.nextPageToken || batch.issues.length === 0) break;
+    nextPageToken = batch.nextPageToken;
   }
-  return { content: [{ type: "text", text: JSON.stringify(all, null, 2) }] };
+  return toolJsonResult(all);
 });
 
 // ── CONFLUENCE TOOLS ──
@@ -547,7 +548,7 @@ server.tool("confluence_list_spaces", "List all Confluence spaces", {
   type: z.string().optional().describe("Filter: 'global' or 'personal'")
 }, async ({ type }) => {
   const s = await confluence.listSpaces(50, type);
-  return { content: [{ type: "text", text: JSON.stringify(s, null, 2) }] };
+  return toolJsonResult(s);
 });
 
 server.tool("confluence_search", "Search Confluence using CQL", {
@@ -556,7 +557,7 @@ server.tool("confluence_search", "Search Confluence using CQL", {
   start: z.number().optional().default(0).describe("Pagination offset")
 }, async ({ cql, limit, start }) => {
   const r = await confluence.search(cql, Math.min(limit, 100), start);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("confluence_get_page", "Get a Confluence page by ID with full body, children, labels", {
@@ -564,7 +565,7 @@ server.tool("confluence_get_page", "Get a Confluence page by ID with full body, 
   bodyFormat: z.enum(["storage", "view"]).optional().default("storage").describe("'storage' (raw) or 'view' (rendered)")
 }, async ({ pageId, bodyFormat }) => {
   const p = await confluence.getPage(pageId, bodyFormat);
-  return { content: [{ type: "text", text: JSON.stringify(p, null, 2) }] };
+  return toolJsonResult(p);
 });
 
 server.tool("confluence_get_page_by_title", "Get a Confluence page by space key and exact title", {
@@ -572,7 +573,7 @@ server.tool("confluence_get_page_by_title", "Get a Confluence page by space key 
   title: z.string().describe("Exact page title")
 }, async ({ spaceKey, title }) => {
   const p = await confluence.getPageByTitle(spaceKey, title);
-  return { content: [{ type: "text", text: JSON.stringify(p, null, 2) }] };
+  return toolJsonResult(p);
 });
 
 server.tool("confluence_get_comments", "Get all comments on a Confluence page", {
@@ -580,7 +581,7 @@ server.tool("confluence_get_comments", "Get all comments on a Confluence page", 
   limit: z.number().optional().default(50).describe("Max comments")
 }, async ({ pageId, limit }) => {
   const c = await confluence.getPageComments(pageId, limit);
-  return { content: [{ type: "text", text: JSON.stringify(c, null, 2) }] };
+  return toolJsonResult(c);
 });
 
 server.tool("confluence_get_children", "Get child pages of a Confluence page", {
@@ -588,7 +589,7 @@ server.tool("confluence_get_children", "Get child pages of a Confluence page", {
   limit: z.number().optional().default(50).describe("Max children")
 }, async ({ pageId, limit }) => {
   const c = await confluence.getPageChildren(pageId, limit);
-  return { content: [{ type: "text", text: JSON.stringify(c, null, 2) }] };
+  return toolJsonResult(c);
 });
 
 server.tool("confluence_get_history", "Get version history of a Confluence page", {
@@ -596,7 +597,7 @@ server.tool("confluence_get_history", "Get version history of a Confluence page"
   limit: z.number().optional().default(10).describe("Number of versions")
 }, async ({ pageId, limit }) => {
   const h = await confluence.getPageHistory(pageId, limit);
-  return { content: [{ type: "text", text: JSON.stringify(h, null, 2) }] };
+  return toolJsonResult(h);
 });
 
 server.tool("confluence_space_pages", "List all pages in a Confluence space", {
@@ -604,14 +605,14 @@ server.tool("confluence_space_pages", "List all pages in a Confluence space", {
   limit: z.number().optional().default(100).describe("Max pages")
 }, async ({ spaceKey, limit }) => {
   const p = await confluence.getSpacePages(spaceKey, Math.min(limit, 200));
-  return { content: [{ type: "text", text: JSON.stringify(p, null, 2) }] };
+  return toolJsonResult(p);
 });
 
 server.tool("confluence_get_labels", "Get all labels on a Confluence page", {
   pageId: z.string().describe("Page ID")
 }, async ({ pageId }) => {
   const l = await confluence.getPageLabels(pageId);
-  return { content: [{ type: "text", text: JSON.stringify(l, null, 2) }] };
+  return toolJsonResult(l);
 });
 
 // ── JIRA WRITE TOOLS ──
@@ -629,7 +630,7 @@ server.tool("jira_create_issue", "Create a new Jira issue", {
   storyPoints: z.number().optional().describe("Story point estimate")
 }, async ({ projectKey, issueType, summary, description, assignee, priority, labels, parentKey, components, storyPoints }) => {
   const r = await client.createIssue(projectKey, issueType, summary, { description, assignee, priority, labels, parentKey, components, storyPoints });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_update_issue", "Update fields on an existing Jira issue. Pass fields as a JSON string of field names to new values.", {
@@ -638,7 +639,7 @@ server.tool("jira_update_issue", "Update fields on an existing Jira issue. Pass 
 }, async ({ issueKey, fieldsJson }) => {
   const fields = JSON.parse(fieldsJson);
   const r = await client.updateIssue(issueKey, fields);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_transition_issue", "Move an issue to a new status. Use jira_get_transitions first to find available transition IDs.", {
@@ -646,14 +647,14 @@ server.tool("jira_transition_issue", "Move an issue to a new status. Use jira_ge
   transitionId: z.string().describe("Transition ID (from jira_get_transitions)")
 }, async ({ issueKey, transitionId }) => {
   const r = await client.transitionIssue(issueKey, transitionId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_get_transitions", "Get available status transitions for an issue (needed before jira_transition_issue)", {
   issueKey: z.string().describe("Issue key")
 }, async ({ issueKey }) => {
   const r = await client.getTransitions(issueKey);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_add_comment", "Add a comment to a Jira issue", {
@@ -661,7 +662,7 @@ server.tool("jira_add_comment", "Add a comment to a Jira issue", {
   body: z.string().describe("Comment text (plain text)")
 }, async ({ issueKey, body }) => {
   const r = await client.addComment(issueKey, body);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_add_worklog", "Log time spent on a Jira issue", {
@@ -671,7 +672,7 @@ server.tool("jira_add_worklog", "Log time spent on a Jira issue", {
   comment: z.string().optional().describe("Worklog comment")
 }, async ({ issueKey, timeSpentSeconds, started, comment }) => {
   const r = await client.addWorklog(issueKey, timeSpentSeconds, { started, comment });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_delete_issue", "Delete a Jira issue (requires admin permissions)", {
@@ -679,7 +680,7 @@ server.tool("jira_delete_issue", "Delete a Jira issue (requires admin permission
   deleteSubtasks: z.boolean().optional().default(false).describe("Also delete subtasks")
 }, async ({ issueKey, deleteSubtasks }) => {
   const r = await client.deleteIssue(issueKey, deleteSubtasks);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_assign_issue", "Assign an issue to a user", {
@@ -687,14 +688,14 @@ server.tool("jira_assign_issue", "Assign an issue to a user", {
   accountId: z.string().describe("User's accountId (from jira_get_users). Use null string to unassign.")
 }, async ({ issueKey, accountId }) => {
   const r = await client.assignIssue(issueKey, accountId === "null" ? null : accountId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_get_users", "Get assignable users for a project (returns accountIds needed for assignment)", {
   projectKey: z.string().describe("Project key")
 }, async ({ projectKey }) => {
   const r = await client.getUsers(projectKey);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("jira_request", "Generic Jira REST API request — use for any endpoint not covered by other tools", {
@@ -705,7 +706,7 @@ server.tool("jira_request", "Generic Jira REST API request — use for any endpo
 }, async ({ path, method, queryParams, bodyJson }) => {
   const body = bodyJson ? JSON.parse(bodyJson) : null;
   const r = await client.genericRequest(path, method, queryParams || {}, body);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── CONFLUENCE WRITE TOOLS ──
@@ -717,7 +718,7 @@ server.tool("confluence_create_page", "Create a new Confluence page", {
   parentId: z.string().optional().describe("Parent page ID to nest under (omit for top-level)")
 }, async ({ spaceKey, title, body, parentId }) => {
   const r = await confluence.createPage(spaceKey, title, body, parentId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("confluence_update_page", "Update an existing Confluence page's title and/or body. You MUST provide the next version number (current + 1).", {
@@ -727,7 +728,7 @@ server.tool("confluence_update_page", "Update an existing Confluence page's titl
   version: z.number().describe("Next version number (current version + 1, get from confluence_get_page)")
 }, async ({ pageId, title, body, version }) => {
   const r = await confluence.updatePage(pageId, title, body, version);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("confluence_add_comment", "Add a comment to a Confluence page", {
@@ -735,14 +736,14 @@ server.tool("confluence_add_comment", "Add a comment to a Confluence page", {
   body: z.string().describe("Comment body in storage format (HTML)")
 }, async ({ pageId, body }) => {
   const r = await confluence.addComment(pageId, body);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("confluence_delete_page", "Delete a Confluence page", {
   pageId: z.string().describe("Page ID to delete")
 }, async ({ pageId }) => {
   const r = await confluence.deletePage(pageId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("confluence_add_label", "Add a label to a Confluence page", {
@@ -750,7 +751,7 @@ server.tool("confluence_add_label", "Add a label to a Confluence page", {
   label: z.string().describe("Label name (lowercase, no spaces)")
 }, async ({ pageId, label }) => {
   const r = await confluence.addLabel(pageId, label);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 server.tool("confluence_request", "Generic Confluence REST API request — use for any endpoint not covered by other tools", {
@@ -761,7 +762,7 @@ server.tool("confluence_request", "Generic Confluence REST API request — use f
 }, async ({ path, method, queryParams, bodyJson }) => {
   const body = bodyJson ? JSON.parse(bodyJson) : null;
   const r = await confluence.genericRequest(path, method, queryParams || {}, body);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── START ──

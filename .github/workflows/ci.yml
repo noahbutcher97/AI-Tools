@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Minimum-viable CI for the MCP-Servers tree. Three jobs:
+#   1. Syntax-check every tracked .mjs under MCP-Servers/ (catches typos/parse
+#      errors that would crash an MCP client on launch — but does NOT resolve
+#      imports, so missing deps slip through; the deps-consistent job covers
+#      that).
+#   2. Run the Perforce parser unit tests (zero-dep, node:test built-in).
+#   3. Validate each bridge's package-lock.json against its package.json via
+#      `npm ci --dry-run`. Catches lockfile drift before it hits an installer.
+
+jobs:
+  syntax-check:
+    name: Syntax check (node --check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: node --check every tracked .mjs under MCP-Servers/
+        run: |
+          set -euo pipefail
+          # `git ls-files` ensures we only check tracked source, never
+          # vendor (node_modules) which would balloon the run.
+          files=$(git ls-files 'MCP-Servers/**/*.mjs')
+          if [ -z "$files" ]; then
+            echo "No .mjs files found — something is wrong." >&2
+            exit 1
+          fi
+          for f in $files; do
+            echo "node --check $f"
+            node --check "$f"
+          done
+
+  perforce-tests:
+    name: Perforce parser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run parsers.test.mjs
+        # Tests are dep-free (only node:test + node:assert). No install needed.
+        run: |
+          cd MCP-Servers/bridges/perforce
+          node --test
+
+  deps-consistent:
+    name: Bridge deps consistent (npm ci --dry-run)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bridge: [atlassian, miro, perforce]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Validate ${{ matrix.bridge }} lockfile
+        run: |
+          cd MCP-Servers/bridges/${{ matrix.bridge }}
+          npm ci --dry-run

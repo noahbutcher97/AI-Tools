@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
+import { toolJsonResult } from "../../lib/tool-result.mjs";
 
 // Load manifest so the shared resolver knows what fields to look for, then
 // inject resolved values into process.env. The legacy resolveCredentials()
@@ -279,19 +280,31 @@ const server = new McpServer({
 
 // ── connection_info ──
 server.tool("connection_info", "Show which Miro org this server is connected to and where credentials came from", {},
-  async () => ({ content: [{ type: "text", text: JSON.stringify({
+  async () => toolJsonResult({
     org: creds.orgName, tokenPrefix: creds.accessToken.slice(0, 20) + "...",
     credentialSource: creds.source
-  }, null, 2) }] }));
+  }));
 
 // ── miro_list_boards ──
-server.tool("miro_list_boards", "List Miro boards. Optionally filter by team or search query.", {
-  teamId: z.string().optional().describe("Filter by team ID"),
+// Without teamId, the underlying /v2/boards endpoint returns every board
+// the token can see across every team. Callers that meant "boards in my
+// team" need a way to notice that fact, so the response is wrapped with
+// scope/warning fields when teamId is absent.
+// See _handoffs/2026-05-18-bridge-scope-leak-audit.md.
+server.tool("miro_list_boards", "List Miro boards. With teamId: scoped to that team. WITHOUT teamId: returns boards across ALL teams the token can access (response includes a scope warning).", {
+  teamId: z.string().optional().describe("Team ID to scope to. Strongly recommended — omitting it returns boards from every team the token can access."),
   query: z.string().optional().describe("Search boards by name"),
   limit: z.number().optional().default(50).describe("Max results (1-50)")
 }, async ({ teamId, query, limit }) => {
   const r = await miro.listBoards(teamId, query, Math.min(limit, 50));
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  if (teamId) {
+    return toolJsonResult({ scope: `team: ${teamId}`, ...r });
+  }
+  return toolJsonResult({
+    scope: "ALL_TEAMS",
+    warning: `No teamId provided — returning ${r.total ?? r.boards.length} boards across all teams the token can access. Pass teamId to scope.`,
+    ...r,
+  });
 });
 
 // ── miro_get_board ──
@@ -299,7 +312,7 @@ server.tool("miro_get_board", "Get details of a specific Miro board", {
   boardId: z.string().describe("Board ID (from miro_list_boards or board URL)")
 }, async ({ boardId }) => {
   const b = await miro.getBoard(boardId);
-  return { content: [{ type: "text", text: JSON.stringify(b, null, 2) }] };
+  return toolJsonResult(b);
 });
 
 // ── miro_get_board_items ──
@@ -310,7 +323,7 @@ server.tool("miro_get_board_items", "Get items on a Miro board. Filter by type f
   cursor: z.string().optional().describe("Pagination cursor from previous response")
 }, async ({ boardId, type, limit, cursor }) => {
   const r = await miro.getBoardItems(boardId, type, Math.min(limit, 50), cursor);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_get_item ──
@@ -319,7 +332,7 @@ server.tool("miro_get_item", "Get a single item from a board by item ID", {
   itemId: z.string().describe("Item ID")
 }, async ({ boardId, itemId }) => {
   const i = await miro.getItem(boardId, itemId);
-  return { content: [{ type: "text", text: JSON.stringify(i, null, 2) }] };
+  return toolJsonResult(i);
 });
 
 // ── miro_create_sticky_note ──
@@ -332,7 +345,7 @@ server.tool("miro_create_sticky_note", "Create a sticky note on a Miro board", {
   parentId: z.string().optional().describe("Parent frame ID to place inside")
 }, async ({ boardId, content, color, x, y, parentId }) => {
   const r = await miro.createStickyNote(boardId, content, { color, x, y, parentId });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_update_sticky_note ──
@@ -345,7 +358,7 @@ server.tool("miro_update_sticky_note", "Update an existing sticky note's content
   y: z.number().optional().describe("New Y position")
 }, async ({ boardId, itemId, content, color, x, y }) => {
   const r = await miro.updateStickyNote(boardId, itemId, content, { color, x, y });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_create_shape ──
@@ -361,7 +374,7 @@ server.tool("miro_create_shape", "Create a shape on a Miro board (rectangle, cir
   parentId: z.string().optional().describe("Parent frame ID")
 }, async ({ boardId, shapeType, content, color, x, y, width, height, parentId }) => {
   const r = await miro.createShape(boardId, shapeType, content, { color, x, y, width, height, parentId });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_create_text ──
@@ -373,7 +386,7 @@ server.tool("miro_create_text", "Create a text item on a Miro board", {
   fontSize: z.number().optional().describe("Font size (10-288)")
 }, async ({ boardId, content, x, y, fontSize }) => {
   const r = await miro.createText(boardId, content, { x, y, fontSize });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_create_frame ──
@@ -386,7 +399,7 @@ server.tool("miro_create_frame", "Create a frame (container) on a Miro board. It
   height: z.number().optional().default(600).describe("Frame height")
 }, async ({ boardId, title, x, y, width, height }) => {
   const r = await miro.createFrame(boardId, title, { x, y, width, height });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_create_connector ──
@@ -397,7 +410,7 @@ server.tool("miro_create_connector", "Create a connector (arrow/line) between tw
   caption: z.string().optional().describe("Text label on the connector")
 }, async ({ boardId, startItemId, endItemId, caption }) => {
   const r = await miro.createConnector(boardId, startItemId, endItemId, { caption });
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_get_connectors ──
@@ -405,7 +418,7 @@ server.tool("miro_get_connectors", "Get all connectors on a board", {
   boardId: z.string().describe("Board ID")
 }, async ({ boardId }) => {
   const r = await miro.getConnectors(boardId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_get_tags ──
@@ -413,7 +426,7 @@ server.tool("miro_get_tags", "Get all tags defined on a board", {
   boardId: z.string().describe("Board ID")
 }, async ({ boardId }) => {
   const r = await miro.getTags(boardId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_create_tag ──
@@ -423,7 +436,7 @@ server.tool("miro_create_tag", "Create a tag on a board", {
   fillColor: z.string().optional().default("yellow").describe("Tag color: red, light_green, cyan, yellow, violet, dark_green, dark_blue, blue, gray, magenta, orange, light_yellow, light_blue, light_pink, pink, black")
 }, async ({ boardId, title, fillColor }) => {
   const r = await miro.createTag(boardId, title, fillColor);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_attach_tag ──
@@ -433,7 +446,7 @@ server.tool("miro_attach_tag", "Attach a tag to an item on a board", {
   tagId: z.string().describe("Tag ID (from miro_get_tags or miro_create_tag)")
 }, async ({ boardId, itemId, tagId }) => {
   const r = await miro.attachTag(boardId, itemId, tagId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_delete_item ──
@@ -442,7 +455,7 @@ server.tool("miro_delete_item", "Delete an item from a board", {
   itemId: z.string().describe("Item ID to delete")
 }, async ({ boardId, itemId }) => {
   const r = await miro.deleteItem(boardId, itemId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── miro_get_board_members ──
@@ -450,7 +463,7 @@ server.tool("miro_get_board_members", "Get members who have access to a board", 
   boardId: z.string().describe("Board ID")
 }, async ({ boardId }) => {
   const r = await miro.getBoardMembers(boardId);
-  return { content: [{ type: "text", text: JSON.stringify(r, null, 2) }] };
+  return toolJsonResult(r);
 });
 
 // ── START ──
