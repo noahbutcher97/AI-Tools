@@ -219,6 +219,50 @@ server.tool(
 );
 
 server.tool(
+  "p4_reconcile",
+  "Open files for add/edit/delete based on workspace state vs depot. "
+    + "Required `path` — no workspace-wide default; caller must scope explicitly. "
+    + "preview=true (default) runs `p4 reconcile -n` and returns what WOULD be opened. "
+    + "Set preview=false to actually open the files. "
+    + "Use `changelist` (numeric) to drop opened files into a specific pending CL; omit for default CL.",
+  {
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        "Depot or local path to reconcile (e.g. '//OnSight/Source/OnSightTests/...'). "
+          + "No default — caller must scope explicitly.",
+      ),
+    preview: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "If true (default), run as dry-run with `-n` — files are NOT opened. "
+          + "Set to false to actually open files for add/edit/delete.",
+      ),
+    changelist: z
+      .string()
+      .optional()
+      .describe(
+        "Numeric pending CL to put opened files into. Omit (or pass 'default') for the default CL.",
+      ),
+  },
+  async ({ path, preview, changelist }) => {
+    if (changelist !== undefined && changelist !== "default" && !/^\d+$/.test(changelist)) {
+      return toolErrorResult(
+        `Invalid changelist '${changelist}'. Must be numeric, 'default', or omitted.`,
+      );
+    }
+    const args = ["reconcile"];
+    if (preview) args.push("-n");
+    if (changelist && changelist !== "default") args.push("-c", changelist);
+    args.push(path);
+    return toolResult(p4(args, { timeout: 120000 }));
+  },
+);
+
+server.tool(
   "p4_submit",
   "Submit a pending or default changelist with explicit description verification. "
     + "For numbered CLs the provided description must match the CL spec's existing description "
