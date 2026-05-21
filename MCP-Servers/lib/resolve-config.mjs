@@ -105,22 +105,49 @@ function extractBridgeValues(config, bridgeName, fields) {
 
 /**
  * Three-tier resolution. Returns {values, source} or null.
+ *
+ * `fields` may be either:
+ *   - string[]  — field names; all are treated as required (legacy shape)
+ *   - {name, required?}[] — descriptors; only fields with `required: true`
+ *     gate the tier-1 envHasAll check. Optional fields are still collected
+ *     into envValues when present, just not required for tier 1 to win.
+ *
+ * The asymmetry between tier 1 ("all required in env or fall through") and
+ * tiers 2/3 ("any field present wins") is intentional — it prevents
+ * accidentally mixing env credentials with file credentials. Bridge-base
+ * then validates required-field presence after default application, so a
+ * partial file-tier result still fails cleanly if a required field is
+ * truly missing.
  */
 export function resolveBridgeConfig(bridgeName, fields, opts = {}) {
   const { logger = console.error } = opts;
   const tag = `[${bridgeName}-bridge]`;
 
+  // Normalize: accept either ["NAME", ...] or [{name, required?}, ...].
+  // String form defaults required: true to preserve the legacy behavior of
+  // callers that haven't migrated to descriptors.
+  const descriptors = fields.map((f) =>
+    typeof f === "string"
+      ? { name: f, required: true }
+      : { name: f.name, required: f.required !== false },
+  );
+  const fieldNames = descriptors.map((d) => d.name);
+
   // Tier 1: env
   const envValues = {};
-  let envHasAll = true;
-  for (const f of fields) {
-    if (process.env[f] !== undefined && process.env[f] !== "") {
-      envValues[f] = process.env[f];
-    } else {
-      envHasAll = false;
+  let allRequiredInEnv = true;
+  for (const d of descriptors) {
+    const v = process.env[d.name];
+    if (v !== undefined && v !== "") {
+      envValues[d.name] = v;
+    } else if (d.required) {
+      allRequiredInEnv = false;
     }
   }
-  if (envHasAll) {
+  // Require at least one value present too — guards the degenerate case of
+  // an all-optional manifest with nothing set, which shouldn't claim env
+  // as a source.
+  if (allRequiredInEnv && Object.keys(envValues).length > 0) {
     logger(`${tag} Using direct env credentials`);
     return { values: envValues, source: "env" };
   }
@@ -133,7 +160,7 @@ export function resolveBridgeConfig(bridgeName, fields, opts = {}) {
     if (dir) {
       const cfg = loadConfigAt(dir);
       if (cfg) {
-        const vals = extractBridgeValues(cfg, bridgeName, fields);
+        const vals = extractBridgeValues(cfg, bridgeName, fieldNames);
         if (vals) {
           logger(`${tag} Loaded from PROJECT_ROOT: ${dir}${cfg.__hasSecrets ? " (+ .mcp.local.json)" : ""}`);
           return { values: vals, source: dir };
@@ -148,7 +175,7 @@ export function resolveBridgeConfig(bridgeName, fields, opts = {}) {
   // Tier 3: CWD walk-up
   const found = findConfigUpward(process.cwd());
   if (found) {
-    const vals = extractBridgeValues(found.config, bridgeName, fields);
+    const vals = extractBridgeValues(found.config, bridgeName, fieldNames);
     if (vals) {
       logger(`${tag} Loaded via cwd walk-up: ${found.dir}${found.config.__hasSecrets ? " (+ .mcp.local.json)" : ""}`);
       return { values: vals, source: found.dir };

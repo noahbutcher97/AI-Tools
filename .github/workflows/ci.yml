@@ -5,16 +5,18 @@ on:
     branches: [main]
   pull_request:
 
-# Minimum-viable CI for the MCP-Servers tree. Three jobs:
+# Minimum-viable CI for the MCP-Servers tree. Four jobs:
 #   1. Syntax-check every tracked .mjs under MCP-Servers/ (catches typos/parse
 #      errors that would crash an MCP client on launch — but does NOT resolve
 #      imports, so missing deps slip through; the deps-consistent job covers
 #      that).
-#   2. Run the Perforce bridge test suite — pure parser tests (node:test only)
-#      AND the server registration smoke test (which spins up the MCP server
-#      over stdio and asserts every tool registers). The smoke test imports
-#      @modelcontextprotocol/sdk, so this job installs deps via `npm ci`.
-#   3. Validate each bridge's package-lock.json against its package.json via
+#   2. Lib tests — unit tests for shared infrastructure under MCP-Servers/lib/
+#      (resolve-config, safepath, etc.). Pure functions, zero deps, fast.
+#   3. Perforce bridge tests — parser unit tests AND the server registration
+#      smoke test (spins up the MCP server over stdio and asserts every tool
+#      registers). The smoke test imports @modelcontextprotocol/sdk, so this
+#      job installs deps via `npm ci`.
+#   4. Validate each bridge's package-lock.json against its package.json via
 #      `npm ci --dry-run`. Catches lockfile drift before it hits an installer.
 
 jobs:
@@ -40,6 +42,20 @@ jobs:
             echo "node --check $f"
             node --check "$f"
           done
+
+  lib-tests:
+    name: Lib tests (shared infra)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run lib unit tests
+        # Pure functions, no deps — node:test built-in only.
+        run: |
+          cd MCP-Servers/lib
+          node --test
 
   perforce-tests:
     name: Perforce bridge tests

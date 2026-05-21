@@ -15,8 +15,12 @@ import { resolveBridgeConfig } from "./resolve-config.mjs";
  * @returns {{values: object, source: string}} resolved config
  */
 export function loadBridgeConfigOrExit(bridgeName, fieldDescriptors) {
-  const fieldNames = fieldDescriptors.map((f) => f.name);
-  const resolved = resolveBridgeConfig(bridgeName, fieldNames);
+  // Pass full descriptors so the resolver's tier-1 envHasAll check can
+  // distinguish required from optional fields. Stripping to names here
+  // (the legacy behavior) caused every optional field to incorrectly
+  // gate tier 1, so any spawn env missing an optional var would fall
+  // through to tier 2/3 even though the env was actually complete.
+  const resolved = resolveBridgeConfig(bridgeName, fieldDescriptors);
 
   if (!resolved) {
     console.error(`[${bridgeName}-bridge] No config found via env, PROJECT_ROOT, or cwd walk-up.`);

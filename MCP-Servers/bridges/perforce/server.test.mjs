@@ -8,27 +8,34 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const bridgeDir = dirname(fileURLToPath(import.meta.url));
 
+// Build a deterministic spawn env: inherit PATH etc. from process.env, then
+// explicitly DELETE the perforce-relevant vars the developer might have set
+// locally (P4PASSWD, PROJECT_ROOT) so the test exercises the resolver's
+// required-vs-optional gating regardless of host shell state, then set only
+// the fields the test cares about.
+function buildSpawnEnv() {
+  const env = { ...process.env };
+  // P4PASSWD intentionally absent — required:false in the manifest. Tests
+  // the resolver fix in lib/resolve-config.mjs: tier-1 envHasAll must NOT
+  // gate on optional fields, only required ones.
+  delete env.P4PASSWD;
+  // PROJECT_ROOT would force tier 2 file lookup and bypass the tier-1 check
+  // we're testing.
+  delete env.PROJECT_ROOT;
+  env.P4PORT = "invalid:1666";
+  env.P4USER = "test-user";
+  env.P4CLIENT = "test-client";
+  env.P4DEPOT = "Project/Depot";
+  return env;
+}
+
 test("Perforce MCP server registers changelist and move tools", async () => {
   const client = new Client({ name: "perforce-server-test", version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["server.mjs"],
     cwd: bridgeDir,
-    env: {
-      ...process.env,
-      P4PORT: "invalid:1666",
-      P4USER: "test-user",
-      P4CLIENT: "test-client",
-      P4DEPOT: "Project/Depot",
-      // P4PASSWD is optional in the manifest but resolveBridgeConfig's tier-1
-      // env check currently requires every field — including optional ones —
-      // for "envHasAll" to succeed. Without this the server exits on startup
-      // in environments lacking a .mcp.json (e.g. fresh CI runners), and the
-      // MCP client reports a misleading "Connection closed" error. The auto-
-      // login try/catch in server.mjs swallows the inevitable `p4 login`
-      // failure against invalid:1666, so this is safe.
-      P4PASSWD: "test-pass",
-    },
+    env: buildSpawnEnv(),
     stderr: "pipe",
   });
 
