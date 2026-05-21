@@ -24,8 +24,8 @@ jobs:
     name: Syntax check (node --check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
       - name: node --check every tracked .mjs under MCP-Servers/
@@ -47,8 +47,8 @@ jobs:
     name: Lib tests (shared infra)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
       - name: Run lib unit tests
@@ -61,8 +61,8 @@ jobs:
     name: Perforce bridge tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
       - name: Install perforce bridge deps
@@ -85,8 +85,8 @@ jobs:
       matrix:
         bridge: [atlassian, miro, perforce]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
       - name: Validate ${{ matrix.bridge }} lockfile
