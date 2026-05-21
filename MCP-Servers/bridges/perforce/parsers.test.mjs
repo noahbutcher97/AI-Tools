@@ -14,8 +14,24 @@ import {
   parseOpenedFiles,
   parseChangeSpecDescription,
   parseSubmittedChangelist,
+  parseCreatedChangelist,
   normalizeDescription,
   CL_LINE_RE,
+  buildCreateChangeSpec,
+  buildEditArgs,
+  buildRevertArgs,
+  buildLockArgs,
+  buildUnlockArgs,
+  buildAddArgs,
+  buildDeleteArgs,
+  buildShelveArgs,
+  buildUnshelveArgs,
+  buildIntegrateArgs,
+  buildMergeArgs,
+  buildCopyArgs,
+  replaceDescriptionInSpec,
+  buildReopenArgs,
+  buildMoveArgs,
 } from "./parsers.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -213,6 +229,597 @@ describe("parseSubmittedChangelist", () => {
 
   it("returns null on empty output", () => {
     assert.equal(parseSubmittedChangelist(""), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// parseCreatedChangelist
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("parseCreatedChangelist", () => {
+  it("extracts the CL number from `p4 change -i` output", () => {
+    assert.equal(parseCreatedChangelist("Change 12345 created."), "12345");
+  });
+
+  it("returns null when no created marker exists", () => {
+    assert.equal(parseCreatedChangelist("Change 12345 updated."), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildCreateChangeSpec
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildCreateChangeSpec", () => {
+  it("builds a new changelist spec with tab-indented description lines", () => {
+    assert.equal(
+      buildCreateChangeSpec({
+        client: "my-client",
+        description: "Line one.\n\nLine two.",
+      }),
+      [
+        "Change: new",
+        "Client: my-client",
+        "",
+        "Description:",
+        "\tLine one.",
+        "\t",
+        "\tLine two.",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("rejects empty descriptions after normalization", () => {
+    assert.throws(
+      () => buildCreateChangeSpec({ client: "my-client", description: " \n\t " }),
+      /Description must be non-empty/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildEditArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildEditArgs", () => {
+  it("builds args for opening files in the default changelist (no -c)", () => {
+    assert.deepEqual(
+      buildEditArgs({ files: ["//depot/a.cpp", "//depot/b.cpp"] }),
+      ["edit", "//depot/a.cpp", "//depot/b.cpp"],
+    );
+  });
+
+  it("builds args for opening files in a numbered changelist", () => {
+    assert.deepEqual(
+      buildEditArgs({ files: ["//depot/a.cpp"], changelist: "12345" }),
+      ["edit", "-c", "12345", "//depot/a.cpp"],
+    );
+  });
+
+  it("treats changelist='default' the same as omitted (no -c)", () => {
+    assert.deepEqual(
+      buildEditArgs({ files: ["//depot/a.cpp"], changelist: "default" }),
+      ["edit", "//depot/a.cpp"],
+    );
+  });
+
+  it("adds -n in preview mode", () => {
+    assert.deepEqual(
+      buildEditArgs({ files: ["//depot/a.cpp"], preview: true }),
+      ["edit", "-n", "//depot/a.cpp"],
+    );
+  });
+
+  it("combines preview + numbered changelist", () => {
+    assert.deepEqual(
+      buildEditArgs({ files: ["//depot/a.cpp"], changelist: "777", preview: true }),
+      ["edit", "-n", "-c", "777", "//depot/a.cpp"],
+    );
+  });
+
+  it("preserves file order and supports wildcard paths", () => {
+    assert.deepEqual(
+      buildEditArgs({ files: ["//depot/z/...", "//depot/a.cpp", "//depot/m.cpp"] }),
+      ["edit", "//depot/z/...", "//depot/a.cpp", "//depot/m.cpp"],
+    );
+  });
+
+  it("rejects empty file lists", () => {
+    assert.throws(
+      () => buildEditArgs({ files: [] }),
+      /At least one file path is required/,
+    );
+  });
+
+  it("rejects whitespace-only file entries", () => {
+    assert.throws(
+      () => buildEditArgs({ files: ["//depot/a.cpp", "   "] }),
+      /File paths must be non-empty strings/,
+    );
+  });
+
+  it("rejects non-numeric, non-'default' changelists", () => {
+    assert.throws(
+      () => buildEditArgs({ files: ["//depot/a.cpp"], changelist: "bogus" }),
+      /Invalid changelist 'bogus'/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildRevertArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildRevertArgs", () => {
+  it("builds plain revert for default CL", () => {
+    assert.deepEqual(
+      buildRevertArgs({ files: ["//depot/a.cpp"] }),
+      ["revert", "//depot/a.cpp"],
+    );
+  });
+
+  it("adds -n in preview mode (default-safer pattern)", () => {
+    assert.deepEqual(
+      buildRevertArgs({ files: ["//depot/a.cpp"], preview: true }),
+      ["revert", "-n", "//depot/a.cpp"],
+    );
+  });
+
+  it("supports -k (keep workspace file) for non-destructive revert", () => {
+    assert.deepEqual(
+      buildRevertArgs({ files: ["//depot/a.cpp"], keepWorkspaceFile: true }),
+      ["revert", "-k", "//depot/a.cpp"],
+    );
+  });
+
+  it("supports -a (revert only unchanged files)", () => {
+    assert.deepEqual(
+      buildRevertArgs({ files: ["//depot/a.cpp"], unchangedOnly: true }),
+      ["revert", "-a", "//depot/a.cpp"],
+    );
+  });
+
+  it("combines flags in canonical order: -n -k -a -c", () => {
+    assert.deepEqual(
+      buildRevertArgs({
+        files: ["//depot/a.cpp"],
+        changelist: "55",
+        preview: true,
+        keepWorkspaceFile: true,
+        unchangedOnly: true,
+      }),
+      ["revert", "-n", "-k", "-a", "-c", "55", "//depot/a.cpp"],
+    );
+  });
+
+  it("rejects empty file lists", () => {
+    assert.throws(() => buildRevertArgs({ files: [] }), /At least one file path is required/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildLockArgs / buildUnlockArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildLockArgs", () => {
+  it("builds lock args for default CL", () => {
+    assert.deepEqual(
+      buildLockArgs({ files: ["//depot/Foo.uasset"] }),
+      ["lock", "//depot/Foo.uasset"],
+    );
+  });
+
+  it("includes -c when changelist is numeric", () => {
+    assert.deepEqual(
+      buildLockArgs({ files: ["//depot/Foo.uasset"], changelist: "42" }),
+      ["lock", "-c", "42", "//depot/Foo.uasset"],
+    );
+  });
+
+  it("rejects empty file list (no workspace-wide lock allowed)", () => {
+    assert.throws(() => buildLockArgs({ files: [] }), /At least one file path is required/);
+  });
+});
+
+describe("buildUnlockArgs", () => {
+  it("builds unlock args for default CL", () => {
+    assert.deepEqual(
+      buildUnlockArgs({ files: ["//depot/Foo.uasset"] }),
+      ["unlock", "//depot/Foo.uasset"],
+    );
+  });
+
+  it("includes -c when changelist is numeric", () => {
+    assert.deepEqual(
+      buildUnlockArgs({ files: ["//depot/Foo.uasset"], changelist: "42" }),
+      ["unlock", "-c", "42", "//depot/Foo.uasset"],
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildAddArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildAddArgs", () => {
+  it("builds plain add for default CL", () => {
+    assert.deepEqual(
+      buildAddArgs({ files: ["new.cpp"] }),
+      ["add", "new.cpp"],
+    );
+  });
+
+  it("supports preview, changelist, and filetype together", () => {
+    assert.deepEqual(
+      buildAddArgs({ files: ["new.uasset"], preview: true, changelist: "9", filetype: "binary+l" }),
+      ["add", "-n", "-c", "9", "-t", "binary+l", "new.uasset"],
+    );
+  });
+
+  it("accepts filetype with leading '+' modifier-only form ('+S2')", () => {
+    assert.deepEqual(
+      buildAddArgs({ files: ["x.txt"], filetype: "+S2" }),
+      ["add", "-t", "+S2", "x.txt"],
+    );
+  });
+
+  it("rejects malicious filetype containing flag-like characters", () => {
+    // Defends against `-t " -d --foo"` injection on the argv boundary.
+    assert.throws(
+      () => buildAddArgs({ files: ["x.txt"], filetype: "-d -rf" }),
+      /Invalid filetype/,
+    );
+    assert.throws(
+      () => buildAddArgs({ files: ["x.txt"], filetype: "text; rm" }),
+      /Invalid filetype/,
+    );
+  });
+
+  it("rejects whitespace-only filetype", () => {
+    assert.throws(
+      () => buildAddArgs({ files: ["x.txt"], filetype: "   " }),
+      /filetype must be non-empty when provided/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildDeleteArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildDeleteArgs", () => {
+  it("builds plain delete for default CL", () => {
+    assert.deepEqual(
+      buildDeleteArgs({ files: ["//depot/a.cpp"] }),
+      ["delete", "//depot/a.cpp"],
+    );
+  });
+
+  it("combines preview + keep-workspace-file + numbered CL", () => {
+    assert.deepEqual(
+      buildDeleteArgs({
+        files: ["//depot/a.cpp"],
+        preview: true,
+        keepWorkspaceFile: true,
+        changelist: "12",
+      }),
+      ["delete", "-n", "-k", "-c", "12", "//depot/a.cpp"],
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildShelveArgs / buildUnshelveArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildShelveArgs", () => {
+  it("builds shelve for a numbered CL with no file subset", () => {
+    assert.deepEqual(
+      buildShelveArgs({ changelist: "100" }),
+      ["shelve", "-c", "100"],
+    );
+  });
+
+  it("restricts to a file subset when provided", () => {
+    assert.deepEqual(
+      buildShelveArgs({ changelist: "100", files: ["//depot/a.cpp"] }),
+      ["shelve", "-c", "100", "//depot/a.cpp"],
+    );
+  });
+
+  it("adds -r -f when replace=true (overwrites existing shelf)", () => {
+    assert.deepEqual(
+      buildShelveArgs({ changelist: "100", replace: true }),
+      ["shelve", "-r", "-f", "-c", "100"],
+    );
+  });
+
+  it("rejects the literal 'default' (cannot shelve the default CL)", () => {
+    assert.throws(
+      () => buildShelveArgs({ changelist: "default" }),
+      /Invalid changelist 'default'/,
+    );
+  });
+});
+
+describe("buildUnshelveArgs", () => {
+  it("builds unshelve from a source CL into the default CL", () => {
+    assert.deepEqual(
+      buildUnshelveArgs({ sourceChangelist: "100" }),
+      ["unshelve", "-s", "100"],
+    );
+  });
+
+  it("routes unshelved files into a numbered target CL", () => {
+    assert.deepEqual(
+      buildUnshelveArgs({ sourceChangelist: "100", targetChangelist: "200" }),
+      ["unshelve", "-s", "100", "-c", "200"],
+    );
+  });
+
+  it("supports preview + file subset + numbered target CL", () => {
+    assert.deepEqual(
+      buildUnshelveArgs({
+        sourceChangelist: "100",
+        targetChangelist: "200",
+        preview: true,
+        files: ["//depot/a.cpp"],
+      }),
+      ["unshelve", "-s", "100", "-n", "-c", "200", "//depot/a.cpp"],
+    );
+  });
+
+  it("rejects non-numeric source CL (must shelve to a real CL)", () => {
+    assert.throws(
+      () => buildUnshelveArgs({ sourceChangelist: "default" }),
+      /Invalid changelist 'default'/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildIntegrateArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildIntegrateArgs", () => {
+  it("builds plain integrate between two paths", () => {
+    assert.deepEqual(
+      buildIntegrateArgs({ source: "//depot/main/...", target: "//depot/branch/..." }),
+      ["integrate", "//depot/main/...", "//depot/branch/..."],
+    );
+  });
+
+  it("supports preview + changelist + force + reverse flags in canonical order", () => {
+    assert.deepEqual(
+      buildIntegrateArgs({
+        source: "//depot/main/foo.cpp",
+        target: "//depot/branch/foo.cpp",
+        preview: true,
+        force: true,
+        reverse: true,
+        changelist: "77",
+      }),
+      ["integrate", "-n", "-f", "-r", "-c", "77", "//depot/main/foo.cpp", "//depot/branch/foo.cpp"],
+    );
+  });
+
+  it("requires both source and target", () => {
+    assert.throws(
+      () => buildIntegrateArgs({ source: "", target: "//depot/branch/..." }),
+      /Source path is required/,
+    );
+    assert.throws(
+      () => buildIntegrateArgs({ source: "//depot/main/...", target: "" }),
+      /Target path is required/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildMergeArgs / buildCopyArgs — share shape with integrate but use -F not -f
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildMergeArgs", () => {
+  it("builds plain merge between two paths", () => {
+    assert.deepEqual(
+      buildMergeArgs({ source: "//depot/main/...", target: "//depot/branch/..." }),
+      ["merge", "//depot/main/...", "//depot/branch/..."],
+    );
+  });
+
+  it("uses CAPITAL -F for force (NOT lowercase -f like integrate)", () => {
+    const args = buildMergeArgs({
+      source: "//depot/main/foo.cpp",
+      target: "//depot/branch/foo.cpp",
+      force: true,
+    });
+    assert.ok(args.includes("-F"), `expected -F in ${JSON.stringify(args)}`);
+    assert.ok(!args.includes("-f"), `did NOT expect -f in ${JSON.stringify(args)}`);
+  });
+
+  it("supports preview + changelist + reverse together", () => {
+    assert.deepEqual(
+      buildMergeArgs({
+        source: "//depot/main/...",
+        target: "//depot/branch/...",
+        preview: true,
+        reverse: true,
+        changelist: "33",
+      }),
+      ["merge", "-n", "-r", "-c", "33", "//depot/main/...", "//depot/branch/..."],
+    );
+  });
+
+  it("requires both source and target", () => {
+    assert.throws(() => buildMergeArgs({ source: "", target: "//depot/branch/..." }), /Source path is required/);
+    assert.throws(() => buildMergeArgs({ source: "//depot/main/...", target: "" }), /Target path is required/);
+  });
+});
+
+describe("buildCopyArgs", () => {
+  it("builds plain copy between two paths", () => {
+    assert.deepEqual(
+      buildCopyArgs({ source: "//depot/main/...", target: "//depot/release/..." }),
+      ["copy", "//depot/main/...", "//depot/release/..."],
+    );
+  });
+
+  it("uses CAPITAL -F for force (NOT lowercase -f)", () => {
+    const args = buildCopyArgs({
+      source: "//depot/main/...",
+      target: "//depot/release/...",
+      force: true,
+    });
+    assert.ok(args.includes("-F"));
+    assert.ok(!args.includes("-f"));
+  });
+
+  it("combines all flags in canonical order: -n -F -r -c", () => {
+    assert.deepEqual(
+      buildCopyArgs({
+        source: "//depot/main/...",
+        target: "//depot/release/...",
+        preview: true,
+        force: true,
+        reverse: true,
+        changelist: "44",
+      }),
+      ["copy", "-n", "-F", "-r", "-c", "44", "//depot/main/...", "//depot/release/..."],
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// replaceDescriptionInSpec — round-trip with parseChangeSpecDescription
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("replaceDescriptionInSpec", () => {
+  const SPEC = `# A Perforce Change Specification.
+
+Change: 12345
+
+Client: my-client
+
+User:\tme
+
+Status: pending
+
+Description:
+\tOld description.
+\tSecond line.
+
+Type:\tpublic
+
+Files:
+\t//depot/main/foo.txt\t# edit
+`;
+
+  it("replaces the description body while preserving all other fields", () => {
+    const updated = replaceDescriptionInSpec(SPEC, "New description.\n\nNew bullet.");
+    // Other fields survive verbatim.
+    assert.match(updated, /Change: 12345/);
+    assert.match(updated, /Client: my-client/);
+    assert.match(updated, /Status: pending/);
+    assert.match(updated, /Type:\tpublic/);
+    assert.match(updated, /Files:/);
+    assert.match(updated, /\/\/depot\/main\/foo\.txt\t# edit/);
+    // New description is present, tab-indented.
+    assert.match(updated, /Description:\n\tNew description\.\n\t\n\tNew bullet\./);
+    // Old description is gone.
+    assert.doesNotMatch(updated, /Old description/);
+  });
+
+  it("round-trips: parse(replace(spec, X)) === normalize(X)", () => {
+    const newDesc = "Round-trip me.\n\nWith a blank line.";
+    const updated = replaceDescriptionInSpec(SPEC, newDesc);
+    assert.equal(parseChangeSpecDescription(updated), normalizeDescription(newDesc));
+  });
+
+  it("rejects empty new descriptions", () => {
+    assert.throws(
+      () => replaceDescriptionInSpec(SPEC, "   \n\t  "),
+      /Description must be non-empty/,
+    );
+  });
+
+  it("throws if the spec is missing a Description: section", () => {
+    const noDesc = `Change: 1\n\nFiles:\n\t//depot/a.txt\t# edit\n`;
+    assert.throws(
+      () => replaceDescriptionInSpec(noDesc, "anything"),
+      /does not contain a 'Description:' section/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildReopenArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildReopenArgs", () => {
+  it("builds args for moving opened files into a numbered changelist", () => {
+    assert.deepEqual(
+      buildReopenArgs({
+        changelist: "12345",
+        files: ["//depot/a.cpp", "//depot/b.cpp"],
+      }),
+      ["reopen", "-c", "12345", "//depot/a.cpp", "//depot/b.cpp"],
+    );
+  });
+
+  it("supports moving opened files back to the default changelist", () => {
+    assert.deepEqual(
+      buildReopenArgs({ changelist: "default", files: ["//depot/a.cpp"] }),
+      ["reopen", "-c", "default", "//depot/a.cpp"],
+    );
+  });
+
+  it("rejects empty file lists", () => {
+    assert.throws(
+      () => buildReopenArgs({ changelist: "12345", files: [] }),
+      /At least one file path is required/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildMoveArgs
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildMoveArgs", () => {
+  it("builds preview args for moving a file in a numbered changelist", () => {
+    assert.deepEqual(
+      buildMoveArgs({
+        source: "//depot/old.cpp",
+        target: "//depot/new.cpp",
+        changelist: "12345",
+        preview: true,
+      }),
+      ["move", "-n", "-c", "12345", "//depot/old.cpp", "//depot/new.cpp"],
+    );
+  });
+
+  it("omits -c when moving in the default changelist", () => {
+    assert.deepEqual(
+      buildMoveArgs({
+        source: "//depot/old.cpp",
+        target: "//depot/new.cpp",
+        changelist: "default",
+      }),
+      ["move", "//depot/old.cpp", "//depot/new.cpp"],
+    );
+  });
+
+  it("adds recursive rename mode when requested", () => {
+    assert.deepEqual(
+      buildMoveArgs({
+        source: "//depot/old/...",
+        target: "//depot/new/...",
+        recursive: true,
+        preview: true,
+      }),
+      ["move", "-n", "-r", "//depot/old/...", "//depot/new/..."],
+    );
   });
 });
 
