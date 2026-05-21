@@ -20,6 +20,14 @@ test("Perforce MCP server registers changelist and move tools", async () => {
       P4USER: "test-user",
       P4CLIENT: "test-client",
       P4DEPOT: "Project/Depot",
+      // P4PASSWD is optional in the manifest but resolveBridgeConfig's tier-1
+      // env check currently requires every field — including optional ones —
+      // for "envHasAll" to succeed. Without this the server exits on startup
+      // in environments lacking a .mcp.json (e.g. fresh CI runners), and the
+      // MCP client reports a misleading "Connection closed" error. The auto-
+      // login try/catch in server.mjs swallows the inevitable `p4 login`
+      // failure against invalid:1666, so this is safe.
+      P4PASSWD: "test-pass",
     },
     stderr: "pipe",
   });
