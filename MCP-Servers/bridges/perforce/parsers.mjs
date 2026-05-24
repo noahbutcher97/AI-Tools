@@ -100,9 +100,20 @@ export function buildCreateChangeSpec({ client, description }) {
   ].join("\n");
 }
 
-export function buildReopenArgs({ changelist, files }) {
-  const cl = validateChangelist(changelist);
-  return ["reopen", "-c", cl, ...normalizeFileList(files)];
+// p4 reopen has two independent facets: -c <changelist> moves opened files
+// between pending CLs, and -t <filetype> retypes them (e.g. flipping an asset
+// to binary+l). Either or both may be supplied; at least one is required —
+// `p4 reopen <files>` with no flag is a no-op the caller never wants.
+export function buildReopenArgs({ changelist = undefined, filetype = undefined, files }) {
+  const hasChangelist = changelist !== undefined && changelist !== null && changelist !== "";
+  const hasFiletype = filetype !== undefined && filetype !== null && filetype !== "";
+  if (!hasChangelist && !hasFiletype) {
+    throw new Error("Reopen requires at least one of changelist or filetype.");
+  }
+  const args = ["reopen"];
+  if (hasChangelist) args.push("-c", validateChangelist(changelist));
+  if (hasFiletype) args.push("-t", validateFiletype(filetype));
+  return [...args, ...normalizeFileList(files)];
 }
 
 export function buildEditArgs({ files, changelist = undefined, preview = false }) {

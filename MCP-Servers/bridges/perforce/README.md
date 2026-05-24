@@ -14,15 +14,17 @@ Secrets are stored in `.mcp.local.json`. Public workspace values are stored in `
 
 ## Tool Inventory
 
-Read tools (no mutation): `connection_info`, `p4_opened`, `p4_changes`, `p4_changelists`, `p4_describe`, `p4_diff`, `p4_filelog`, `p4_print`, `p4_annotate`, `p4_fstat`, `p4_where`, `p4_have`, `p4_reconcile_preview`.
+Read tools (no mutation): `p4_info`, `p4_opened`, `p4_changes`, `p4_changelists`, `p4_describe`, `p4_diff`, `p4_filelog`, `p4_print`, `p4_annotate`, `p4_fstat`, `p4_where`, `p4_have`.
+
+To preview a reconcile without opening files, use `p4_reconcile` with `preview: true` (its default).
 
 Open/close verbs: `p4_edit`, `p4_add`, `p4_delete`, `p4_revert`, `p4_reconcile`.
 
 Lock/unlock (for binary asset workflows like Unreal `.uasset`/`.umap`): `p4_lock`, `p4_unlock`.
 
-Changelist management: `p4_create_changelist`, `p4_update_changelist`, `p4_delete_changelist`, `p4_move_opened_files`.
+Changelist management: `p4_create_changelist`, `p4_update_changelist`, `p4_delete_changelist`, `p4_reopen`.
 
-Move/rename: `p4_move_file`.
+Move/rename: `p4_move`.
 
 Sync + resolve: `p4_sync`, `p4_resolve`.
 
@@ -34,8 +36,8 @@ Every mutation tool defaults `preview` based on the cost asymmetry of the operat
 
 - **Caller-explicit + non-destructive** → `preview: false` (`p4_edit`, `p4_add`, `p4_shelve`, `p4_unshelve`). The caller named the target; preview would just add a round-trip.
 - **Caller-explicit + destructive of pending or depot work** → `preview: true` (`p4_revert`, `p4_delete`). Forgetting preview loses real work.
-- **State-driven or wildcard-fanout** → `preview: true` (`p4_reconcile`, `p4_integrate`, `p4_move_file`). Forgetting preview can scoop many files.
-- **Benign** → no preview parameter (`p4_lock`, `p4_unlock`, `p4_update_changelist`, `p4_delete_changelist`).
+- **State-driven or wildcard-fanout** → `preview: true` (`p4_reconcile`, `p4_integrate`, `p4_move`). Forgetting preview can scoop many files.
+- **Benign** → no preview parameter (`p4_lock`, `p4_unlock`, `p4_update_changelist`, `p4_delete_changelist`, `p4_reopen`).
 
 ## Changelist Workflow
 
@@ -75,20 +77,40 @@ p4_reconcile({
 })
 ```
 
-Move already-opened files into a numbered changelist:
+Reopen already-opened files with `p4_reopen` — moves them between pending
+changelists and/or retypes them. At least one of `changelist`/`filetype` is
+required.
+
+Move opened files into a numbered changelist:
 
 ```text
-p4_move_opened_files({
+p4_reopen({
   changelist: "12345",
   files: ["//Project1/OnSight/Source/Foo.cpp"]
 })
 ```
 
-Move files back to the default changelist:
+Move opened files back to the default changelist:
 
 ```text
-p4_move_opened_files({
+p4_reopen({
   changelist: "default",
+  files: ["//Project1/OnSight/Source/Foo.cpp"]
+})
+```
+
+Retype an opened file (e.g. lock a binary asset), optionally moving it in the
+same call:
+
+```text
+p4_reopen({
+  filetype: "binary+l",
+  files: ["//Project1/OnSight/Content/Hero.uasset"]
+})
+
+p4_reopen({
+  changelist: "12345",
+  filetype: "text+w",
   files: ["//Project1/OnSight/Source/Foo.cpp"]
 })
 ```
@@ -96,7 +118,7 @@ p4_move_opened_files({
 Preview a depot file move/rename:
 
 ```text
-p4_move_file({
+p4_move({
   source: "//Project1/OnSight/Source/OldName.cpp",
   target: "//Project1/OnSight/Source/NewName.cpp"
 })
@@ -105,7 +127,7 @@ p4_move_file({
 Actually open the file move:
 
 ```text
-p4_move_file({
+p4_move({
   source: "//Project1/OnSight/Source/OldName.cpp",
   target: "//Project1/OnSight/Source/NewName.cpp",
   changelist: "12345",

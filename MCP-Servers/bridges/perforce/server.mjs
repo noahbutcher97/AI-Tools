@@ -109,8 +109,8 @@ const server = new McpServer({
 });
 
 server.tool(
-  "connection_info",
-  "Show Perforce connection details: server, user, client workspace, depot root",
+  "p4_info",
+  "Show Perforce connection details: server, user, client workspace, depot root (`p4 info`).",
   {},
   async () => {
     const info = p4(["info"]);
@@ -273,15 +273,6 @@ server.tool(
 );
 
 server.tool(
-  "p4_reconcile_preview",
-  "Preview reconcile (offline adds/edits/deletes) without opening files. Dry run.",
-  { path: z.string().optional() },
-  async ({ path }) => {
-    return toolResult(p4(["reconcile", "-n", path || `//${P4DEPOT}/Source/...`], { timeout: 60000 }));
-  },
-);
-
-server.tool(
   "p4_fstat",
   "Show detailed file status — depot path, action, head revision, etc.",
   { path: z.string().describe("File or path to stat") },
@@ -392,24 +383,32 @@ server.tool(
 );
 
 server.tool(
-  "p4_move_opened_files",
-  "Move already-opened files into a target pending changelist using `p4 reopen -c`. "
-    + "The target CL must already exist. Use changelist='default' to move files back to the default CL. "
-    + "Caller must provide explicit file paths; no workspace-wide default is available.",
+  "p4_reopen",
+  "Reopen already-opened files to change their pending changelist and/or Perforce filetype (`p4 reopen`). "
+    + "At least one of `changelist` or `filetype` must be supplied — bare reopen is a no-op. "
+    + "`changelist` (numeric, or 'default') moves the open into that pending CL — the CL must already exist; "
+    + "use 'default' to move files back to the default changelist. "
+    + "`filetype` retypes the open (e.g. 'binary+l' to make an Unreal .uasset exclusively-locked, "
+    + "'text+w' for always-writable text); it is validated against the same base-type + modifier allowlist as `p4_add`. "
+    + "Supply both to move and retype in a single call. Files must already be open in this workspace.",
   {
-    changelist: z
-      .string()
-      .min(1)
-      .describe("Numeric pending changelist, or the literal string 'default'."),
     files: z
       .array(z.string().min(1))
       .min(1)
-      .describe("Explicit depot or local file paths to move between changelists."),
+      .describe("Explicit depot or local file paths of already-opened files to reopen."),
+    changelist: z
+      .string()
+      .optional()
+      .describe("Numeric pending CL to move the open into, or 'default'. Omit to leave the CL unchanged."),
+    filetype: z
+      .string()
+      .optional()
+      .describe("New Perforce filetype (e.g. 'binary+l', 'text+w', '+S2'). Omit to leave the type unchanged."),
   },
-  async ({ changelist, files }) => {
+  async ({ files, changelist, filetype }) => {
     let args;
     try {
-      args = buildReopenArgs({ changelist, files });
+      args = buildReopenArgs({ changelist, filetype, files });
     } catch (e) {
       return toolErrorResult(e.message);
     }
@@ -418,7 +417,7 @@ server.tool(
 );
 
 server.tool(
-  "p4_move_file",
+  "p4_move",
   "Open a Perforce move/rename using `p4 move`. "
     + "By default this previews with `p4 move -n`; set preview=false to actually open the move. "
     + "Use changelist to put the pending move into an existing numbered CL. "

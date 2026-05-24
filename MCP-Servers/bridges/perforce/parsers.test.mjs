@@ -780,6 +780,34 @@ describe("buildReopenArgs", () => {
       /At least one file path is required/,
     );
   });
+
+  it("retypes opened files without moving them (filetype only, no changelist)", () => {
+    assert.deepEqual(
+      buildReopenArgs({ filetype: "binary+l", files: ["//depot/a.uasset"] }),
+      ["reopen", "-t", "binary+l", "//depot/a.uasset"],
+    );
+  });
+
+  it("moves and retypes in one call (changelist + filetype)", () => {
+    assert.deepEqual(
+      buildReopenArgs({ changelist: "9", filetype: "text+w", files: ["//depot/a.cpp"] }),
+      ["reopen", "-c", "9", "-t", "text+w", "//depot/a.cpp"],
+    );
+  });
+
+  it("requires at least one of changelist or filetype", () => {
+    assert.throws(
+      () => buildReopenArgs({ files: ["//depot/a.cpp"] }),
+      /at least one of changelist or filetype/i,
+    );
+  });
+
+  it("rejects malicious filetype containing flag-like characters", () => {
+    assert.throws(
+      () => buildReopenArgs({ filetype: "-d -rf", files: ["x.txt"] }),
+      /Invalid filetype/,
+    );
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────
