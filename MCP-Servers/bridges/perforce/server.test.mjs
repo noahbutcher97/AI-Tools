@@ -52,8 +52,8 @@ test("Perforce MCP server registers changelist and move tools", async () => {
     assert.ok(toolNames.includes("p4_revert"));
     assert.ok(toolNames.includes("p4_lock"));
     assert.ok(toolNames.includes("p4_unlock"));
-    assert.ok(toolNames.includes("p4_move_opened_files"));
-    assert.ok(toolNames.includes("p4_move_file"));
+    assert.ok(toolNames.includes("p4_reopen"));
+    assert.ok(toolNames.includes("p4_move"));
     assert.ok(toolNames.includes("p4_submit"));
     assert.ok(toolNames.includes("p4_shelve"));
     assert.ok(toolNames.includes("p4_unshelve"));
