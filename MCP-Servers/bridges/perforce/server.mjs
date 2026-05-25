@@ -641,7 +641,7 @@ server.tool(
       .string()
       .min(1)
       .describe(
-        "Depot or local path to reconcile (e.g. '//OnSight/Source/OnSightTests/...'). "
+        "Depot or local path to reconcile (e.g. '//YourDepot/Source/...'). "
           + "No default — caller must scope explicitly.",
       ),
     preview: z
