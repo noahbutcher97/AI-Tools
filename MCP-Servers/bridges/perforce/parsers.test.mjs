@@ -32,6 +32,7 @@ import {
   replaceDescriptionInSpec,
   buildReopenArgs,
   buildMoveArgs,
+  buildChangesArgs,
 } from "./parsers.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -945,5 +946,51 @@ describe("CL_LINE_RE", () => {
     const m = CL_LINE_RE.exec(line);
     assert.ok(m);
     assert.equal(m[2], "default");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildChangesArgs — unifies `p4 changes` queries (absorbs the old
+// p4_changelists). Pure: defaultUser + depotRoot are passed in.
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("buildChangesArgs", () => {
+  const depotRoot = "//Depot/...";
+
+  it("defaults to recent submitted changes by the configured user", () => {
+    assert.deepEqual(
+      buildChangesArgs({ defaultUser: "me", depotRoot }),
+      ["changes", "-s", "submitted", "-u", "me", "-m", "10", "//Depot/..."],
+    );
+  });
+
+  it("client scope lists pending workspace changes without forcing the user filter", () => {
+    // This is the old p4_changelists behavior: pending changes in a client
+    // workspace, any user. No -u must be emitted.
+    assert.deepEqual(
+      buildChangesArgs({ status: "pending", client: "ws1", defaultUser: "me", depotRoot }),
+      ["changes", "-s", "pending", "-c", "ws1", "-m", "10", "//Depot/..."],
+    );
+  });
+
+  it("explicit user overrides the configured default", () => {
+    assert.deepEqual(
+      buildChangesArgs({ user: "bob", defaultUser: "me", depotRoot }),
+      ["changes", "-s", "submitted", "-u", "bob", "-m", "10", "//Depot/..."],
+    );
+  });
+
+  it("user and client combine into an intersection filter", () => {
+    assert.deepEqual(
+      buildChangesArgs({ user: "bob", client: "ws1", status: "pending", defaultUser: "me", depotRoot }),
+      ["changes", "-s", "pending", "-u", "bob", "-c", "ws1", "-m", "10", "//Depot/..."],
+    );
+  });
+
+  it("respects a custom max", () => {
+    assert.deepEqual(
+      buildChangesArgs({ max: 50, defaultUser: "me", depotRoot }),
+      ["changes", "-s", "submitted", "-u", "me", "-m", "50", "//Depot/..."],
+    );
   });
 });

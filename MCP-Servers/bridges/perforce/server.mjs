@@ -30,6 +30,7 @@ import {
   replaceDescriptionInSpec,
   buildReopenArgs,
   buildMoveArgs,
+  buildChangesArgs,
 } from "./parsers.mjs";
 
 // ───────────────────────────────────────────────────────────────────────
@@ -149,15 +150,22 @@ server.tool(
 
 server.tool(
   "p4_changes",
-  `List recent changelists. Defaults to last 10 submitted by ${P4USER}.`,
+  `List changelists from \`p4 changes\`. Defaults to the last 10 submitted by ${P4USER}. `
+    + `Set status='pending' for pending CLs. Filter by \`user\` (any user), or by \`client\` `
+    + `to list changes in a specific workspace — pass client='${P4CLIENT}' for this workspace's `
+    + `pending CLs (any user). With neither user nor client, defaults to ${P4USER}.`,
   {
     max: z.number().optional().default(10).describe("Max changelists to return"),
-    user: z.string().optional().describe(`Filter by user (default: ${P4USER})`),
+    user: z.string().optional().describe(`Filter by user. Omit (with no client) to default to ${P4USER}.`),
+    client: z
+      .string()
+      .optional()
+      .describe(`Filter by client/workspace (e.g. '${P4CLIENT}'). When set, does not force the user filter.`),
     status: z.enum(["submitted", "pending"]).optional().default("submitted"),
   },
-  async ({ max, user, status }) => {
+  async ({ max, user, client, status }) => {
     return toolResult(
-      p4(["changes", "-s", status, "-u", user || P4USER, "-m", String(max), DEPOT_ROOT]),
+      p4(buildChangesArgs({ status, max, user, client, defaultUser: P4USER, depotRoot: DEPOT_ROOT })),
     );
   },
 );
@@ -295,13 +303,6 @@ server.tool(
     + "Required `path` — `p4 have //depot/...` can return tens of thousands of lines; caller must scope.",
   { path: z.string().min(1).describe("Depot or local path to query.") },
   async ({ path }) => toolResult(p4(["have", path], { timeout: 60000 })),
-);
-
-server.tool(
-  "p4_changelists",
-  "List pending changelists in the workspace.",
-  {},
-  async () => toolResult(p4(["changes", "-s", "pending", "-c", P4CLIENT, DEPOT_ROOT])),
 );
 
 server.tool(
