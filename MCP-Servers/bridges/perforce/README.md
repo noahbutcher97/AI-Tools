@@ -14,7 +14,9 @@ Secrets are stored in `.mcp.local.json`. Public workspace values are stored in `
 
 ## Tool Inventory
 
-Read tools (no mutation): `p4_info`, `p4_opened`, `p4_changes`, `p4_changelists`, `p4_describe`, `p4_diff`, `p4_filelog`, `p4_print`, `p4_annotate`, `p4_fstat`, `p4_where`, `p4_have`.
+Read tools (no mutation): `p4_info`, `p4_opened`, `p4_changes`, `p4_describe`, `p4_diff`, `p4_filelog`, `p4_print`, `p4_annotate`, `p4_fstat`, `p4_where`, `p4_have`.
+
+For pending changelists in this workspace, use `p4_changes` with `status: "pending"` and `client: "<workspace>"`.
 
 To preview a reconcile without opening files, use `p4_reconcile` with `preview: true` (its default).
 

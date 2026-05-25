@@ -318,6 +318,29 @@ export function replaceDescriptionInSpec(spec, newDescription) {
   return out.join("\n");
 }
 
+// Unifies `p4 changes` queries. Absorbs the old p4_changelists tool: a bare
+// call lists the configured user's recent submitted changes ("my changes"),
+// while passing `client` lists changes scoped to a workspace. defaultUser and
+// depotRoot are injected (keeps this module dependency-free).
+//
+// User-filter rule: an explicit `user` always wins. With no user, we only fall
+// back to defaultUser when no `client` is given either — so `client`-scoped
+// queries list changes by ANY user in that workspace (the old p4_changelists
+// semantics), not just the configured one.
+export function buildChangesArgs({ status = "submitted", max = 10, user = undefined, client = undefined, defaultUser, depotRoot }) {
+  const hasUser = user !== undefined && user !== null && user !== "";
+  const hasClient = client !== undefined && client !== null && client !== "";
+  const args = ["changes", "-s", status];
+  if (hasUser) {
+    args.push("-u", user);
+  } else if (!hasClient) {
+    args.push("-u", defaultUser);
+  }
+  if (hasClient) args.push("-c", client);
+  args.push("-m", String(max), depotRoot);
+  return args;
+}
+
 export function buildMoveArgs({ source, target, changelist = undefined, preview = false, recursive = false }) {
   const args = ["move"];
   if (preview) args.push("-n");
