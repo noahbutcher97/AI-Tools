@@ -171,12 +171,41 @@ and arguably a stricter gate than `p4_group_set` (e.g. refuse to remove the
 caller's own `super` line). Design this deliberately; do not rush it onto the
 back of the group writer.
 
+## Opt-in chain (how P4_ENABLE_ADMIN reaches the bridge) + its coverage
+
+The flag flows: installer resolves the manifest field (default `"false"`) →
+`setBridgeInConfig` writes it into `.mcp.json` `mcpServers.perforce.env` →
+that env block is the bridge's `process.env` at launch → `server.mjs:63`
+reads it → `if (ADMIN_WRITES_ENABLED)` registers `p4_group_set`.
+
+Three ways an operator opts in:
+1. Re-run the installer, answer `true` at the "Enable admin write tools" prompt
+   (or `--field P4_ENABLE_ADMIN=true` non-interactively).
+2. Hand-edit `.mcp.json`: add `"P4_ENABLE_ADMIN": "true"` to
+   `mcpServers.perforce.env`, restart the MCP client.
+3. Set it in the process env before spawn (Tier-1 of resolve-config).
+In all cases the tool only appears after a bridge restart (registration is
+boot-time).
+
+Coverage of that chain (gap closed 2026-05-29):
+- **env → tool registration**: `server.test.mjs` spawns the real server both
+  ways (absent by default; present with `P4_ENABLE_ADMIN=true`).
+- **manifest field → launch env**: `Installers/MCP-Suite/Scripts/mcp-config.test.mjs`
+  drives `setBridgeInConfig` with the real perforce manifest and asserts the
+  flag lands in `mcpServers.perforce.env`, that the manifest default is `"false"`
+  (security invariant), that it isn't fabricated when uncollected, and that a
+  disabled bridge has no launch entry. Wired into CI as the `installer-tests`
+  job (pure stdlib, no `npm ci`).
+- **Still manual** (needs a live super-access P4 server): the `requireSuper`
+  pre-check and the actual `p4 group -i` write — see live steps below.
+
 ## Verification (Phase 2)
 
 1. `npm test` from the bridge dir → 129 pass (incl. the two gating spawn tests
    and the `validateGroupTimeout` / `applyGroupSpecChanges` unit tests).
-2. `node --check server.mjs parsers.mjs`.
-3. Live (needs a super-access P4 connection):
+2. `node --test` from `Installers/MCP-Suite/Scripts/` → 6 pass (config wiring).
+3. `node --check server.mjs parsers.mjs`.
+4. Live (needs a super-access P4 connection):
    - With `P4_ENABLE_ADMIN` unset → `p4_group_set` is not in the tool list.
    - With it `true` and a non-super user → `p4_group_set` returns the
      "requires 'super'" refusal without writing.

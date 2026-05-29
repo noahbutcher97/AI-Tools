@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 
-# Minimum-viable CI for the MCP-Servers tree. Four jobs:
+# Minimum-viable CI for the MCP-Servers tree. Five jobs:
 #   1. Syntax-check every tracked .mjs under MCP-Servers/ (catches typos/parse
 #      errors that would crash an MCP client on launch — but does NOT resolve
 #      imports, so missing deps slip through; the deps-consistent job covers
@@ -16,7 +16,10 @@ on:
 #      smoke test (spins up the MCP server over stdio and asserts every tool
 #      registers). The smoke test imports @modelcontextprotocol/sdk, so this
 #      job installs deps via `npm ci`.
-#   4. Validate each bridge's package-lock.json against its package.json via
+#   4. Installer config wiring — unit tests for setBridgeInConfig et al. under
+#      Installers/MCP-Suite/Scripts/. Pure stdlib; proves manifest fields (e.g.
+#      the P4_ENABLE_ADMIN opt-in) land in the bridge's launch env block.
+#   5. Validate each bridge's package-lock.json against its package.json via
 #      `npm ci --dry-run`. Catches lockfile drift before it hits an installer.
 
 jobs:
@@ -55,6 +58,21 @@ jobs:
         # Pure functions, no deps — node:test built-in only.
         run: |
           cd MCP-Servers/lib
+          node --test
+
+  installer-tests:
+    name: Installer config wiring
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Run installer config tests
+        # Pure stdlib (fs/path) — no deps. Covers the manifest-field -> launch-env
+        # mapping (setBridgeInConfig), e.g. the P4_ENABLE_ADMIN opt-in chain.
+        run: |
+          cd Installers/MCP-Suite/Scripts
           node --test
 
   perforce-tests:
