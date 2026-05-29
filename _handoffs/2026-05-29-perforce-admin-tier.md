@@ -2,7 +2,7 @@
 
 **Date**: 2026-05-29
 **Bridge/Scope**: `MCP-Servers/bridges/perforce/` (server.mjs, parsers.mjs, README.md)
-**Status**: Scoped / Phase 1 approved, not yet implemented
+**Status**: Phase 1 implemented (2026-05-29) / Phase 2 deferred
 **Severity**: Low — additive feature work, no existing behavior changes. The
 risk to manage is *information disclosure* (server-global reads) and, in the
 deferred Phase 2, *global state mutation*.

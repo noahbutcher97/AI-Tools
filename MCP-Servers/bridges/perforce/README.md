@@ -16,6 +16,8 @@ Secrets are stored in `.mcp.local.json`. Public workspace values are stored in `
 
 Read tools (no mutation): `p4_info`, `p4_opened`, `p4_changes`, `p4_describe`, `p4_diff`, `p4_filelog`, `p4_print`, `p4_annotate`, `p4_fstat`, `p4_where`, `p4_have`.
 
+Admin / identity reads (server-global, no mutation): `p4_users`, `p4_groups`, `p4_group_info`, `p4_login_status`, `p4_protects`.
+
 For pending changelists in this workspace, use `p4_changes` with `status: "pending"` and `client: "<workspace>"`.
 
 To preview a reconcile without opening files, use `p4_reconcile` with `preview: true` (its default).
@@ -340,6 +342,59 @@ What's synced in this workspace:
 ```text
 p4_have({ path: "//Project1/OnSight/Source/..." })
 ```
+
+## Admin / Identity (read-only)
+
+Unlike every other tool here, these report on the **whole Perforce server**, not
+`//P4DEPOT/...`. Each response is wrapped with a `scope: "server-global"` field
+(and a `warning` when the read is unscoped) following the scope-leak convention
+in `_handoffs/2026-05-18-bridge-scope-leak-audit.md`. They require only the
+access your configured `P4USER` already has — reading another user's tickets or
+protections needs `super`.
+
+Resolve a display name/handle to a real login:
+
+```text
+p4_users({ user: "keem" })      // one or more usernames
+p4_users()                       // all accounts (server-wide; warns)
+```
+
+List a user's group memberships (or all groups):
+
+```text
+p4_groups({ user: "keem" })
+p4_groups()                      // all groups (server-wide; warns)
+```
+
+Read a group spec — including `Timeout` (ticket lifetime) and members. Numeric
+limit fields report `unset` when no limit is imposed:
+
+```text
+p4_group_info({ group: "keem_no_timeout" })
+```
+
+Check ticket status — the tool to reach for when a user reports a recurring
+re-login "cooldown" (an expiring ticket). Returns `status` of
+`valid` / `expired` / `unknown` plus `expiresInSeconds` when valid:
+
+```text
+p4_login_status()                // connected user
+p4_login_status({ user: "keem" })// other users require super
+```
+
+Probe effective capability — answers "can this user perform an admin action
+themselves?". With `max`, returns one of `list/read/open/write/admin/super`:
+
+```text
+p4_protects({ max: true })       // effective max access level
+p4_protects()                    // raw protection lines that apply
+```
+
+These reads cover the common "why does user X keep getting logged out, and can
+they fix it themselves?" workflow end-to-end: resolve the login (`p4_users`),
+check existing groups (`p4_groups`), confirm the symptom (`p4_login_status`),
+and confirm who has `super` (`p4_protects`). The corresponding group/protection
+*writes* are intentionally not part of this tier.
 
 ## Verification
 

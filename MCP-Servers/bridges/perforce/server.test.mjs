@@ -64,6 +64,11 @@ test("Perforce MCP server registers changelist and move tools", async () => {
     assert.ok(toolNames.includes("p4_annotate"));
     assert.ok(toolNames.includes("p4_where"));
     assert.ok(toolNames.includes("p4_have"));
+    assert.ok(toolNames.includes("p4_users"));
+    assert.ok(toolNames.includes("p4_groups"));
+    assert.ok(toolNames.includes("p4_group_info"));
+    assert.ok(toolNames.includes("p4_login_status"));
+    assert.ok(toolNames.includes("p4_protects"));
   } finally {
     await client.close();
   }
