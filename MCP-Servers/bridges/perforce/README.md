@@ -9,6 +9,7 @@ Local stdio MCP bridge for Perforce workspace operations.
 - `P4CLIENT`: Perforce client/workspace name.
 - `P4DEPOT`: Depot path without leading slashes, for example `Project1/OnSight`.
 - `P4PASSWD`: optional secret. Prefer a cached `p4 login` ticket when possible.
+- `P4_ENABLE_ADMIN`: optional. Set to `true` to register server-global admin **write** tools (`p4_group_set`). Defaults to `false` — admin writers stay hidden and the install is workspace-scoped.
 
 Secrets are stored in `.mcp.local.json`. Public workspace values are stored in `.mcp.json`.
 
@@ -393,8 +394,49 @@ p4_protects()                    // raw protection lines that apply
 These reads cover the common "why does user X keep getting logged out, and can
 they fix it themselves?" workflow end-to-end: resolve the login (`p4_users`),
 check existing groups (`p4_groups`), confirm the symptom (`p4_login_status`),
-and confirm who has `super` (`p4_protects`). The corresponding group/protection
-*writes* are intentionally not part of this tier.
+and confirm who has `super` (`p4_protects`).
+
+## Admin / Identity (write — opt-in)
+
+Disabled by default. Set `P4_ENABLE_ADMIN=true` to register these. They mutate
+**server-global** state and require `super` access; each runs a `p4 protects -m`
+capability pre-check first, so a non-super caller gets a clear
+"requires 'super'; your level is '<x>'" error instead of a raw permission
+failure mid-mutation.
+
+`p4_group_set` creates or modifies a group spec. It reads the current spec
+(or a fresh template for a new group), changes only the fields you pass, and
+writes it back via `p4 group -i` — `MaxResults` / `MaxScanRows` / `MaxLockTime`
+and any other fields are preserved. It **previews by default**; set
+`preview: false` to apply.
+
+Give a user a non-expiring ticket (the originating use case) — preview first:
+
+```text
+p4_group_set({ group: "keem_no_timeout", timeout: "unlimited", users: ["keem"] })
+```
+
+Apply it:
+
+```text
+p4_group_set({ group: "keem_no_timeout", timeout: "unlimited", users: ["keem"], preview: false })
+```
+
+`timeout` accepts `unlimited`, `unset`, or a positive integer of seconds.
+Prefer a long-but-finite value over `unlimited` when you can — a leaked ticket
+with `unlimited` never auto-expires:
+
+```text
+p4_group_set({ group: "keem_no_timeout", timeout: "1209600", preview: false })  // 2 weeks
+```
+
+`users` / `owners` / `subgroups`, when provided, **replace** that section's
+entire membership (they are not additive). Omit a section to leave it untouched.
+
+Protection-table writes (`p4 protect -i`) are intentionally **not** included:
+that command replaces the whole server protections table at once and needs a
+dedicated read-modify-write design to be safe. Tracked in
+`_handoffs/2026-05-29-perforce-admin-tier.md`.
 
 ## Verification
 

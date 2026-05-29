@@ -69,6 +69,28 @@ test("Perforce MCP server registers changelist and move tools", async () => {
     assert.ok(toolNames.includes("p4_group_info"));
     assert.ok(toolNames.includes("p4_login_status"));
     assert.ok(toolNames.includes("p4_protects"));
+    // Admin WRITE tools are opt-in — absent unless P4_ENABLE_ADMIN=true.
+    assert.ok(!toolNames.includes("p4_group_set"), "p4_group_set must NOT register by default");
+  } finally {
+    await client.close();
+  }
+});
+
+test("admin write tools register only when P4_ENABLE_ADMIN=true", async () => {
+  const client = new Client({ name: "perforce-server-admin-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["server.mjs"],
+    cwd: bridgeDir,
+    env: { ...buildSpawnEnv(), P4_ENABLE_ADMIN: "true" },
+    stderr: "pipe",
+  });
+
+  await client.connect(transport);
+  try {
+    const result = await client.listTools();
+    const toolNames = result.tools.map((tool) => tool.name);
+    assert.ok(toolNames.includes("p4_group_set"), "p4_group_set must register when admin writes enabled");
   } finally {
     await client.close();
   }
