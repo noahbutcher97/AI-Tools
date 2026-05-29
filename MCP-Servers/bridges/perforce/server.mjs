@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
-import { toolTextResult, toolErrorResult } from "../../lib/tool-result.mjs";
+import { toolTextResult, toolErrorResult, toolJsonResult } from "../../lib/tool-result.mjs";
 import {
   parseOpenedFiles,
   parseChangeSpecDescription,
@@ -31,6 +31,16 @@ import {
   buildReopenArgs,
   buildMoveArgs,
   buildChangesArgs,
+  parseUsersOutput,
+  parseGroupsOutput,
+  parseGroupSpec,
+  parseLoginStatus,
+  parseProtectsMax,
+  buildUsersArgs,
+  buildGroupsArgs,
+  buildGroupInfoArgs,
+  buildLoginStatusArgs,
+  buildProtectsArgs,
 } from "./parsers.mjs";
 
 // ───────────────────────────────────────────────────────────────────────
@@ -303,6 +313,113 @@ server.tool(
     + "Required `path` — `p4 have //depot/...` can return tens of thousands of lines; caller must scope.",
   { path: z.string().min(1).describe("Depot or local path to query.") },
   async ({ path }) => toolResult(p4(["have", path], { timeout: 60000 })),
+);
+
+// ───────────────────────────────────────────────────────────────────────
+// Admin / identity tier (read-only). Unlike every other tool here, these
+// report on the WHOLE Perforce server, not //P4DEPOT/... — so each response
+// is wrapped with scope:"server-global" (and a warning when unscoped) per the
+// scope-leak audit convention. The injected `-c P4CLIENT` is ignored by these
+// commands. See _handoffs/2026-05-29-perforce-admin-tier.md.
+// ───────────────────────────────────────────────────────────────────────
+
+server.tool(
+  "p4_users",
+  "List Perforce user accounts (`p4 users`). Resolves a display name/handle to "
+    + "the real login and shows email, full name, and last access. Omit `user` to "
+    + "list every account on the server (server-global). Pass one or more usernames "
+    + "to look up specific accounts.",
+  {
+    user: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe("Username or list of usernames to look up. Omit to list all users (server-wide)."),
+  },
+  async ({ user }) => {
+    const result = p4(buildUsersArgs({ user }));
+    if (!result.ok) return toolErrorResult(result.output);
+    const scoped = user === undefined || user === null || (Array.isArray(user) && user.length === 0);
+    return toolJsonResult({
+      scope: "server-global",
+      ...(scoped ? { warning: "No user filter — lists every account on the server." } : {}),
+      users: parseUsersOutput(result.output),
+    });
+  },
+);
+
+server.tool(
+  "p4_groups",
+  "List Perforce groups (`p4 groups`). Pass `user` to list that user's group "
+    + "memberships (answers 'is this user already in a no-timeout group?'); omit it "
+    + "to list every group on the server (server-global).",
+  {
+    user: z.string().optional().describe("List groups this user belongs to. Omit to list all groups (server-wide)."),
+  },
+  async ({ user }) => {
+    const result = p4(buildGroupsArgs({ user }));
+    if (!result.ok) return toolErrorResult(result.output);
+    const scoped = user === undefined || user === null || user === "";
+    return toolJsonResult({
+      scope: "server-global",
+      ...(scoped ? { warning: "No user filter — lists every group on the server." } : {}),
+      groups: parseGroupsOutput(result.output),
+    });
+  },
+);
+
+server.tool(
+  "p4_group_info",
+  "Read a Perforce group spec (`p4 group -o <name>`). Returns the group's "
+    + "Timeout (ticket lifetime), member Users/Owners/Subgroups, and resource "
+    + "limits (MaxResults/MaxScanRows/MaxLockTime — 'unset' means no limit). "
+    + "Read-only; does not create or modify the group.",
+  {
+    group: z.string().min(1).describe("Group name to read."),
+  },
+  async ({ group }) => {
+    const result = p4(buildGroupInfoArgs({ group }));
+    if (!result.ok) return toolErrorResult(result.output);
+    return toolJsonResult({ scope: "server-global", ...parseGroupSpec(result.output) });
+  },
+);
+
+server.tool(
+  "p4_login_status",
+  "Check Perforce login ticket status (`p4 login -s`). Reports whether the "
+    + "ticket is valid and roughly how long until it expires — the tool to reach "
+    + "for when a user reports being logged out / a recurring re-login 'cooldown'. "
+    + "Omit `user` for the connected account.",
+  {
+    user: z.string().optional().describe("Check this user's ticket (super access required for other users). Omit for the connected user."),
+  },
+  async ({ user }) => {
+    const result = p4(buildLoginStatusArgs({ user }));
+    // An expired/absent ticket exits non-zero; classify it rather than erroring,
+    // since "expired" is a valid, informative answer here.
+    const parsed = parseLoginStatus(result.output);
+    return toolJsonResult({ scope: "server-global", ...parsed });
+  },
+);
+
+server.tool(
+  "p4_protects",
+  "Inspect Perforce protections (`p4 protects`). With `max:true` returns the "
+    + "effective maximum access level (list/read/open/write/admin/super) — the "
+    + "capability probe that answers 'can this user perform an admin action "
+    + "themselves?'. Without `max`, returns the raw protection lines that apply. "
+    + "Targeting another `user` requires super access.",
+  {
+    max: z.boolean().optional().default(false).describe("Pass -m: return only the effective max access level."),
+    user: z.string().optional().describe("Report protections for this user (super access required). Omit for the connected user."),
+  },
+  async ({ max, user }) => {
+    const result = p4(buildProtectsArgs({ max, user }));
+    if (!result.ok) return toolErrorResult(result.output);
+    if (max) {
+      return toolJsonResult({ scope: "server-global", maxAccessLevel: parseProtectsMax(result.output) });
+    }
+    return toolJsonResult({ scope: "server-global", protections: result.output });
+  },
 );
 
 server.tool(

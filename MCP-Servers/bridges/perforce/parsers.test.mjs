@@ -33,6 +33,16 @@ import {
   buildReopenArgs,
   buildMoveArgs,
   buildChangesArgs,
+  parseUsersOutput,
+  parseGroupsOutput,
+  parseGroupSpec,
+  parseLoginStatus,
+  parseProtectsMax,
+  buildUsersArgs,
+  buildGroupsArgs,
+  buildGroupInfoArgs,
+  buildLoginStatusArgs,
+  buildProtectsArgs,
 } from "./parsers.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -992,5 +1002,157 @@ describe("buildChangesArgs", () => {
       buildChangesArgs({ max: 50, defaultUser: "me", depotRoot }),
       ["changes", "-s", "submitted", "-u", "me", "-m", "50", "//Depot/..."],
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Admin / identity tier (Phase 1)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("parseUsersOutput", () => {
+  it("parses standard user lines", () => {
+    const input = [
+      "keem <keem@example.com> (Keem Smith) accessed 2026/05/28 14:02:11",
+      "alice <alice@example.com> (Alice) accessed 2026/05/01",
+    ].join("\n");
+    assert.deepEqual(parseUsersOutput(input), [
+      { user: "keem", email: "keem@example.com", fullName: "Keem Smith", lastAccess: "2026/05/28 14:02:11" },
+      { user: "alice", email: "alice@example.com", fullName: "Alice", lastAccess: "2026/05/01" },
+    ]);
+  });
+
+  it("tolerates a sparse account with no email or full name", () => {
+    assert.deepEqual(parseUsersOutput("svc-bot accessed 2026/05/28"), [
+      { user: "svc-bot", email: null, fullName: null, lastAccess: "2026/05/28" },
+    ]);
+  });
+
+  it("returns [] on empty output", () => {
+    assert.deepEqual(parseUsersOutput(""), []);
+    assert.deepEqual(parseUsersOutput("   \n  "), []);
+  });
+});
+
+describe("parseGroupsOutput", () => {
+  it("parses one group name per line and trims blanks", () => {
+    assert.deepEqual(parseGroupsOutput("dev\nkeem_no_timeout\n\nadmins\n"), ["dev", "keem_no_timeout", "admins"]);
+  });
+
+  it("returns [] when the user is in no groups", () => {
+    assert.deepEqual(parseGroupsOutput(""), []);
+  });
+});
+
+describe("parseGroupSpec", () => {
+  it("parses timeout, members, and distinguishes unset limits", () => {
+    const spec = [
+      "# A Perforce Group Specification.",
+      "",
+      "Group:\tkeem_no_timeout",
+      "",
+      "Timeout:\tunlimited",
+      "",
+      "MaxResults:\tunset",
+      "MaxScanRows:\tunset",
+      "MaxLockTime:\tunset",
+      "",
+      "Owners:",
+      "\tadmin",
+      "",
+      "Users:",
+      "\tkeem",
+      "\talice",
+      "",
+      "Subgroups:",
+      "\tcontractors",
+    ].join("\n");
+    const parsed = parseGroupSpec(spec);
+    assert.equal(parsed.group, "keem_no_timeout");
+    assert.equal(parsed.timeout, "unlimited");
+    assert.equal(parsed.maxResults, "unset");
+    assert.deepEqual(parsed.users, ["keem", "alice"]);
+    assert.deepEqual(parsed.owners, ["admin"]);
+    assert.deepEqual(parsed.subgroups, ["contractors"]);
+  });
+
+  it("keeps a numeric timeout as a string and empty member lists empty", () => {
+    const spec = ["Group:\tdev", "Timeout:\t43200", "Users:"].join("\n");
+    const parsed = parseGroupSpec(spec);
+    assert.equal(parsed.timeout, "43200");
+    assert.deepEqual(parsed.users, []);
+  });
+});
+
+describe("parseLoginStatus", () => {
+  it("parses a valid ticket with hours and minutes", () => {
+    const r = parseLoginStatus("User keem ticket expires in 23 hours 59 minutes.");
+    assert.equal(r.user, "keem");
+    assert.equal(r.status, "valid");
+    assert.equal(r.expiresInSeconds, 23 * 3600 + 59 * 60);
+  });
+
+  it("parses a seconds-only ticket", () => {
+    const r = parseLoginStatus("User bob ticket expires in 45 seconds.");
+    assert.equal(r.status, "valid");
+    assert.equal(r.expiresInSeconds, 45);
+  });
+
+  it("classifies an expired session", () => {
+    const r = parseLoginStatus("Your session has expired, please login again.");
+    assert.equal(r.status, "expired");
+    assert.equal(r.expiresInSeconds, null);
+  });
+
+  it("classifies a missing/unset password ticket", () => {
+    const r = parseLoginStatus("Perforce password (P4PASSWD) invalid or unset.");
+    assert.equal(r.status, "expired");
+  });
+});
+
+describe("parseProtectsMax", () => {
+  it("recognizes valid access levels", () => {
+    assert.equal(parseProtectsMax("super\n"), "super");
+    assert.equal(parseProtectsMax("write"), "write");
+    assert.equal(parseProtectsMax("LIST"), "list");
+  });
+
+  it("returns null for non-level output", () => {
+    assert.equal(parseProtectsMax("You don't have permission."), null);
+    assert.equal(parseProtectsMax(""), null);
+  });
+});
+
+describe("admin arg builders", () => {
+  it("buildUsersArgs: no filter, single, and array", () => {
+    assert.deepEqual(buildUsersArgs({}), ["users"]);
+    assert.deepEqual(buildUsersArgs({ user: "keem" }), ["users", "keem"]);
+    assert.deepEqual(buildUsersArgs({ user: ["keem", "alice"] }), ["users", "keem", "alice"]);
+  });
+
+  it("buildGroupsArgs: optional user", () => {
+    assert.deepEqual(buildGroupsArgs({}), ["groups"]);
+    assert.deepEqual(buildGroupsArgs({ user: "keem" }), ["groups", "keem"]);
+  });
+
+  it("buildGroupInfoArgs: requires a name", () => {
+    assert.deepEqual(buildGroupInfoArgs({ group: "keem_no_timeout" }), ["group", "-o", "keem_no_timeout"]);
+    assert.throws(() => buildGroupInfoArgs({ group: "" }), /required/);
+  });
+
+  it("buildLoginStatusArgs: optional user", () => {
+    assert.deepEqual(buildLoginStatusArgs({}), ["login", "-s"]);
+    assert.deepEqual(buildLoginStatusArgs({ user: "keem" }), ["login", "-s", "keem"]);
+  });
+
+  it("buildProtectsArgs: max and user flags", () => {
+    assert.deepEqual(buildProtectsArgs({}), ["protects"]);
+    assert.deepEqual(buildProtectsArgs({ max: true }), ["protects", "-m"]);
+    assert.deepEqual(buildProtectsArgs({ max: true, user: "keem" }), ["protects", "-m", "-u", "keem"]);
+  });
+
+  it("rejects names that could be parsed as flags or contain whitespace", () => {
+    assert.throws(() => buildUsersArgs({ user: "-d" }), /must not start with '-'/);
+    assert.throws(() => buildGroupsArgs({ user: "a b" }), /whitespace/);
+    assert.throws(() => buildProtectsArgs({ user: "-f" }), /must not start with '-'/);
   });
 });

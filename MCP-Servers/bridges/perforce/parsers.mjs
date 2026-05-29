@@ -352,3 +352,166 @@ export function buildMoveArgs({ source, target, changelist = undefined, preview 
   args.push(validatePath(source, "Source"), validatePath(target, "Target"));
   return args;
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// Admin / identity tier (Phase 1, read-only). See
+// _handoffs/2026-05-29-perforce-admin-tier.md. These commands report on the
+// whole Perforce server, not //P4DEPOT/... — callers wrap results with a
+// `scope: "server-global"` field per the scope-leak audit convention.
+// ───────────────────────────────────────────────────────────────────────
+
+// Guard a Perforce user/group identifier. Rejects empty strings and anything
+// starting with '-' so a caller-supplied name can never be parsed by p4 as a
+// flag (e.g. a "user" named "-d"). Perforce names don't contain whitespace.
+function validateName(value, label) {
+  const name = String(value ?? "").trim();
+  if (name.length === 0) throw new Error(`${label} is required.`);
+  if (name.startsWith("-")) throw new Error(`Invalid ${label} '${name}': must not start with '-'.`);
+  if (/\s/.test(name)) throw new Error(`Invalid ${label} '${name}': must not contain whitespace.`);
+  return name;
+}
+
+// `p4 users [user...]` — one record per line:
+//   <user> <email> (<Full Name>) accessed YYYY/MM/DD HH:MM:SS
+// Email and full name can be absent on sparse/service accounts, so each field
+// is matched independently rather than as one rigid line pattern.
+export function parseUsersOutput(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const user = line.split(/\s+/)[0] || null;
+      const emailMatch = line.match(/<([^>]*)>/);
+      const fullNameMatch = line.match(/\(([^)]*)\)/);
+      const accessedMatch = line.match(/accessed\s+(\d{4}\/\d{2}\/\d{2}(?:\s+\d{2}:\d{2}:\d{2})?)/);
+      return {
+        user,
+        email: emailMatch ? emailMatch[1] : null,
+        fullName: fullNameMatch ? fullNameMatch[1] : null,
+        lastAccess: accessedMatch ? accessedMatch[1] : null,
+      };
+    });
+}
+
+// `p4 groups [user]` prints one group name per line.
+export function parseGroupsOutput(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+// Parse a `p4 group -o <name>` form spec. Reuses the same tab-indented-block
+// rules as parseChangeSpecDescription: a section header is an un-indented
+// "Word:" line; its body is the tab-indented lines beneath it. List sections
+// (Users/Owners/Subgroups) collect their indented members; scalar sections
+// (Timeout/MaxResults/…) take the inline value after the colon. Numeric limit
+// fields are left as their raw string ('unset' vs a number) so a future writer
+// can distinguish "no limit imposed" from a real value.
+export function parseGroupSpec(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const scalars = {
+    Group: "group",
+    Timeout: "timeout",
+    PasswordTimeout: "passwordTimeout",
+    MaxResults: "maxResults",
+    MaxScanRows: "maxScanRows",
+    MaxLockTime: "maxLockTime",
+    MaxOpenFiles: "maxOpenFiles",
+  };
+  const lists = { Users: "users", Owners: "owners", Subgroups: "subgroups" };
+  const out = { group: null, timeout: null, maxResults: null, maxScanRows: null, maxLockTime: null, users: [], owners: [], subgroups: [] };
+
+  let currentList = null;
+  for (const line of lines) {
+    if (/^#/.test(line) || line.trim() === "") continue;
+    const headerMatch = line.match(/^([A-Za-z][A-Za-z]*):\s*(.*)$/);
+    if (headerMatch && !line.startsWith("\t")) {
+      const [, header, inline] = headerMatch;
+      if (Object.prototype.hasOwnProperty.call(scalars, header)) {
+        currentList = null;
+        const value = inline.trim();
+        out[scalars[header]] = value.length ? value : null;
+      } else if (Object.prototype.hasOwnProperty.call(lists, header)) {
+        currentList = lists[header];
+        // A member can appear inline on the header line (rare) or below it.
+        if (inline.trim().length) out[currentList].push(inline.trim());
+      } else {
+        currentList = null;
+      }
+      continue;
+    }
+    // Indented continuation line → a member of the current list section.
+    if (currentList && line.startsWith("\t")) {
+      const member = line.trim();
+      if (member.length) out[currentList].push(member);
+    }
+  }
+  return out;
+}
+
+// `p4 login -s` reports ticket state. Valid:
+//   "User <u> ticket expires in NNN hours MM minutes."  (or "NNN seconds.")
+// Unlimited-timeout groups can yield a very large value; an expired or
+// absent ticket comes back as an error string we classify rather than throw on.
+export function parseLoginStatus(text) {
+  const raw = String(text || "").trim();
+  const userMatch = raw.match(/User\s+(\S+)\s+ticket/);
+  const user = userMatch ? userMatch[1] : null;
+
+  if (/expired|invalid or unset|not logged in|Perforce password/i.test(raw)) {
+    return { user, status: "expired", expiresInSeconds: null, raw };
+  }
+
+  // Sum any "N hours", "M minutes", "S seconds" present after "expires in".
+  const expiresMatch = raw.match(/expires in (.+?)\.?$/i);
+  if (expiresMatch) {
+    const span = expiresMatch[1];
+    const hours = Number((span.match(/(\d+)\s*hours?/i) || [])[1] || 0);
+    const minutes = Number((span.match(/(\d+)\s*minutes?/i) || [])[1] || 0);
+    const seconds = Number((span.match(/(\d+)\s*seconds?/i) || [])[1] || 0);
+    const total = hours * 3600 + minutes * 60 + seconds;
+    return { user, status: "valid", expiresInSeconds: total || null, raw };
+  }
+
+  return { user, status: "unknown", expiresInSeconds: null, raw };
+}
+
+// `p4 protects -m` prints a single bare access-level token. Returns the
+// recognized level, or null if the output isn't one (e.g. an error).
+const PROTECT_LEVELS = ["super", "admin", "write", "open", "read", "list"];
+export function parseProtectsMax(text) {
+  const token = String(text || "").trim().toLowerCase();
+  return PROTECT_LEVELS.includes(token) ? token : null;
+}
+
+export function buildUsersArgs({ user = undefined } = {}) {
+  const args = ["users"];
+  const names = user === undefined || user === null ? [] : Array.isArray(user) ? user : [user];
+  for (const n of names) args.push(validateName(n, "user"));
+  return args;
+}
+
+export function buildGroupsArgs({ user = undefined } = {}) {
+  const args = ["groups"];
+  if (user !== undefined && user !== null && user !== "") args.push(validateName(user, "user"));
+  return args;
+}
+
+export function buildGroupInfoArgs({ group }) {
+  return ["group", "-o", validateName(group, "group")];
+}
+
+export function buildLoginStatusArgs({ user = undefined } = {}) {
+  const args = ["login", "-s"];
+  if (user !== undefined && user !== null && user !== "") args.push(validateName(user, "user"));
+  return args;
+}
+
+export function buildProtectsArgs({ max = false, user = undefined } = {}) {
+  const args = ["protects"];
+  if (max) args.push("-m");
+  if (user !== undefined && user !== null && user !== "") args.push("-u", validateName(user, "user"));
+  return args;
+}
