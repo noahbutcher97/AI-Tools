@@ -41,6 +41,7 @@ import {
   buildGroupInfoArgs,
   buildLoginStatusArgs,
   buildProtectsArgs,
+  applyGroupSpecChanges,
 } from "./parsers.mjs";
 
 // ───────────────────────────────────────────────────────────────────────
@@ -57,6 +58,9 @@ const P4CLIENT = process.env.P4CLIENT;
 const P4DEPOT = process.env.P4DEPOT;
 const P4_BASE_ARGS = ["-p", P4PORT, "-u", P4USER, "-c", P4CLIENT];
 const DEPOT_ROOT = `//${P4DEPOT}/...`;
+// Admin WRITE tools are opt-in: they mutate server-global state and require
+// `super`. Default install stays workspace-scoped. See manifest P4_ENABLE_ADMIN.
+const ADMIN_WRITES_ENABLED = String(process.env.P4_ENABLE_ADMIN || "").trim().toLowerCase() === "true";
 
 // ───────────────────────────────────────────────────────────────────────
 // Auto-login if P4PASSWD is set
@@ -1161,6 +1165,99 @@ server.tool(
   },
 );
 
+// ───────────────────────────────────────────────────────────────────────
+// Admin / identity tier (WRITE) — opt-in via P4_ENABLE_ADMIN. These mutate
+// server-global state and require `super`. Each writer first runs a capability
+// pre-check so a non-super caller gets a clear, structured error instead of a
+// raw p4 permission failure mid-mutation.
+// ───────────────────────────────────────────────────────────────────────
+
+// Returns { ok: true, level } when the connected user has `super`, else
+// { ok: false, ... } describing why. Used to gate global-mutation tools.
+function requireSuper() {
+  const result = p4(buildProtectsArgs({ max: true }));
+  if (!result.ok) {
+    return { ok: false, reason: "protects-failed", detail: result.output };
+  }
+  const level = parseProtectsMax(result.output);
+  if (level !== "super") {
+    return { ok: false, reason: "insufficient", level };
+  }
+  return { ok: true, level };
+}
+
+if (ADMIN_WRITES_ENABLED) {
+  server.tool(
+    "p4_group_set",
+    "Create or modify a Perforce group spec (`p4 group -i`). Server-global write; "
+      + "requires `super` access (pre-checked). Reads the current spec, changes only "
+      + "the fields you pass, and writes it back — other fields (MaxResults, "
+      + "MaxScanRows, MaxLockTime, etc.) are preserved. `timeout` accepts 'unlimited', "
+      + "'unset', or a positive integer of seconds. `users`/`owners`/`subgroups`, when "
+      + "given, REPLACE that section's entire membership. Defaults to preview (`-o` "
+      + "read-back of the would-be spec) — set preview:false to apply.",
+    {
+      group: z.string().min(1).describe("Group name to create or modify."),
+      timeout: z
+        .string()
+        .optional()
+        .describe("Ticket lifetime: 'unlimited', 'unset', or positive integer seconds (e.g. '1209600' = 2 weeks)."),
+      users: z.array(z.string()).optional().describe("Replace the group's Users list with exactly these."),
+      owners: z.array(z.string()).optional().describe("Replace the group's Owners list with exactly these."),
+      subgroups: z.array(z.string()).optional().describe("Replace the group's Subgroups list with exactly these."),
+      preview: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe("Preview the resulting spec without writing (default true). Set false to apply."),
+    },
+    async ({ group, timeout, users, owners, subgroups, preview }) => {
+      if (timeout === undefined && users === undefined && owners === undefined && subgroups === undefined) {
+        return toolErrorResult("Nothing to change: provide at least one of timeout, users, owners, subgroups.");
+      }
+      const cap = requireSuper();
+      if (!cap.ok) {
+        if (cap.reason === "insufficient") {
+          return toolErrorResult(
+            `p4_group_set requires 'super' access; your effective level is '${cap.level ?? "unknown"}'. `
+              + "Ask a Perforce admin to make this change.",
+          );
+        }
+        return toolErrorResult(`Could not verify access level (p4 protects -m failed): ${cap.detail}`);
+      }
+
+      // Read the current spec (or a fresh template for a new group), apply the
+      // requested changes to that text, and either preview or pipe it back.
+      const read = p4(buildGroupInfoArgs({ group }));
+      if (!read.ok) return toolErrorResult(read.output);
+
+      let updatedSpec;
+      try {
+        updatedSpec = applyGroupSpecChanges(read.output, { timeout, users, owners, subgroups });
+      } catch (e) {
+        return toolErrorResult(e.message);
+      }
+
+      if (preview) {
+        return toolJsonResult({
+          scope: "server-global",
+          preview: true,
+          group,
+          spec: updatedSpec,
+          note: "Preview only — no change written. Set preview:false to apply.",
+        });
+      }
+
+      const write = p4(["group", "-i"], { input: updatedSpec });
+      if (!write.ok) return toolErrorResult(write.output);
+      return toolJsonResult({ scope: "server-global", preview: false, group, result: write.output });
+    },
+  );
+}
+
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error(`[perforce-bridge] running ${P4USER}@${P4PORT} client=${P4CLIENT} depot=//${P4DEPOT}/...`);
+console.error(
+  `[perforce-bridge] running ${P4USER}@${P4PORT} client=${P4CLIENT} depot=//${P4DEPOT}/...`
+    + ` adminWrites=${ADMIN_WRITES_ENABLED ? "on" : "off"}`,
+);

@@ -2,7 +2,8 @@
 
 **Date**: 2026-05-29
 **Bridge/Scope**: `MCP-Servers/bridges/perforce/` (server.mjs, parsers.mjs, README.md)
-**Status**: Phase 1 implemented (2026-05-29) / Phase 2 deferred
+**Status**: Phase 1 implemented (2026-05-29) / Phase 2 partial: `p4_group_set`
+implemented (2026-05-29), `p4_protect_set` deferred (see below)
 **Severity**: Low — additive feature work, no existing behavior changes. The
 risk to manage is *information disclosure* (server-global reads) and, in the
 deferred Phase 2, *global state mutation*.
@@ -142,3 +143,43 @@ shell `p4 protects -m` before mutating, fail fast with a structured
 - `MaxResults`/`MaxScanRows`/`MaxLockTime` on a group spec default to `unset` —
   the group parser must distinguish `unset` (blank, no limit imposed) from a
   numeric value, so a future writer doesn't accidentally impose query limits.
+
+## Phase 2 — implemented (2026-05-29)
+
+**Gating decision made: opt-in manifest flag.** New manifest field
+`P4_ENABLE_ADMIN` (default `"false"`). Admin WRITE tools register only when it
+resolves to `"true"`. Default install stays workspace-scoped. Verified by two
+spawn tests in `server.test.mjs` (absent by default; present with the flag).
+
+**`p4_group_set` — done.** `server.mjs`, gated by `ADMIN_WRITES_ENABLED`.
+- Capability pre-check: `requireSuper()` runs `p4 protects -m` and returns a
+  structured refusal (`insufficient` / `protects-failed`) before any mutation.
+- Read-modify-write: reads `p4 group -o <name>` (template for new groups),
+  applies only requested fields via `applyGroupSpecChanges` (parsers.mjs),
+  preserves Max* and all other fields, writes via `p4 group -i`.
+- `preview: true` default → returns the would-be spec without writing.
+- Parsers: `validateGroupTimeout` (unlimited/unset/positive-int) and
+  `applyGroupSpecChanges` (scalar + list-section replace), unit-tested.
+- Member names validated against flag-injection (reuses `validateName`).
+
+**`p4_protect_set` — deferred, NOT implemented.** Rationale: `p4 protect -i`
+has no incremental form — it replaces the *entire* server protections table in
+one write. A naive wrapper is a genuine lock-everyone-out foot-gun. A safe
+version needs: read current table (`p4 protect -o`), a structured
+add/remove/modify-line model layered on the raw spec, a mandatory preview diff,
+and arguably a stricter gate than `p4_group_set` (e.g. refuse to remove the
+caller's own `super` line). Design this deliberately; do not rush it onto the
+back of the group writer.
+
+## Verification (Phase 2)
+
+1. `npm test` from the bridge dir → 129 pass (incl. the two gating spawn tests
+   and the `validateGroupTimeout` / `applyGroupSpecChanges` unit tests).
+2. `node --check server.mjs parsers.mjs`.
+3. Live (needs a super-access P4 connection):
+   - With `P4_ENABLE_ADMIN` unset → `p4_group_set` is not in the tool list.
+   - With it `true` and a non-super user → `p4_group_set` returns the
+     "requires 'super'" refusal without writing.
+   - With super → `p4_group_set({ group, timeout: "unlimited", users:[...] })`
+     previews the spec; `preview:false` applies it; re-read with
+     `p4_group_info` to confirm.

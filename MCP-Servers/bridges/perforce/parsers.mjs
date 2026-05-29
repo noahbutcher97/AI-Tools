@@ -515,3 +515,105 @@ export function buildProtectsArgs({ max = false, user = undefined } = {}) {
   if (user !== undefined && user !== null && user !== "") args.push("-u", validateName(user, "user"));
   return args;
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// Admin / identity tier (Phase 2, WRITE). Gated behind P4_ENABLE_ADMIN and a
+// runtime `super` capability pre-check in the server. These mutate
+// server-global state. See _handoffs/2026-05-29-perforce-admin-tier.md.
+// ───────────────────────────────────────────────────────────────────────
+
+// A group Timeout is one of: 'unlimited', 'unset', or a positive integer
+// (seconds). Returned as a normalized string for direct substitution into a
+// spec. Rejects anything else so a typo can't write a garbage spec.
+export function validateGroupTimeout(value) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "unlimited" || v === "unset") return v;
+  if (/^\d+$/.test(v)) {
+    if (Number(v) <= 0) throw new Error(`Invalid timeout '${value}': seconds must be a positive integer.`);
+    return v;
+  }
+  throw new Error(`Invalid timeout '${value}': expected 'unlimited', 'unset', or a positive integer (seconds).`);
+}
+
+// Read-modify-write a `p4 group -o` spec. Only the provided fields are touched;
+// every other line (MaxResults/MaxScanRows/MaxLockTime, comments, etc.) is
+// preserved verbatim. `timeout` is a scalar replace; `users`/`owners`/
+// `subgroups` replace the entire membership of their section. This is safer
+// than serializing a spec from scratch — unspecified server-managed fields
+// can't be accidentally cleared or capped.
+export function applyGroupSpecChanges(specText, { timeout, users, owners, subgroups } = {}) {
+  let lines = String(specText || "").split(/\r?\n/);
+
+  if (timeout !== undefined && timeout !== null && timeout !== "") {
+    const normalized = validateGroupTimeout(timeout);
+    lines = replaceScalarField(lines, "Timeout", normalized);
+  }
+  const listEdits = [
+    ["Users", users],
+    ["Owners", owners],
+    ["Subgroups", subgroups],
+  ];
+  for (const [header, members] of listEdits) {
+    if (members !== undefined && members !== null) {
+      if (!Array.isArray(members)) throw new Error(`${header} must be an array of names.`);
+      const validated = members.map((m) => validateName(m, header.replace(/s$/, "").toLowerCase()));
+      lines = replaceListSection(lines, header, validated);
+    }
+  }
+  return lines.join("\n");
+}
+
+// Replace the inline value of an un-indented "Header:\tvalue" line. If the
+// field is absent, appends it (p4 group templates always include Timeout, but
+// this keeps the helper general).
+function replaceScalarField(lines, header, value) {
+  const re = new RegExp(`^${header}:`);
+  const out = [];
+  let replaced = false;
+  for (const line of lines) {
+    if (!replaced && re.test(line) && !line.startsWith("\t")) {
+      out.push(`${header}:\t${value}`);
+      replaced = true;
+    } else {
+      out.push(line);
+    }
+  }
+  if (!replaced) out.push(`${header}:\t${value}`);
+  return out;
+}
+
+// Replace an entire list section's members. Drops the old tab-indented body
+// after the "Header:" line (up to the next un-indented section header) and
+// writes the new members. Appends the section if absent.
+function replaceListSection(lines, header, members) {
+  const re = new RegExp(`^${header}:`);
+  const out = [];
+  let i = 0;
+  let handled = false;
+  while (i < lines.length) {
+    if (!handled && re.test(lines[i]) && !lines[i].startsWith("\t")) {
+      out.push(`${header}:`);
+      for (const m of members) out.push(`\t${m}`);
+      i++;
+      // Skip the existing indented body (and the blank lines within it).
+      while (i < lines.length && (lines[i].startsWith("\t") || lines[i].trim() === "")) {
+        // Stop if a blank line is immediately followed by a new section header,
+        // so we don't swallow the separator before the next section.
+        if (lines[i].trim() === "") {
+          const next = lines[i + 1];
+          if (next === undefined || (/^[A-Za-z][A-Za-z]*:/.test(next) && !next.startsWith("\t"))) break;
+        }
+        i++;
+      }
+      handled = true;
+      continue;
+    }
+    out.push(lines[i]);
+    i++;
+  }
+  if (!handled) {
+    out.push(`${header}:`);
+    for (const m of members) out.push(`\t${m}`);
+  }
+  return out;
+}

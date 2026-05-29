@@ -58,6 +58,19 @@
         "Only paste here if you want the bridge to auto-login on startup.",
         "Bridge will use this to run 'p4 login' on first start, then rely on the ticket."
       ]
+    },
+    {
+      "name": "P4_ENABLE_ADMIN",
+      "label": "Enable admin write tools (optional)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "default": "false",
+      "instructions": [
+        "Set to 'true' to register server-global admin WRITE tools (e.g. p4_group_set).",
+        "Leave 'false' (default) for a workspace-scoped install — admin writers stay hidden.",
+        "These tools mutate server-wide state and require 'super' access to actually run."
+      ]
     }
   ],
   "autoDetect": {

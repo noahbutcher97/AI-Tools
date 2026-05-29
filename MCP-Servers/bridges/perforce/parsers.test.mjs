@@ -43,6 +43,8 @@ import {
   buildGroupInfoArgs,
   buildLoginStatusArgs,
   buildProtectsArgs,
+  validateGroupTimeout,
+  applyGroupSpecChanges,
 } from "./parsers.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -1154,5 +1156,96 @@ describe("admin arg builders", () => {
     assert.throws(() => buildUsersArgs({ user: "-d" }), /must not start with '-'/);
     assert.throws(() => buildGroupsArgs({ user: "a b" }), /whitespace/);
     assert.throws(() => buildProtectsArgs({ user: "-f" }), /must not start with '-'/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Admin / identity tier (Phase 2, write)
+// ─────────────────────────────────────────────────────────────────────────
+
+describe("validateGroupTimeout", () => {
+  it("accepts the keyword forms", () => {
+    assert.equal(validateGroupTimeout("unlimited"), "unlimited");
+    assert.equal(validateGroupTimeout("UNSET"), "unset");
+  });
+
+  it("accepts a positive integer of seconds", () => {
+    assert.equal(validateGroupTimeout("1209600"), "1209600");
+  });
+
+  it("rejects zero, negatives, and junk", () => {
+    assert.throws(() => validateGroupTimeout("0"), /positive integer/);
+    assert.throws(() => validateGroupTimeout("-5"), /expected/);
+    assert.throws(() => validateGroupTimeout("forever"), /expected/);
+    assert.throws(() => validateGroupTimeout(""), /expected/);
+  });
+});
+
+describe("applyGroupSpecChanges", () => {
+  const TEMPLATE = [
+    "# A Perforce Group Specification.",
+    "",
+    "Group:\tkeem_no_timeout",
+    "",
+    "MaxResults:\tunset",
+    "MaxScanRows:\tunset",
+    "MaxLockTime:\tunset",
+    "Timeout:\t43200",
+    "PasswordTimeout:\tunset",
+    "",
+    "Owners:",
+    "",
+    "Users:",
+    "\tkeem",
+    "",
+    "Subgroups:",
+  ].join("\n");
+
+  it("replaces only Timeout and preserves Max* fields", () => {
+    const out = applyGroupSpecChanges(TEMPLATE, { timeout: "unlimited" });
+    assert.match(out, /^Timeout:\tunlimited$/m);
+    assert.match(out, /^MaxResults:\tunset$/m);
+    assert.match(out, /^MaxScanRows:\tunset$/m);
+    // Existing membership untouched when users not passed.
+    assert.match(out, /^Users:\n\tkeem$/m);
+  });
+
+  it("normalizes a numeric timeout through validation", () => {
+    const out = applyGroupSpecChanges(TEMPLATE, { timeout: "1209600" });
+    assert.match(out, /^Timeout:\t1209600$/m);
+  });
+
+  it("replaces the Users section wholesale", () => {
+    const out = applyGroupSpecChanges(TEMPLATE, { users: ["keem", "alice"] });
+    const lines = out.split("\n");
+    const usersIdx = lines.indexOf("Users:");
+    assert.equal(lines[usersIdx + 1], "\tkeem");
+    assert.equal(lines[usersIdx + 2], "\talice");
+    // Subgroups header still present after the replaced section.
+    assert.match(out, /^Subgroups:$/m);
+  });
+
+  it("fills an empty section (Owners) without eating the next section", () => {
+    const out = applyGroupSpecChanges(TEMPLATE, { owners: ["admin"] });
+    const lines = out.split("\n");
+    const ownersIdx = lines.indexOf("Owners:");
+    assert.equal(lines[ownersIdx + 1], "\tadmin");
+    // Users section must survive intact.
+    assert.match(out, /^Users:\n\tkeem$/m);
+  });
+
+  it("can change timeout and membership together", () => {
+    const out = applyGroupSpecChanges(TEMPLATE, { timeout: "unlimited", users: ["keem"] });
+    assert.match(out, /^Timeout:\tunlimited$/m);
+    assert.match(out, /^Users:\n\tkeem$/m);
+  });
+
+  it("rejects an invalid timeout and a non-array member list", () => {
+    assert.throws(() => applyGroupSpecChanges(TEMPLATE, { timeout: "soon" }), /expected/);
+    assert.throws(() => applyGroupSpecChanges(TEMPLATE, { users: "keem" }), /must be an array/);
+  });
+
+  it("rejects member names that look like flags", () => {
+    assert.throws(() => applyGroupSpecChanges(TEMPLATE, { users: ["-d"] }), /must not start with '-'/);
   });
 });
