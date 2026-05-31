@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "1.0",
+  "name": "otter",
+  "displayName": "Otter.ai",
+  "description": "Otter.ai Enterprise Public API bridge for workspace, channel, conversation, transcript, and audio-link retrieval.",
+  "version": "1.0.0",
+  "main": "server.mjs",
+  "package": "package.json",
+  "fields": [
+    {
+      "name": "OTTER_API_KEY",
+      "label": "Otter.ai API key",
+      "type": "string",
+      "secret": true,
+      "required": true,
+      "openUrl": "https://otter.ai/settings/integrations/developer",
+      "instructions": [
+        "Otter Public API is available for Enterprise workspaces.",
+        "Open Otter, go to Integrations, then Developer, create an API key, copy it once, and paste it here."
+      ]
+    }
+  ],
+  "validate": {
+    "type": "http",
+    "url": "https://api.otter.ai/v1/workspace",
+    "method": "GET",
+    "auth": { "type": "bearer", "token": "{OTTER_API_KEY}" },
+    "expectStatus": 200,
+    "successMessage": "Authenticated Otter workspace: {response.data.name}.",
+    "errorHints": {
+      "401": "API key rejected. Create a fresh Otter Developer API key and paste it again.",
+      "403": "API key authenticated but the workspace may not have Enterprise/Public API access.",
+      "404": "Authenticated user is not in an Otter workspace, or the Public API endpoint is unavailable for this account.",
+      "429": "Otter rate limit hit. Enterprise API is currently limited to 10 requests per second."
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "otter-bridge-mcp",
+  "version": "1.0.0",
+  "description": "Otter.ai MCP bridge for Enterprise Public API meeting data",
+  "type": "module",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

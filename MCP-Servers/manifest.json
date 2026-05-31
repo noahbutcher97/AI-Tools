@@ -21,6 +21,16 @@
       "summary": "Whiteboard board + item operations as MCP tools.",
       "source": { "type": "co-located", "path": "bridges/miro" }
     },
+    "discord": {
+      "displayName": "Discord",
+      "summary": "Discord guild, channel, and message operations as MCP tools.",
+      "source": { "type": "co-located", "path": "bridges/discord" }
+    },
+    "otter": {
+      "displayName": "Otter.ai",
+      "summary": "Otter.ai workspace, channel, conversation, transcript, and audio-link operations as MCP tools.",
+      "source": { "type": "co-located", "path": "bridges/otter" }
+    },
     "uemcp": {
       "displayName": "Unreal Engine MCP (UEMCP)",
       "summary": "Unreal editor automation. Requires UE editor running.",

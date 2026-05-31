@@ -4,7 +4,7 @@ Central installer + curated MCP bridges for Claude Code and Cowork.
 
 ## What this is
 
-A small installer (`installer/install.bat`) that lets you opt in to one or
+A small installer (`Installers/MCP-Suite/Install-MCP-Suite.bat`) that lets you opt in to one or
 more MCP "bridges" for any project workspace on your machine. Each bridge is
 a self-contained Node script that exposes external services (Perforce, Jira,
 Miro, Unreal Engine) as MCP tools that Claude can call.
@@ -21,7 +21,7 @@ The installer handles:
 
 1. Download the installer bundle (one zip from the latest GitHub release)
 2. Unzip anywhere
-3. Double-click `install.bat`
+3. Double-click `Install-MCP-Suite.bat`
 4. Pick your workspace folder, choose which bridges to enable, paste tokens
    when prompted
 
@@ -32,20 +32,27 @@ that workspace folder.
 
 | Bridge | What it does |
 |---|---|
-| `perforce` | p4 commands as MCP tools (list opened files, sync, describe, etc.) |
+| `perforce` | p4 commands as MCP tools (opened files, numbered CLs, reconcile, move, submit, etc.) |
 | `atlassian` | Jira + Confluence operations |
 | `miro` | Miro whiteboard boards + items |
+| `discord` | Discord guild, channel, and message operations through a bot token |
+| `otter` | Otter.ai Enterprise Public API meeting data, transcripts, action items, insights, and audio links |
 | `uemcp` | Unreal Engine editor automation (UE 5.x) |
+
+`otter` uses Otter.ai's Enterprise Public API and requires API-key access in
+the Otter workspace. Otter's hosted OAuth MCP endpoint (`https://mcp.otter.ai/mcp`)
+is a separate remote-MCP option for clients that support remote MCP directly;
+this repository's bridge is the local stdio, installer-managed option.
 
 ## Repo layout
 
 ```
 manifest.json                    # catalog of available bridges
-installer/                       # the central installer
-  install.bat / install.ps1
-  install.mjs                    # orchestration
-  _lib/                          # installer-only helpers
-_shared/                         # runtime helpers used by bridge servers
+Installers/MCP-Suite/            # the central installer
+  Install-MCP-Suite.bat
+  Update-MCP-Suite.bat
+  Scripts/install.mjs            # orchestration
+MCP-Servers/lib/                 # runtime helpers used by bridge servers
   resolve-config.mjs             # 3-tier .mcp.json / env var resolution
   bridge-base.mjs                # standardized bridge config loader
 bridges/
@@ -53,6 +60,7 @@ bridges/
     manifest.json                # bridge metadata (fields, validation, etc.)
     server.mjs                   # the bridge runtime
     package.json
+    README.md                    # Perforce setup and changelist workflow notes
     credentials/                 # bridge-specific credential flows
   atlassian/
   miro/
@@ -84,7 +92,8 @@ moves on.
 
 The installer checks GitHub for newer releases at most once per 24 hours.
 When found, it prompts before swapping caches — never auto-updates without
-your consent. Force a check with `install.bat --update`.
+your consent. Force a check with `Update-MCP-Suite.bat`.
 
-Optional: `install.bat --enable-update-checks` writes a Claude Code SessionStart
+Optional: `node Installers/MCP-Suite/Scripts/install.mjs --enable-update-checks`
+writes a Claude Code SessionStart
 hook that prints a one-line notice when a newer release is available.

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0",
+  "name": "discord",
+  "displayName": "Discord",
+  "description": "Discord bot-token bridge for guild, channel, and message operations.",
+  "version": "1.0.0",
+  "main": "server.mjs",
+  "package": "package.json",
+  "fields": [
+    {
+      "name": "DISCORD_BOT_TOKEN",
+      "label": "Discord bot token",
+      "type": "string",
+      "secret": true,
+      "required": true,
+      "openUrl": "https://discord.com/developers/applications",
+      "instructions": [
+        "Create or open a Discord application, add a bot user, reset/copy the bot token, and invite the bot to the target server.",
+        "Grant the bot only the permissions it needs: View Channels, Read Message History, Send Messages, and any thread permissions you choose to add later."
+      ]
+    },
+    {
+      "name": "DISCORD_ALLOWED_GUILD_IDS",
+      "label": "Allowed Discord guild IDs (optional comma-separated allowlist)",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "instructions": [
+        "Optional safety allowlist. When set, tools refuse guild-scoped operations outside these guild IDs."
+      ],
+      "examplePlaceholder": "123456789012345678,234567890123456789"
+    }
+  ],
+  "validate": {
+    "type": "http",
+    "url": "https://discord.com/api/v10/users/@me",
+    "method": "GET",
+    "auth": { "type": "header", "header": "Authorization", "value": "Bot {DISCORD_BOT_TOKEN}" },
+    "expectStatus": 200,
+    "successMessage": "Authenticated Discord bot as {response.username} ({response.id}).",
+    "errorHints": {
+      "401": "Token rejected. Make sure this is a Bot token, not an OAuth user token or client secret.",
+      "403": "Token authenticated but cannot access this endpoint. Check bot configuration.",
+      "429": "Discord rate-limited validation. Wait for Retry-After and try again."
+    }
+  }
+}

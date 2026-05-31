@@ -704,13 +704,11 @@ function interpolate(template, values) {
 
 async function validateHttp(v, allValues) {
   const url = interpolate(v.url, allValues);
-  const headers = { Accept: "application/json" };
-  if (v.auth?.type === "basic") {
-    const user = interpolate(v.auth.user, allValues);
-    const pass = interpolate(v.auth.pass, allValues);
-    headers.Authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
-  } else if (v.auth?.type === "bearer") {
-    headers.Authorization = `Bearer ${interpolate(v.auth.token, allValues)}`;
+  let headers;
+  try {
+    headers = buildValidationHeaders(v.auth, allValues);
+  } catch (e) {
+    return { ok: false, error: e.message };
   }
 
   let resp;
@@ -739,6 +737,27 @@ async function validateHttp(v, allValues) {
 
   const hint = v.errorHints?.[String(resp.status)] || "Validation failed.";
   return { ok: false, status: resp.status, error: `HTTP ${resp.status}: ${hint}` };
+}
+
+export function buildValidationHeaders(auth, allValues) {
+  const headers = { Accept: "application/json" };
+  if (!auth) return headers;
+
+  if (auth.type === "basic") {
+    const user = interpolate(auth.user, allValues);
+    const pass = interpolate(auth.pass, allValues);
+    headers.Authorization = `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
+  } else if (auth.type === "bearer") {
+    headers.Authorization = `Bearer ${interpolate(auth.token, allValues)}`;
+  } else if (auth.type === "header") {
+    const headerName = interpolate(auth.header, allValues);
+    if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(headerName)) {
+      throw new Error(`Invalid auth header name: ${headerName}`);
+    }
+    headers[headerName] = interpolate(auth.value, allValues);
+  }
+
+  return headers;
 }
 
 // Allowlist of commands a bridge manifest can request for validation.

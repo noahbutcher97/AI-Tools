@@ -12,10 +12,10 @@ on:
 #      that).
 #   2. Lib tests — unit tests for shared infrastructure under MCP-Servers/lib/
 #      (resolve-config, safepath, etc.). Pure functions, zero deps, fast.
-#   3. Perforce bridge tests — parser unit tests AND the server registration
-#      smoke test (spins up the MCP server over stdio and asserts every tool
-#      registers). The smoke test imports @modelcontextprotocol/sdk, so this
-#      job installs deps via `npm ci`.
+#   3. Bridge tests — parser/client unit tests AND server registration smoke
+#      tests (spins up each MCP server over stdio and asserts tools register).
+#      Server smoke tests import @modelcontextprotocol/sdk, so this job installs
+#      deps via `npm ci`.
 #   4. Installer config wiring — unit tests for setBridgeInConfig et al. under
 #      Installers/MCP-Suite/Scripts/. Pure stdlib; proves manifest fields (e.g.
 #      the P4_ENABLE_ADMIN opt-in) land in the bridge's launch env block.
@@ -75,24 +75,27 @@ jobs:
           cd Installers/MCP-Suite/Scripts
           node --test
 
-  perforce-tests:
-    name: Perforce bridge tests
+  bridge-tests:
+    name: Bridge tests (${{ matrix.bridge }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bridge: [perforce, discord, otter]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
-      - name: Install perforce bridge deps
+      - name: Install bridge deps
         # server.test.mjs uses @modelcontextprotocol/sdk to launch the server
-        # over stdio for the tool-registration smoke test; parser tests stay
-        # dep-free but `node --test` auto-discovers all *.test.mjs in cwd.
+        # over stdio for the tool-registration smoke test.
         run: |
-          cd MCP-Servers/bridges/perforce
+          cd MCP-Servers/bridges/${{ matrix.bridge }}
           npm ci
-      - name: Run perforce test suite
+      - name: Run bridge test suite
         run: |
-          cd MCP-Servers/bridges/perforce
+          cd MCP-Servers/bridges/${{ matrix.bridge }}
           node --test
 
   deps-consistent:
@@ -101,7 +104,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bridge: [atlassian, miro, perforce]
+        bridge: [atlassian, miro, perforce, discord, otter]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
