@@ -212,3 +212,138 @@ Coverage of that chain (gap closed 2026-05-29):
    - With super → `p4_group_set({ group, timeout: "unlimited", users:[...] })`
      previews the spec; `preview:false` applies it; re-read with
      `p4_group_info` to confirm.
+
+---
+
+# Phase 3 — `p4_protect_set` (SCOPED, not yet implemented)
+
+**Status**: design agreed 2026-05-31. Recorded for review before any code.
+This is intentionally a separate, larger effort than `p4_group_set` because
+`p4 protect -i` replaces the *entire* server protections table atomically — see
+the risk model below. Do NOT implement until this section is signed off.
+
+## Why protect is the dangerous writer
+
+`p4 protect` has no incremental form; `-i` reads a full table from stdin and
+replaces the live one. Three properties make a naive wrapper a foot-gun:
+
+1. **Order matters.** Protections evaluate top-to-bottom; for a given
+   user+host+path the *last matching line wins*, and a leading `-` on the path
+   is exclusionary (revokes). A naive append can silently fail to take effect,
+   or override a line above it.
+2. **Self-lockout.** Removing or weakening the line that grants the caller's own
+   `super` can lock the caller — possibly everyone — out of administering the
+   server. No in-tool undo.
+3. **No concurrency token.** Read-modify-write races: a concurrent admin edit
+   between read and `-i` write is silently clobbered. p4 exposes no version/etag.
+
+`p4_group_set`'s preview + `super` pre-check are necessary here but NOT
+sufficient — they address none of ordering, lockout, or the race.
+
+## Decisions (locked with the operator, 2026-05-31)
+
+- **Operation model: BOTH** — structured line add/remove AND a whole-table
+  replace escape hatch.
+- **Self-lockout guard: block by default, explicit override** (`allowSelfLockout`).
+- **Concurrency: optimistic** — hash on read, re-check immediately before write.
+- **Gating: capability allowlist** (see below). NOT a second boolean.
+
+## 1. Gating refactor (do FIRST, isolated, back-compatible)
+
+`P4_ENABLE_ADMIN` changes from boolean to a capability set, parsed once into a
+`Set` by a new pure fn `parseAdminCapabilities(raw)`:
+
+| Input                              | Capabilities             |
+| ---------------------------------- | ------------------------ |
+| unset / `false` / `off` / `0` / "" | ∅                        |
+| `true` / `on` / `1`                | `{groups}` (back-compat) |
+| `groups`                           | `{groups}`               |
+| `protections`                      | `{protections}`          |
+| `groups,protections` / `all` / `*` | `{groups, protections}`  |
+
+Unknown tokens dropped with a stderr warning. Each writer gates on membership:
+`p4_group_set` ← `groups`, `p4_protect_set` ← `protections`. Key property: `true`
+and `groups` NEVER include `protections`, so enabling group writes can't silently
+expose the protect table. Registration controls *visibility*; the runtime confirm
+token (below) controls *accidental catastrophe* — separate concerns, separate
+layers.
+
+Back-compat: the shipped spawn tests pass unchanged (`true` ⇒ `{groups}` ⇒
+`p4_group_set` present, `p4_protect_set` absent). Add cases for `protections`
+(protect present, group absent) and `all` (both). Update manifest field
+instructions + installer test expectations (default stays OFF).
+
+## 2. New parser surface (the bulk of the work)
+
+Nothing exists today — `p4_protects` returns raw text only. Build, with
+round-trip unit tests:
+
+- `parseProtectionsTable(text) -> { header, entries[] }`, each entry
+  `{ mode, type, name, host, path, exclusionary, raw }`. Preserves leading `#`
+  comment/header lines from `p4 protect -o`.
+- `serializeProtectionsTable({ header, entries }) -> text` for `p4 protect -i`.
+- `parseProtectionLine` / `formatProtectionLine` — handle `=`-prefixed exclusive
+  rights (`=read`/`=open`/`=write`/`=branch`), leading `-` exclusionary paths,
+  and double-quoted paths containing spaces.
+- Field validation reusing existing helpers: `mode ∈` known set;
+  `type ∈ {user, group}`; `name` via `validateName` (or `*`); `host`
+  loose-validated (no spaces / no flag-injection); `path` via the existing depot
+  path validator, allowing a single leading `-`.
+
+## 3. Tool API (discriminated by shape)
+
+- **Structured:** `{ op: "add"|"remove", mode, type, name, host="*", path,
+  position: "append"|"prepend", preview=true, confirm?, allowSelfLockout? }`
+- **Whole-table:** `{ table: "<full text>", preview=true, confirm?,
+  allowSelfLockout? }`
+
+## 4. Safety mechanisms (layered)
+
+1. **`super` pre-check** — reuse `requireSuper()` from Phase 2.
+2. **Preview default** (`preview:true`) — returns a unified diff (current vs
+   resulting table), the resulting table text, and a `confirmToken`.
+3. **Confirm token = ONE primitive for both confirm AND concurrency.**
+   `confirmToken = sha256(currentTable + intendedResult)` (short hex). To apply:
+   `preview:false` + matching `confirm`. On apply the server RE-READS the live
+   table, recomputes the result, re-hashes; if another admin edited the table
+   since preview, the recompute differs, the token mismatches, and the write
+   aborts ("table changed since preview — re-preview"). Proof-you-saw-the-diff
+   and the race-guard are the same check. A caller who never previewed has no
+   valid token.
+4. **Self-lockout guard** — pure fn `retainsSuper(resultEntries, caller,
+   callerGroups) -> bool`. Conservative: unless it can PROVE the caller still has
+   `super` (an own `super … host=* path=//...` line, or `super user * …`, not
+   subsequently excluded), it treats the write as a lockout and BLOCKS. Override
+   only with explicit `allowSelfLockout:true` (separate from the confirm token).
+   Caller identity from `P4USER`; group-awareness via `p4 groups <user>` so a
+   `super group <theirGroup>` line counts.
+
+## 5. Known soft spot (conscious trade)
+
+`retainsSuper` cannot perfectly simulate p4's evaluation (full host + exclusion +
+group precedence). v1 is conservative-block: safe, but may occasionally force
+`allowSelfLockout:true` on a legitimate-but-oddly-ordered table. Fully faithful
+simulation is a real complexity escalation and is explicitly OUT of v1 scope.
+
+## 6. Test plan
+
+- Parser round-trips: exclusionary lines, `=`-rights, quoted paths, comment
+  preservation, malformed-line rejection, flag-injection in every field.
+- `parseAdminCapabilities` matrix (true/false/groups/protections/all/garbage).
+- `retainsSuper` truth table: own-super removed, `*` present, exclusion-after-grant,
+  group-granted super.
+- Token determinism + stale-token rejection.
+- Spawn-registration per capability value (extends server.test.mjs).
+- Live `p4 protect -i` write stays MANUAL/documented (same posture as
+  `p4_group_set`; the test env has no real server).
+
+## 7. Sequencing
+
+1. Gating refactor (allowlist) — small, isolated, keeps `p4_group_set` behavior.
+2. Protections parser / serializer / validator + tests.
+3. `retainsSuper` pure fn + tests.
+4. `p4_protect_set` tool (both modes) wired with confirm token + concurrency.
+5. manifest / README / handoff / CI updates.
+
+Rough effort: ~2–3× `p4_group_set`, concentrated in the table parser (step 2)
+and the lockout proof (step 3).
