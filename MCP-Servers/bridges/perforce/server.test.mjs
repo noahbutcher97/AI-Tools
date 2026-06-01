@@ -69,14 +69,14 @@ test("Perforce MCP server registers changelist and move tools", async () => {
     assert.ok(toolNames.includes("p4_group_info"));
     assert.ok(toolNames.includes("p4_login_status"));
     assert.ok(toolNames.includes("p4_protects"));
-    // Admin WRITE tools are opt-in — absent unless P4_ENABLE_ADMIN=true.
-    assert.ok(!toolNames.includes("p4_group_set"), "p4_group_set must NOT register by default");
+    assert.ok(toolNames.includes("p4_bridge_status"), "p4_bridge_status should always register");
+    assert.ok(toolNames.includes("p4_group_set"), "p4_group_set should register with runtime gating");
   } finally {
     await client.close();
   }
 });
 
-test("admin write tools register only when P4_ENABLE_ADMIN=true", async () => {
+test("admin write tools remain registered when P4_ENABLE_ADMIN=true", async () => {
   const client = new Client({ name: "perforce-server-admin-test", version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -91,6 +91,62 @@ test("admin write tools register only when P4_ENABLE_ADMIN=true", async () => {
     const result = await client.listTools();
     const toolNames = result.tools.map((tool) => tool.name);
     assert.ok(toolNames.includes("p4_group_set"), "p4_group_set must register when admin writes enabled");
+  } finally {
+    await client.close();
+  }
+});
+
+test("p4_group_set reports disabled admin writes before touching Perforce", async () => {
+  const client = new Client({ name: "perforce-server-admin-disabled-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["server.mjs"],
+    cwd: bridgeDir,
+    env: buildSpawnEnv(),
+    stderr: "pipe",
+  });
+
+  await client.connect(transport);
+  try {
+    const result = await client.callTool({
+      name: "p4_group_set",
+      arguments: { group: "no_timeout", timeout: "unlimited" },
+    });
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /admin writes are disabled/i);
+    assert.match(result.content[0].text, /P4_ENABLE_ADMIN=true/);
+    assert.match(result.content[0].text, /restart/i);
+  } finally {
+    await client.close();
+  }
+});
+
+test("bridge status reports runtime admin-write state", async () => {
+  const client = new Client({ name: "perforce-server-status-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["server.mjs"],
+    cwd: bridgeDir,
+    env: { ...buildSpawnEnv(), P4_ENABLE_ADMIN: "true" },
+    stderr: "pipe",
+  });
+
+  await client.connect(transport);
+  try {
+    const listed = await client.listTools();
+    const toolNames = listed.tools.map((tool) => tool.name);
+    assert.ok(toolNames.includes("p4_bridge_status"), "p4_bridge_status should always be discoverable");
+
+    const result = await client.callTool({ name: "p4_bridge_status", arguments: {} });
+    const status = JSON.parse(result.content[0].text);
+    assert.equal(status.adminWritesEnabled, true);
+    assert.equal(status.adminEnvValue, "true");
+    assert.equal(typeof status.processId, "number");
+    assert.ok(status.processId > 0);
+    assert.equal(status.config.user, "test-user");
+    assert.equal(status.config.client, "test-client");
+    assert.equal(status.config.depot, "//Project/Depot/...");
+    assert.ok(status.startedAt);
   } finally {
     await client.close();
   }

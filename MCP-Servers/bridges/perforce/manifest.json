@@ -61,14 +61,14 @@
     },
     {
       "name": "P4_ENABLE_ADMIN",
-      "label": "Enable admin write tools (optional)",
+      "label": "Enable admin write execution (optional)",
       "type": "string",
       "secret": false,
       "required": false,
       "default": "false",
       "instructions": [
-        "Set to 'true' to register server-global admin WRITE tools (e.g. p4_group_set).",
-        "Leave 'false' (default) for a workspace-scoped install — admin writers stay hidden.",
+        "Set to 'true' to allow server-global admin WRITE tools to execute (e.g. p4_group_set).",
+        "Leave 'false' (default) for a workspace-scoped install — admin writers stay discoverable but refuse to run.",
         "These tools mutate server-wide state and require 'super' access to actually run."
       ]
     }

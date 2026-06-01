@@ -9,15 +9,22 @@ Local stdio MCP bridge for Perforce workspace operations.
 - `P4CLIENT`: Perforce client/workspace name.
 - `P4DEPOT`: Depot path without leading slashes, for example `Project1/OnSight`.
 - `P4PASSWD`: optional secret. Prefer a cached `p4 login` ticket when possible.
-- `P4_ENABLE_ADMIN`: optional. Set to `true` to register server-global admin **write** tools (`p4_group_set`). Defaults to `false` — admin writers stay hidden and the install is workspace-scoped.
+- `P4_ENABLE_ADMIN`: optional. Set to `true` to allow server-global admin **write** tools (`p4_group_set`) to execute. Defaults to `false` — admin writers stay discoverable but refuse to run.
 
 Secrets are stored in `.mcp.local.json`. Public workspace values are stored in `.mcp.json`.
 
 ## Tool Inventory
 
+Runtime sanity check: `p4_bridge_status` reports the attached bridge process
+ID, start time, workspace config identity, and whether `P4_ENABLE_ADMIN` was
+enabled at launch. Use it first when tool discovery looks stale or admin tools
+are unexpectedly missing.
+
 Read tools (no mutation): `p4_info`, `p4_opened`, `p4_changes`, `p4_describe`, `p4_diff`, `p4_filelog`, `p4_print`, `p4_annotate`, `p4_fstat`, `p4_where`, `p4_have`.
 
 Admin / identity reads (server-global, no mutation): `p4_users`, `p4_groups`, `p4_group_info`, `p4_login_status`, `p4_protects`.
+
+Admin write (server-global, runtime gated): `p4_group_set`.
 
 For pending changelists in this workspace, use `p4_changes` with `status: "pending"` and `client: "<workspace>"`.
 
@@ -398,11 +405,13 @@ and confirm who has `super` (`p4_protects`).
 
 ## Admin / Identity (write — opt-in)
 
-Disabled by default. Set `P4_ENABLE_ADMIN=true` to register these. They mutate
-**server-global** state and require `super` access; each runs a `p4 protects -m`
-capability pre-check first, so a non-super caller gets a clear
-"requires 'super'; your level is '<x>'" error instead of a raw permission
-failure mid-mutation.
+Execution is disabled by default. `p4_group_set` is always discoverable so the
+tool surface stays stable, but it returns a clear setup error until the active
+bridge process was launched with `P4_ENABLE_ADMIN=true`. It mutates
+**server-global** state and requires `super` access; after the env gate passes,
+it runs a `p4 protects -m` capability pre-check first, so a non-super caller
+gets a clear "requires 'super'; your level is '<x>'" error instead of a raw
+permission failure mid-mutation.
 
 `p4_group_set` creates or modifies a group spec. It reads the current spec
 (or a fresh template for a new group), changes only the fields you pass, and
