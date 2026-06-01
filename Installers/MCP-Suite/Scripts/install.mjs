@@ -28,13 +28,23 @@ import {
 } from "./lib/prompts.mjs";
 import {
   loadWorkspaceConfig,
+  assertWorkspaceConfigReadable,
   setBridgeInConfig,
   disableBridgeInConfig,
   writeWorkspaceConfig,
   ensureSecretIgnored,
-  PUBLIC_FILE,
   SECRET_FILE,
 } from "./lib/mcp-config.mjs";
+import { runWorkspaceDoctor, formatDoctorReport } from "./lib/doctor.mjs";
+import {
+  createBridgeResult,
+  setStage,
+  finalizeBridgeResult,
+  exitCodeForResults,
+  validateRequestedBridges,
+  formatInstallSummary,
+} from "./lib/install-results.mjs";
+import { writeInstallReceipt } from "./lib/receipt.mjs";
 import { getLatestRelease, downloadToBuffer } from "./lib/github.mjs";
 import { isCheckRateLimited, writeLastCheck, readLastCheck, bridgeVersionDir } from "./lib/cache.mjs";
 
@@ -220,13 +230,15 @@ async function ensureBridgeAvailable(bridgeEntry, bridgeName, opts = {}) {
     // without manual `npm install` in each bridge dir. Idempotent — skipped
     // when the lockfile hash matches the saved state. --update bypasses the
     // skip and forces a re-install (transitive-dep refresh path).
+    const depInstallFailures = [];
     try {
       installNodeDepsRecursive(dir, { force: forceRefresh });
     } catch (e) {
       printWarn(`Dep install for co-located bridge '${bridgeName}' failed: ${e.message}`);
       printWarn(`Bridge may not start until you run 'npm install' manually in ${dir}`);
+      depInstallFailures.push({ dir, message: e.message });
     }
-    return dir;
+    return { dir, depInstallFailures };
   }
   if (src.type === "remote-repo") {
     const dir = bridgeVersionDir(bridgeName, "remote");
@@ -244,17 +256,19 @@ async function ensureBridgeAvailable(bridgeEntry, bridgeName, opts = {}) {
       // Cache hit. Still run the dep installer because (a) caches written
       // by older installer versions may have no node_modules at all, and
       // (b) it's idempotent — skips when the lockfile hash is unchanged.
+      const depInstallFailures = [];
       try {
         installNodeDepsRecursive(dir);
       } catch (e) {
         printWarn(`Dep install in cache failed: ${e.message}`);
         printWarn(`Bridge may not start until you run 'npm install' manually in ${dir}`);
+        depInstallFailures.push({ dir, message: e.message });
       }
-      return dir;
+      return { dir, depInstallFailures };
     }
     console.log(`  Downloading ${bridgeName} from github.com/${src.repo}...`);
     await fetchRemoteBridge(src, dir);
-    return dir;
+    return { dir, depInstallFailures: [] };
   }
   throw new Error(`Unsupported source type for ${bridgeName}`);
 }
@@ -861,8 +875,7 @@ function runBridgeOwnSetup(bridgeEntry, bridgeDir, workspaceDir) {
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
   const cmdPath = safeJoin(bridgeDir, declared);
   if (!existsSync(cmdPath)) {
-    console.log(`  ${declared} not found in bridge dir; skipping its own setup`);
-    return { ok: true };
+    return { ok: false, status: -1, error: `setup.command not found in bridge dir: ${declared}` };
   }
 
   const args = (setup.args || []).map((a) => a.replace(/\{WORKSPACE\}/g, workspaceDir));
@@ -932,8 +945,7 @@ function runBridgePostSetup(bridgeManifest, bridgeDir, allValues, workspaceDir) 
   // nosemgrep: javascript.lang.security.audit.path-traversal.path-traversal
   const cmdPath = safeJoin(bridgeDir, declared);
   if (!existsSync(cmdPath)) {
-    printWarn(`postSetup.command not found in bridge dir: ${declared}`);
-    return { ok: true };
+    return { ok: false, error: `postSetup.command not found in bridge dir: ${declared}` };
   }
 
   // Interpolate {fieldName} and {WORKSPACE} placeholders in args
@@ -980,25 +992,9 @@ function runBridgePostSetup(bridgeManifest, bridgeDir, allValues, workspaceDir) 
 // ───────────────────────────────────────────────────────────────────────
 
 function runDoctor(workspaceDir, rootManifest) {
-  console.log(`\nDoctor report - workspace: ${workspaceDir}\n`);
-  const cfg = loadWorkspaceConfig(workspaceDir);
-  if (!cfg.publicExisted) {
-    console.log(`  No ${PUBLIC_FILE} found. Run installer to set one up.`);
-    return 1;
-  }
-  console.log(`  ${PUBLIC_FILE}: present${cfg.secretsExisted ? ` (+ ${SECRET_FILE})` : ""}`);
-  console.log(`  Layout: ${cfg.public.bridges ? "modern" : "legacy"}\n`);
-
-  let issues = 0;
-  for (const [name, entry] of Object.entries(rootManifest.bridges)) {
-    const declared = cfg.public.bridges?.[name];
-    const legacy = cfg.public.mcpServers?.[name];
-    const enabled = declared?.enabled !== false && (declared || legacy);
-    const status = !declared && !legacy ? "absent" : enabled ? "enabled" : "disabled";
-    console.log(`  ${name.padEnd(12)} ${status.padEnd(10)} ${entry.displayName || ""}`);
-  }
-  console.log("");
-  return issues > 0 ? 1 : 0;
+  const report = runWorkspaceDoctor({ workspaceDir, rootManifest });
+  console.log(`\n${formatDoctorReport(report)}`);
+  return report.exitCode;
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -1025,6 +1021,16 @@ async function runInstall(args, rootManifest) {
   // Pick bridges
   const allBridges = Object.entries(rootManifest.bridges);
   const cfg = loadWorkspaceConfig(workspaceDir);
+  try {
+    assertWorkspaceConfigReadable(cfg);
+  } catch (e) {
+    printErr(e.message);
+    for (const err of e.errors || []) {
+      printErr(`  ${err.path}: ${err.message}`);
+    }
+    return 2;
+  }
+
   const previouslyEnabled = new Set();
   for (const [name] of allBridges) {
     if (cfg.public.bridges?.[name]?.enabled === true) previouslyEnabled.add(name);
@@ -1033,9 +1039,13 @@ async function runInstall(args, rootManifest) {
 
   let chosen;
   if (args.bridges) {
-    chosen = args.bridges.filter((n) => rootManifest.bridges[n]);
-    const bad = args.bridges.filter((n) => !rootManifest.bridges[n]);
-    if (bad.length > 0) console.log(`Skipping unknown: ${bad.join(", ")}`);
+    const requested = validateRequestedBridges(args.bridges, rootManifest);
+    if (!requested.ok) {
+      console.error(`Unknown bridge name(s): ${requested.unknown.join(", ")}`);
+      console.error(`Available bridges: ${Object.keys(rootManifest.bridges).join(", ")}`);
+      return requested.exitCode;
+    }
+    chosen = args.bridges;
   } else if (args.nonInteractive) {
     // Non-interactive without --bridges= isn't actionable — there's no
     // menu to fall back to. Tell the operator how to proceed.
@@ -1058,6 +1068,9 @@ async function runInstall(args, rootManifest) {
     return 0;
   }
 
+  const bridgeResults = [];
+  let configTouched = false;
+
   // Disable bridges that were previously enabled but not selected this run.
   // In non-interactive mode, default to "preserve" — operators that want a
   // bridge disabled can pass it explicitly or edit config directly. (We
@@ -1073,7 +1086,14 @@ async function runInstall(args, rootManifest) {
         `'${name}' was enabled before but is not selected now. Mark disabled? (config is preserved)`,
         true,
       );
-      if (disable) disableBridgeInConfig(cfg, name);
+      if (disable) {
+        disableBridgeInConfig(cfg, name);
+        configTouched = true;
+        bridgeResults.push(finalizeBridgeResult(
+          createBridgeResult(name, { requested: false, previouslyEnabled: true }),
+          "disabled",
+        ));
+      }
     }
   }
 
@@ -1081,14 +1101,29 @@ async function runInstall(args, rootManifest) {
 
   for (const name of chosen) {
     const entry = rootManifest.bridges[name];
+    const result = createBridgeResult(name, {
+      requested: true,
+      previouslyEnabled: previouslyEnabled.has(name),
+    });
+    let depInstallFailures = [];
+    bridgeResults.push(result);
     printSection(`Configure: ${entry.displayName || name}`);
 
     // Make bridge files available (download if remote). --update forces
     // a cache refresh for remote-repo bridges (re-download + re-install).
     let bridgeDir;
     try {
-      bridgeDir = await ensureBridgeAvailable(entry, name, { forceRefresh: args.update });
+      const available = await ensureBridgeAvailable(entry, name, { forceRefresh: args.update });
+      bridgeDir = available.dir;
+      depInstallFailures = available.depInstallFailures || [];
+      setStage(result, "source", {
+        status: depInstallFailures.length > 0 ? "partial" : "ok",
+        path: bridgeDir,
+        ...(depInstallFailures.length > 0 ? { depInstallFailures } : {}),
+      });
     } catch (e) {
+      setStage(result, "source", { status: "failed", message: e.message });
+      finalizeBridgeResult(result, "failed", { action: `Check network/cache state and re-run installer for ${name}.` });
       printErr(`Could not fetch bridge: ${e.message}`);
       continue;
     }
@@ -1102,14 +1137,24 @@ async function runInstall(args, rootManifest) {
         ? true
         : await confirm(`  Run ${entry.setup.command}?`, true);
       if (useOwn) {
-        const result = runBridgeOwnSetup(entry, bridgeDir, workspaceDir);
-        if (!result.ok) {
-          printErr(`Setup script exited with status ${result.status}`);
+        const setupResult = runBridgeOwnSetup(entry, bridgeDir, workspaceDir);
+        if (!setupResult.ok) {
+          setStage(result, "setup", { status: "failed", message: setupResult.error || `exit ${setupResult.status}` });
+          finalizeBridgeResult(result, "failed", { action: `Run ${name} setup manually or re-run installer after fixing the setup script.` });
+          printErr(`Setup script exited with status ${setupResult.status}`);
           continue;
         }
         // The bridge's own setup wrote .mcp.json; we just record that it's enabled
         cfg.public.bridges = cfg.public.bridges || {};
         cfg.public.bridges[name] = { ...(cfg.public.bridges[name] || {}), enabled: true, version: "external" };
+        configTouched = true;
+        setStage(result, "setup", { status: "ok" });
+        setStage(result, "config", { status: "ok", mode: "own-setup" });
+        if (depInstallFailures.length > 0) {
+          finalizeBridgeResult(result, "partial", { action: `Run npm install in ${bridgeDir}, then run doctor.` });
+        } else {
+          finalizeBridgeResult(result, "ok");
+        }
         continue;
       }
     }
@@ -1118,6 +1163,11 @@ async function runInstall(args, rootManifest) {
     let bridgeManifest;
     try {
       bridgeManifest = loadBridgeManifest(bridgeDir);
+      setStage(result, "manifest", {
+        status: "ok",
+        path: safeJoin(bridgeDir, "manifest.json"),
+        version: bridgeManifest.version || null,
+      });
     } catch (e) {
       // Remote-repo bridges may not have a manifest.json yet (e.g. UEMCP
       // before its manifest is added). If the workspace already has a
@@ -1136,14 +1186,21 @@ async function runInstall(args, rootManifest) {
             enabled: true,
             version: "legacy-passthrough",
           };
+          configTouched = true;
+          setStage(result, "manifest", { status: "skipped", message: "missing manifest; preserved existing config" });
+          finalizeBridgeResult(result, "partial", { action: `Add ${name} manifest.json for installer-driven setup, then run doctor.` });
           continue;
         }
+        setStage(result, "manifest", { status: "failed", message: e.message });
+        finalizeBridgeResult(result, "failed", { action: `Add ${name} manifest.json before enabling this bridge through the installer.` });
         printErr(`No manifest.json found in '${name}' bundle and no existing config to preserve.`);
         if (entry.fallback.manifestNeeded) {
           printInfo(`Add manifest.json to the bridge repo to enable installer-driven setup (see ${entry.fallback.manifestNeeded}).`);
         }
         continue;
       }
+      setStage(result, "manifest", { status: "failed", message: e.message });
+      finalizeBridgeResult(result, "failed", { action: `Fix ${name} bridge manifest and re-run installer.` });
       printErr(e.message);
       continue;
     }
@@ -1174,8 +1231,8 @@ async function runInstall(args, rootManifest) {
     // retry loop collapses: one attempt, fail-fast on validation error.
     let creds;
     let allValues;
-    let validationOk = false;
     let abandoned = false;
+    let validationFailedButSaveAnyway = false;
     let inheritedPublic = existingPublic;
     let inheritedSecrets = existingSecrets;
     const MAX_ATTEMPTS = args.nonInteractive ? 1 : 3;
@@ -1186,7 +1243,14 @@ async function runInstall(args, rootManifest) {
           nonInteractive: args.nonInteractive,
           fieldOverrides: args.fieldOverrides,
         });
+        setStage(result, "credentials", {
+          status: "ok",
+          publicFields: fieldPresence(creds.publicValues),
+          secretFields: fieldPresence(creds.secretValues),
+        });
       } catch (e) {
+        setStage(result, "credentials", { status: "failed", message: e.message });
+        finalizeBridgeResult(result, "failed", { action: `Provide required ${name} fields and re-run installer.` });
         printErr(`Aborted: ${e.message}`);
         abandoned = true;
         break;
@@ -1194,20 +1258,22 @@ async function runInstall(args, rootManifest) {
 
       allValues = { ...creds.publicValues, ...creds.secretValues };
       process.stdout.write("\n  \x1b[2mValidating credentials...\x1b[0m");
-      const result = await validateBridge(bridgeManifest, allValues);
+      const validationResult = await validateBridge(bridgeManifest, allValues);
       process.stdout.write("\r\x1b[2K");
 
-      if (result.ok) {
-        printOk(result.message || "Credentials validated successfully.");
-        validationOk = true;
+      if (validationResult.ok) {
+        printOk(validationResult.message || "Credentials validated successfully.");
+        setStage(result, "validation", { status: "ok" });
         break;
       }
 
-      printErr(`Validation failed: ${result.error || "(no details)"}`);
+      setStage(result, "validation", { status: "failed", message: "validation failed" });
+      printErr(`Validation failed: ${validationResult.error || "(no details)"}`);
 
       // Non-interactive mode: no retry, no save-anyway prompt. Skip this
       // bridge so the rest of the chosen list still gets a chance.
       if (args.nonInteractive) {
+        finalizeBridgeResult(result, "failed", { action: `Fix ${name} validation inputs and re-run installer.` });
         printWarn(`Skipped '${name}' (non-interactive — fix creds and re-run).`);
         abandoned = true;
         break;
@@ -1229,8 +1295,11 @@ async function runInstall(args, rootManifest) {
       // User declined retry (or hit attempt limit) — offer to save anyway
       const proceed = await confirm(`  Save these credentials anyway? (Bridge will fail at runtime)`, false);
       if (!proceed) {
+        finalizeBridgeResult(result, "skipped", { action: `Re-run installer for ${name} after correcting credentials.` });
         printWarn(`Skipped saving '${name}'. Re-run installer to retry.`);
         abandoned = true;
+      } else {
+        validationFailedButSaveAnyway = true;
       }
       break;
     }
@@ -1243,6 +1312,8 @@ async function runInstall(args, rootManifest) {
       enabled: true,
       version: bridgeManifest.version || "1.0.0",
     });
+    configTouched = true;
+    setStage(result, "config", { status: "ok", serverPath });
 
     // Run optional post-setup hook (e.g., UEMCP's sync-plugin.bat to copy
     // the UE plugin into the user's project). Failures here are warnings,
@@ -1250,29 +1321,72 @@ async function runInstall(args, rootManifest) {
     if (bridgeManifest.postSetup) {
       const psResult = runBridgePostSetup(bridgeManifest, bridgeDir, allValues, workspaceDir);
       if (psResult.ok) {
+        setStage(result, "postSetup", { status: "ok" });
         printOk(`Post-setup completed.`);
       } else {
+        setStage(result, "postSetup", { status: "failed", message: psResult.error || `exit ${psResult.status}` });
+        finalizeBridgeResult(result, "partial", { action: `Run any required ${name} post-setup steps manually, then run doctor.` });
         printWarn(`Post-setup failed: ${psResult.error || `exit ${psResult.status}`}`);
         printInfo(`The bridge config was saved; you may need to deploy any required assets manually.`);
       }
     }
+
+    if (result.status === "skipped") {
+      if (validationFailedButSaveAnyway) {
+        finalizeBridgeResult(result, "partial", { action: `Run doctor and fix ${name} runtime validation before using the bridge.` });
+      } else if (depInstallFailures.length > 0) {
+        finalizeBridgeResult(result, "partial", { action: `Run npm install in ${bridgeDir}, then run doctor.` });
+      } else {
+        finalizeBridgeResult(result, "ok");
+      }
+    }
   }
 
-  writeWorkspaceConfig(cfg, { backupTag });
-
-  const ignoredFiles = ensureSecretIgnored(workspaceDir);
-  for (const f of ignoredFiles) {
-    console.log(`  Added '${SECRET_FILE}' to ${f}`);
+  let ignoredFiles = [];
+  if (configTouched) {
+    writeWorkspaceConfig(cfg, { backupTag });
+    ignoredFiles = ensureSecretIgnored(workspaceDir);
+    for (const f of ignoredFiles) {
+      console.log(`  Added '${SECRET_FILE}' to ${f}`);
+    }
   }
-
-  console.log(`\nDone. Run 'install.bat --doctor' to verify.\n`);
 
   // Optional update-check hook
   if (args.enableUpdateChecks) {
     enableSessionStartHook(workspaceDir, rootManifest);
   }
 
-  return 0;
+  const exitCode = exitCodeForResults(bridgeResults);
+  if (configTouched || bridgeResults.length > 0) {
+    const receipt = writeInstallReceipt(workspaceDir, {
+      mode: args.update ? "update" : "install",
+      workspace: workspaceDir,
+      aiToolsRoot: resolve(MCP_SERVERS_ROOT, ".."),
+      selectedBridges: chosen,
+      exitCode,
+      files: {
+        publicConfig: cfg.publicPath,
+        secretConfig: cfg.secretPath,
+        ignoreFilesChanged: ignoredFiles,
+      },
+      bridgeResults,
+      nextSteps: [`Run: node Installers\\MCP-Suite\\Scripts\\install.mjs --doctor --workspace=${workspaceDir}`],
+    });
+    printInfo(`Receipt written: ${receipt.path}`);
+  }
+
+  console.log(`\n${formatInstallSummary(bridgeResults, exitCode)}`);
+  console.log(`\nRun this read-only doctor check next:`);
+  console.log(`  node Installers\\MCP-Suite\\Scripts\\install.mjs --doctor --workspace=${workspaceDir}\n`);
+
+  return exitCode;
+}
+
+function fieldPresence(values) {
+  return Object.entries(values || {}).map(([name, value]) => ({
+    name,
+    present: value !== undefined && value !== null && String(value).trim() !== "",
+  }));
 }
 
 function enableSessionStartHook(workspaceDir, rootManifest) {

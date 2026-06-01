@@ -3,7 +3,7 @@
 // These close the gap between "a manifest field exists" and "the bridge
 // launches with it set". The Perforce bridge gates its admin WRITE tools on
 // process.env.P4_ENABLE_ADMIN (server.mjs), and server.test.mjs already proves
-// env -> tool-registration in both directions via spawned servers. The missing
+// env -> runtime behavior in both directions via spawned servers. The missing
 // link was the installer half: does a collected field actually land in the
 // launch env block (mcpServers.<name>.env) that becomes that process.env?
 //
@@ -14,17 +14,34 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { setBridgeInConfig, disableBridgeInConfig } from "./lib/mcp-config.mjs";
+import {
+  assertWorkspaceConfigReadable,
+  disableBridgeInConfig,
+  loadWorkspaceConfig,
+  setBridgeInConfig,
+  WorkspaceConfigParseError,
+  writeWorkspaceConfig,
+} from "./lib/mcp-config.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PERFORCE_MANIFEST = resolve(__dirname, "../../../MCP-Servers/bridges/perforce/manifest.json");
 
 function loadPerforceManifest() {
   return JSON.parse(readFileSync(PERFORCE_MANIFEST, "utf-8"));
+}
+
+function withTempWorkspace(fn) {
+  const dir = mkdtempSync(join(tmpdir(), "mcp-config-test-"));
+  try {
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // Fresh empty workspace-config shell, the shape loadWorkspaceConfig() returns
@@ -47,7 +64,7 @@ describe("perforce manifest declares the admin opt-in safely", () => {
     assert.ok(field, "P4_ENABLE_ADMIN must be a declared manifest field");
     assert.equal(field.required, false, "must be optional so default installs don't prompt-block");
     assert.equal(field.secret, false, "it's not a secret — belongs in .mcp.json, not .mcp.local.json");
-    // The security-critical invariant: a default install must be admin-writes-OFF.
+    // The security-critical invariant: a default install must keep admin-write execution OFF.
     assert.equal(field.default, "false", "default MUST be 'false' (default install stays workspace-scoped)");
   });
 });
@@ -92,8 +109,7 @@ describe("setBridgeInConfig wires P4_ENABLE_ADMIN into the launch env", () => {
 
     const env = cfg.public.mcpServers.perforce.env;
     assert.equal(env.P4_ENABLE_ADMIN, "false");
-    // server.mjs only enables on the exact string "true", so "false" is OFF —
-    // matching the default-off spawn assertion in the bridge's server.test.mjs.
+    // server.mjs only enables execution on the exact string "true", so "false" is OFF.
     assert.notEqual(env.P4_ENABLE_ADMIN, "true");
   });
 
@@ -139,4 +155,65 @@ describe("disableBridgeInConfig preserves saved values but stops launch", () => 
     // Saved value retained for a later re-enable.
     assert.equal(cfg.public.bridges.perforce.P4_ENABLE_ADMIN, "true");
   });
+});
+
+describe("loadWorkspaceConfig parse status", () => {
+  it("treats missing public and secret config as readable empty config", () => withTempWorkspace((workspaceDir) => {
+    const cfg = loadWorkspaceConfig(workspaceDir);
+
+    assert.equal(cfg.publicExisted, false);
+    assert.equal(cfg.secretsExisted, false);
+    assert.equal(cfg.publicStatus.exists, false);
+    assert.equal(cfg.publicStatus.ok, true);
+    assert.equal(cfg.secretStatus.exists, false);
+    assert.equal(cfg.secretStatus.ok, true);
+    assert.equal(cfg.hasParseErrors, false);
+    assert.doesNotThrow(() => assertWorkspaceConfigReadable(cfg));
+  }));
+
+  it("marks malformed public config and blocks readable assertions", () => withTempWorkspace((workspaceDir) => {
+    writeFileSync(join(workspaceDir, ".mcp.json"), "{", "utf-8");
+
+    const cfg = loadWorkspaceConfig(workspaceDir);
+
+    assert.equal(cfg.publicExisted, true);
+    assert.equal(cfg.publicStatus.exists, true);
+    assert.equal(cfg.publicStatus.ok, false);
+    assert.equal(cfg.publicStatus.error.code, "json-parse-failed");
+    assert.equal(cfg.hasParseErrors, true);
+    assert.equal(cfg.parseErrors[0].file, ".mcp.json");
+    assert.equal(cfg.parseErrors[0].path, join(workspaceDir, ".mcp.json"));
+    assert.throws(
+      () => assertWorkspaceConfigReadable(cfg),
+      (err) => err instanceof WorkspaceConfigParseError && err.code === "workspace-config-parse-failed",
+    );
+  }));
+
+  it("tracks malformed secret config separately from valid public config", () => withTempWorkspace((workspaceDir) => {
+    writeFileSync(join(workspaceDir, ".mcp.json"), "{\"mcpServers\":{}}\n", "utf-8");
+    writeFileSync(join(workspaceDir, ".mcp.local.json"), "{", "utf-8");
+
+    const cfg = loadWorkspaceConfig(workspaceDir);
+
+    assert.equal(cfg.publicStatus.ok, true);
+    assert.equal(cfg.secretStatus.exists, true);
+    assert.equal(cfg.secretStatus.ok, false);
+    assert.equal(cfg.parseErrors.length, 1);
+    assert.equal(cfg.parseErrors[0].path, join(workspaceDir, ".mcp.local.json"));
+  }));
+
+  it("prevents writeWorkspaceConfig from overwriting malformed public config", () => withTempWorkspace((workspaceDir) => {
+    const publicPath = join(workspaceDir, ".mcp.json");
+    const invalidJson = "{ invalid json";
+    writeFileSync(publicPath, invalidJson, "utf-8");
+
+    const cfg = loadWorkspaceConfig(workspaceDir);
+    cfg.public = { bridges: { perforce: { enabled: true } } };
+
+    assert.throws(
+      () => writeWorkspaceConfig(cfg),
+      (err) => err instanceof WorkspaceConfigParseError && err.code === "workspace-config-parse-failed",
+    );
+    assert.equal(readFileSync(publicPath, "utf-8"), invalidJson);
+  }));
 });

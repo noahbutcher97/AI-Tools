@@ -9,29 +9,82 @@ import { safeJoin } from "./safepath.mjs";
 export const PUBLIC_FILE = ".mcp.json";
 export const SECRET_FILE = ".mcp.local.json";
 
+export class WorkspaceConfigParseError extends Error {
+  constructor(errors) {
+    const details = errors.map((err) => `${err.path}: ${err.message}`).join("; ");
+    super(`Workspace MCP config could not be parsed: ${details}`);
+    this.name = "WorkspaceConfigParseError";
+    this.code = "workspace-config-parse-failed";
+    this.errors = errors;
+  }
+}
+
+export function readJsonWithStatus(path, label = path) {
+  if (!existsSync(path)) {
+    return { path, label, exists: false, ok: true, data: null, error: null };
+  }
+
+  try {
+    return {
+      path,
+      label,
+      exists: true,
+      ok: true,
+      data: JSON.parse(readFileSync(path, "utf-8")),
+      error: null,
+    };
+  } catch (e) {
+    return {
+      path,
+      label,
+      exists: true,
+      ok: false,
+      data: null,
+      error: { code: "json-parse-failed", message: e.message },
+    };
+  }
+}
+
 /** Read JSON safely; return null on missing/parse error. */
 export function readJsonSafe(path) {
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch (e) {
-    console.error(`Could not parse ${path}: ${e.message}`);
-    return null;
+  const status = readJsonWithStatus(path);
+  if (!status.ok) {
+    console.error(`Could not parse ${path}: ${status.error.message}`);
   }
+  return status.data;
 }
 
 /** Load both public + secret config for a workspace. */
 export function loadWorkspaceConfig(workspaceDir) {
   const publicPath = safeJoin(workspaceDir, PUBLIC_FILE);
   const secretPath = safeJoin(workspaceDir, SECRET_FILE);
+  const publicStatus = readJsonWithStatus(publicPath, PUBLIC_FILE);
+  const secretStatus = readJsonWithStatus(secretPath, SECRET_FILE);
+  const parseErrors = [publicStatus, secretStatus]
+    .filter((status) => !status.ok)
+    .map((status) => ({
+      path: status.path,
+      file: status.label,
+      label: status.label,
+      ...status.error,
+    }));
   return {
     publicPath,
     secretPath,
-    public: readJsonSafe(publicPath) || {},
-    secrets: readJsonSafe(secretPath) || {},
-    publicExisted: existsSync(publicPath),
-    secretsExisted: existsSync(secretPath),
+    public: publicStatus.data || {},
+    secrets: secretStatus.data || {},
+    publicExisted: publicStatus.exists,
+    secretsExisted: secretStatus.exists,
+    publicStatus,
+    secretStatus,
+    parseErrors,
+    hasParseErrors: parseErrors.length > 0,
   };
+}
+
+export function assertWorkspaceConfigReadable(cfg) {
+  if (!cfg.hasParseErrors) return;
+  throw new WorkspaceConfigParseError(cfg.parseErrors);
 }
 
 /**
@@ -100,6 +153,8 @@ export function disableBridgeInConfig(cfg, bridgeName) {
  * the first time they're touched in a session (caller passes backupTag once).
  */
 export function writeWorkspaceConfig(cfg, opts = {}) {
+  assertWorkspaceConfigReadable(cfg);
+
   const { backupTag = null } = opts;
 
   if (backupTag) {
