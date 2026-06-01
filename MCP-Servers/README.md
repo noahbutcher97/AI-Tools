@@ -1,99 +1,107 @@
-# MCP Bridges (AI-Tools)
+# MCP Bridge Catalog
 
-Central installer + curated MCP bridges for Claude Code and Cowork.
+This directory contains the bridge catalog, shared runtime helpers, and local stdio bridge implementations used by the AI-Tools installer.
 
-## What this is
+For first-time setup, start at the repo root [README](../README.md). This file is a bridge catalog and developer reference.
 
-A small installer (`Installers/MCP-Suite/Install-MCP-Suite.bat`) that lets you opt in to one or
-more MCP "bridges" for any project workspace on your machine. Each bridge is
-a self-contained Node script that exposes external services (Perforce, Jira,
-Miro, Unreal Engine) as MCP tools that Claude can call.
+## Support Boundary
 
-The installer handles:
+The bridges in this directory are local stdio MCP servers. They are launched by an MCP client through workspace config written by the installer.
 
-- Downloading the chosen bridges (cached locally; one fetch per release)
-- Walking you through credential acquisition (browser-assisted where possible)
-- Validating credentials immediately
-- Writing or merging `.mcp.json` (public config) and `.mcp.local.json` (secrets)
-  in the workspace folder
+These docs do not claim hosted remote MCP support unless a specific bridge says so. The UEMCP catalog entry points at the UEMCP repo, but central first-time UEMCP setup is still incomplete; use standalone UEMCP onboarding for reliable Unreal setup.
 
-## Quick start (Windows)
+## Available Bridges
 
-1. Download the installer bundle (one zip from the latest GitHub release)
-2. Unzip anywhere
-3. Double-click `Install-MCP-Suite.bat`
-4. Pick your workspace folder, choose which bridges to enable, paste tokens
-   when prompted
+| Bridge | Source | What it does |
+|---|---|---|
+| `perforce` | `bridges/perforce` | Perforce version-control operations such as info, opened files, changes, sync, diff, reconcile, and guarded write tools. |
+| `atlassian` | `bridges/atlassian` | Jira issue and Confluence page operations. |
+| `miro` | `bridges/miro` | Miro whiteboard board and item operations. |
+| `discord` | `bridges/discord` | Discord guild, channel, thread, and message operations through a bot token. |
+| `otter` | `bridges/otter` | Otter.ai Enterprise Public API workspace, channel, conversation, transcript, and audio-link operations. |
+| `uemcp` | remote repo entry | Unreal Engine editor automation. Central installer parity is not complete for first-time setup. |
 
-That's it. The bridges become available the next time you run `claude` from
-that workspace folder.
+`otter` uses Otter.ai's Enterprise Public API and requires API-key access in the Otter workspace. Otter's hosted OAuth MCP endpoint is a separate option for clients that support remote MCP directly; this repository's bridge is the local stdio, installer-managed option.
 
-## Available bridges
+## Directory Layout
 
-| Bridge | What it does |
-|---|---|
-| `perforce` | p4 commands as MCP tools (opened files, numbered CLs, reconcile, move, submit, etc.) |
-| `atlassian` | Jira + Confluence operations |
-| `miro` | Miro whiteboard boards + items |
-| `discord` | Discord guild, channel, and message operations through a bot token |
-| `otter` | Otter.ai Enterprise Public API meeting data, transcripts, action items, insights, and audio links |
-| `uemcp` | Unreal Engine editor automation (UE 5.x) |
-
-`otter` uses Otter.ai's Enterprise Public API and requires API-key access in
-the Otter workspace. Otter's hosted OAuth MCP endpoint (`https://mcp.otter.ai/mcp`)
-is a separate remote-MCP option for clients that support remote MCP directly;
-this repository's bridge is the local stdio, installer-managed option.
-
-## Repo layout
-
-```
-manifest.json                    # catalog of available bridges
-Installers/MCP-Suite/            # the central installer
-  Install-MCP-Suite.bat
-  Update-MCP-Suite.bat
-  Scripts/install.mjs            # orchestration
-MCP-Servers/lib/                 # runtime helpers used by bridge servers
-  resolve-config.mjs             # 3-tier .mcp.json / env var resolution
-  bridge-base.mjs                # standardized bridge config loader
-bridges/
-  perforce/
-    manifest.json                # bridge metadata (fields, validation, etc.)
-    server.mjs                   # the bridge runtime
-    package.json
-    README.md                    # Perforce setup and changelist workflow notes
-    credentials/                 # bridge-specific credential flows
-  atlassian/
-  miro/
-docs/                            # additional documentation
+```text
+MCP-Servers/
+  manifest.json                  # catalog of available bridges
+  lib/                           # shared runtime helpers
+    resolve-config.mjs           # env and workspace config resolution
+    bridge-base.mjs              # standardized bridge config loader
+  bridges/
+    perforce/
+      manifest.json              # bridge metadata, fields, validation
+      server.mjs                 # bridge runtime
+      package.json
+      package-lock.json
+      README.md                  # bridge-specific notes
+    atlassian/
+    miro/
+    discord/
+    otter/
+  docs/                          # design and reference docs
 ```
 
-## Adding a new bridge
+The installer lives outside this directory at `Installers/MCP-Suite/`.
 
-1. Create `bridges/<name>/` with `manifest.json`, `server.mjs`, `package.json`
-2. Add an entry to root `manifest.json` under `bridges`
-3. Push. Users running the installer will see it in the menu.
+## Configuration Model
 
-For "remote" bridges (separate repo with their own setup script — like UEMCP),
-declare `source.type = "remote-repo"` with the repo path and optional
-`setup.command`. The installer downloads, runs the bridge's own setup, and
-moves on.
+The installer writes workspace config:
+
+- `.mcp.json` contains public MCP server entries, bridge metadata, public environment values, and local bridge server paths.
+- `.mcp.local.json` contains secrets such as API tokens and passwords.
+- Existing config is backed up before being rewritten.
+- `.mcp.local.json` is added to `.gitignore` or `.p4ignore.local` where applicable.
+
+Bridge runtimes resolve config from environment variables first, then workspace config rooted by `PROJECT_ROOT`, then nearby `.mcp.json` files where the shared resolver supports upward search.
+
+## Adding Or Updating A Bridge
+
+For a co-located bridge:
+
+1. Create `bridges/<name>/`.
+2. Add `manifest.json`, `server.mjs`, `package.json`, and `package-lock.json`.
+3. Add focused `*.test.mjs` coverage beside the code when parser, config, manifest, or bridge-output behavior changes.
+4. Add or update the bridge entry in `MCP-Servers/manifest.json`.
+5. Update bridge-specific docs when credentials, permissions, or tool behavior changes.
+
+For a remote-repo bridge, keep the central catalog entry conservative until the remote repo has a verified manifest and setup flow. Do not claim installer-driven first-time setup until the central installer can prove it.
+
+## Development Checks
+
+Useful checks from the repo root:
+
+```powershell
+git ls-files "MCP-Servers/**/*.mjs" | % { node --check $_ }
+```
+
+Run bridge tests from the bridge folder:
+
+```powershell
+cd MCP-Servers\bridges\perforce
+npm test
+```
+
+Verify package and lockfile consistency for a changed bridge:
+
+```powershell
+cd MCP-Servers\bridges\perforce
+npm ci --dry-run
+```
+
+Run installer health checks without modifying a workspace:
+
+```powershell
+node Installers\MCP-Suite\Scripts\install.mjs --doctor --workspace=D:\Projects\ExampleWorkspace
+```
 
 ## Security
 
-- Public, non-secret config goes in `.mcp.json` (safe to commit, but typically
-  ignored anyway because it carries machine-specific paths)
-- Secrets (API tokens, passwords) go in `.mcp.local.json` — installer
-  automatically adds this filename to `.gitignore` and `.p4ignore.local`
-- Bridges read both files via 3-tier resolution at startup: env vars >
-  `PROJECT_ROOT` env > nearest `.mcp.json` walking up from the current dir
-- No tokens leave your machine; the installer never uploads anything
-
-## Updating
-
-The installer checks GitHub for newer releases at most once per 24 hours.
-When found, it prompts before swapping caches — never auto-updates without
-your consent. Force a check with `Update-MCP-Suite.bat`.
-
-Optional: `node Installers/MCP-Suite/Scripts/install.mjs --enable-update-checks`
-writes a Claude Code SessionStart
-hook that prints a one-line notice when a newer release is available.
+- Do not commit secrets.
+- Public, non-secret config belongs in `.mcp.json`.
+- Tokens and passwords belong in `.mcp.local.json`.
+- Bridge docs should describe required permissions narrowly.
+- Avoid broad support claims for clients, hosted transports, or first-time setup paths that are not verified by this repository.
