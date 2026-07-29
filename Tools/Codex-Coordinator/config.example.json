@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "operation-phoenix",
+  "workspaceRoot": "D:/UnrealProjects/5.6/OperationPhoenix",
+  "runtimeRoot": "C:/Users/posne/AppData/Local/CodexCoordinator/workspaces/operation-phoenix",
+  "monitorProposalSource": "Local/Operations/Monitoring/combat-lane-watchdog",
+  "networkPolicy": "disabled",
+  "filesystemPolicy": "workspace",
+  "runtimeVersions": {
+    "node": "18.18.0",
+    "powershell": "7.4.0"
+  }
+}

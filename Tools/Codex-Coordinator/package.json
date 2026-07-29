@@ -1,0 +1,17 @@
+{
+  "name": "@onsight/codex-coordinator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local bounded coordination supervisor for registered Codex peers and first-party sensors.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:integration": "node --test --test-name-pattern=integration"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "dependencies": {
+    "ws": "8.18.3"
+  }
+}
