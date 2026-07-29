@@ -34,8 +34,12 @@ import {
 const thisFile = fileURLToPath(import.meta.url);
 
 async function temporaryRoot(t) {
-  const rootDir = await mkdtemp(path.join(tmpdir(), "codex-evidence-"));
-  t.after(() => rm(rootDir, { recursive: true, force: true }));
+  const containerDir = await mkdtemp(
+    path.join(tmpdir(), "codex-evidence-"),
+  );
+  const rootDir = path.join(containerDir, "runtime");
+  await mkdir(rootDir, { recursive: true });
+  t.after(() => rm(containerDir, { recursive: true, force: true }));
   return rootDir;
 }
 
@@ -1871,14 +1875,24 @@ if (process.env.COORD_EVIDENCE_CONCURRENT_RECOVERY_CHILD === "1") {
     assert.equal(evidence.health().status, "healthy");
   });
 
-  test("evidence test roots never escape the OS temp directory", async (t) => {
+  test("evidence test roots isolate sibling journal fences under the OS temp directory", async (t) => {
     const rootDir = await temporaryRoot(t);
+    const secondRootDir = await temporaryRoot(t);
+    const resolvedTempDir = path.resolve(tmpdir()).toLowerCase();
+    const firstParent = path.dirname(path.resolve(rootDir)).toLowerCase();
+    const secondParent = path.dirname(
+      path.resolve(secondRootDir),
+    ).toLowerCase();
+
     assert.equal(
       path.resolve(rootDir).toLowerCase().startsWith(
-        path.resolve(tmpdir()).toLowerCase(),
+        resolvedTempDir,
       ),
       true,
     );
+    assert.equal(path.dirname(firstParent), resolvedTempDir);
+    assert.equal(path.dirname(secondParent), resolvedTempDir);
+    assert.notEqual(firstParent, secondParent);
     await assert.rejects(() => access(path.join(rootDir, "not-created")));
   });
 }

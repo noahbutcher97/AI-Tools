@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -129,8 +129,12 @@ async function createSystem({
 }
 
 async function temporaryRoot(t) {
-  const root = await mkdtemp(path.join(tmpdir(), "coordinator-delivery-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  const container = await mkdtemp(
+    path.join(tmpdir(), "coordinator-delivery-"),
+  );
+  const root = path.join(container, "runtime");
+  await mkdir(root, { recursive: true });
+  t.after(() => rm(container, { recursive: true, force: true }));
   return root;
 }
 
