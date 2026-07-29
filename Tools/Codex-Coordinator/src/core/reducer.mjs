@@ -8,6 +8,11 @@ import {
   canonicalJsonString,
   validateEvent,
 } from "../contracts.mjs";
+import {
+  initialPeerState,
+  reducePeerEvent,
+  validatePeerState,
+} from "../peers/delivery.mjs";
 
 const MAX_SENSOR_COUNT = 100;
 const MAX_RECENT_GENERATIONS_PER_SENSOR = 128;
@@ -35,6 +40,7 @@ const STATE_KEYS = new Set([
   "schemaVersion",
   "lastSequence",
   "runtime",
+  "peers",
   "sensors",
   "observations",
   "alerts",
@@ -57,6 +63,7 @@ export function initialCoordinatorState() {
       degradation: null,
       lastRecoveryProbeId: null,
     },
+    peers: initialPeerState(),
     sensors: {},
     observations: {
       current: {},
@@ -100,6 +107,7 @@ function validateState(value) {
     );
   }
   validateRuntimeState(value.runtime);
+  validatePeerState(value.peers);
   validateSensorState(value.sensors);
   validateObservationState(value.observations, value.sensors);
   const alerts = requirePlainRecord(value.alerts, "coordinator alerts");
@@ -1482,6 +1490,18 @@ export function reduceCoordinatorEvent(state, event) {
       next.runtime.health = "healthy";
       next.runtime.degradation = null;
       next.runtime.lastRecoveryProbeId = event.payload.probeId;
+      break;
+    case "peer.registered":
+    case "peer.attached":
+    case "peer.unregistered":
+    case "message.enqueued":
+    case "message.dispatching":
+    case "message.completed":
+    case "message.deliveryUnknown":
+    case "message.failed":
+    case "message.acknowledged":
+    case "conversation.closed":
+      next.peers = reducePeerEvent(next.peers, event);
       break;
     case "sensor.sampleCommitted":
       applyCommittedSample(next, event.payload);
