@@ -26,6 +26,37 @@ const PEER_RECORD_KEYS = new Set([
   "attachment",
   "registeredUtc",
 ]);
+const ATTACHMENT_KEYS = new Set([
+  "status",
+  "appServerGeneration",
+  "attachmentGeneration",
+  "windowsBootId",
+  "activeTurnId",
+  "attachedUtc",
+  "disconnectedUtc",
+  "disconnectReason",
+]);
+const ATTACHMENT_EVENT_KEYS = new Set([
+  "appServerGeneration",
+  "attachmentGeneration",
+  "windowsBootId",
+  "activeTurnId",
+  "attachedUtc",
+]);
+const CONNECTED_PAYLOAD_KEYS = new Set([
+  "executablePath",
+  "executableSha256",
+  "pid",
+  "parentPid",
+  "creationTimeUtc",
+  "endpoint",
+  "supervisorGeneration",
+  "appServerGeneration",
+  "attachmentGeneration",
+  "windowsBootId",
+  "protocolSha256",
+  "connectedUtc",
+]);
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/;
 const RESERVED_IDENTIFIERS = new Set([
   "__proto__",
@@ -134,7 +165,60 @@ function validatePeerRecord(value, expectedPeerId) {
     throw new TypeError("peer record key and peer ID differ");
   }
   if (value.attachment !== "registered-unattached") {
-    throw new TypeError("peer attachment state is invalid");
+    requirePlainObject(value.attachment, "peer attachment");
+    requireExactKeys(
+      value.attachment,
+      ATTACHMENT_KEYS,
+      "peer attachment",
+    );
+    if (
+      !["attached", "reconcile-pending"].includes(
+        value.attachment.status,
+      )
+    ) {
+      throw new TypeError("peer attachment status is invalid");
+    }
+    requireString(
+      value.attachment.appServerGeneration,
+      "app-server generation",
+      128,
+    );
+    requireString(
+      value.attachment.attachmentGeneration,
+      "attachment generation",
+      128,
+    );
+    requireString(
+      value.attachment.windowsBootId,
+      "Windows boot ID",
+      128,
+    );
+    if (value.attachment.activeTurnId !== null) {
+      requireString(
+        value.attachment.activeTurnId,
+        "active turn ID",
+        128,
+      );
+    }
+    requireUtc(value.attachment.attachedUtc, "peer attachment time");
+    if (value.attachment.status === "attached") {
+      if (
+        value.attachment.disconnectedUtc !== null ||
+        value.attachment.disconnectReason !== null
+      ) {
+        throw new TypeError("attached peer has disconnect metadata");
+      }
+    } else {
+      requireUtc(
+        value.attachment.disconnectedUtc,
+        "peer disconnect time",
+      );
+      requireString(
+        value.attachment.disconnectReason,
+        "peer disconnect reason",
+        128,
+      );
+    }
   }
   requireUtc(value.registeredUtc, "peer registration time");
 }
@@ -219,6 +303,104 @@ function validateUnregisteredPayload(payload) {
   requireUtc(payload.unregisteredUtc, "peer unregistration time");
 }
 
+function validateAttachedPayload(payload) {
+  requirePlainObject(payload, "peer attachment event payload");
+  requireExactKeys(
+    payload,
+    new Set(["peerId", "threadId", ...ATTACHMENT_EVENT_KEYS]),
+    "peer attachment event payload",
+  );
+  assertPeerId(payload.peerId);
+  requireString(payload.threadId, "thread ID", 128);
+  requireString(
+    payload.appServerGeneration,
+    "app-server generation",
+    128,
+  );
+  requireString(
+    payload.attachmentGeneration,
+    "attachment generation",
+    128,
+  );
+  requireString(payload.windowsBootId, "Windows boot ID", 128);
+  if (payload.activeTurnId !== null) {
+    requireString(payload.activeTurnId, "active turn ID", 128);
+  }
+  requireUtc(payload.attachedUtc, "peer attachment time");
+}
+
+function validateDisconnectedPayload(payload) {
+  requirePlainObject(payload, "app-server disconnected payload");
+  requireExactKeys(
+    payload,
+    new Set([
+      "appServerGeneration",
+      "attachmentGeneration",
+      "reason",
+      "disconnectedUtc",
+    ]),
+    "app-server disconnected payload",
+  );
+  requireString(
+    payload.appServerGeneration,
+    "app-server generation",
+    128,
+  );
+  requireString(
+    payload.attachmentGeneration,
+    "attachment generation",
+    128,
+  );
+  requireString(payload.reason, "app-server disconnect reason", 128);
+  requireUtc(payload.disconnectedUtc, "app-server disconnect time");
+}
+
+function validateConnectedPayload(payload) {
+  requirePlainObject(payload, "app-server connected payload");
+  requireExactKeys(
+    payload,
+    CONNECTED_PAYLOAD_KEYS,
+    "app-server connected payload",
+  );
+  if (
+    typeof payload.executablePath !== "string" ||
+    !path.win32.isAbsolute(payload.executablePath)
+  ) {
+    throw new TypeError("app-server executable path is invalid");
+  }
+  if (
+    !SHA256_PATTERN.test(payload.executableSha256) ||
+    !SHA256_PATTERN.test(payload.protocolSha256)
+  ) {
+    throw new TypeError("app-server recorded SHA-256 is invalid");
+  }
+  if (
+    !Number.isSafeInteger(payload.pid) ||
+    payload.pid <= 0 ||
+    !Number.isSafeInteger(payload.parentPid) ||
+    payload.parentPid <= 0
+  ) {
+    throw new TypeError("app-server recorded PID is invalid");
+  }
+  requireUtc(payload.creationTimeUtc, "app-server creation time");
+  requireUtc(payload.connectedUtc, "app-server connection time");
+  if (
+    typeof payload.endpoint !== "string" ||
+    !/^ws:\/\/127\.0\.0\.1:([1-9]\d{0,4})$/.test(payload.endpoint) ||
+    Number(new URL(payload.endpoint).port) > 65_535
+  ) {
+    throw new TypeError("app-server loopback endpoint is invalid");
+  }
+  for (const [value, label] of [
+    [payload.supervisorGeneration, "supervisor generation"],
+    [payload.appServerGeneration, "app-server generation"],
+    [payload.attachmentGeneration, "attachment generation"],
+    [payload.windowsBootId, "Windows boot ID"],
+  ]) {
+    requireString(value, label, 128);
+  }
+}
+
 export function reducePeerRegistryEvent(state, event) {
   validatePeerRegistryState(state);
   validateEvent(event);
@@ -242,6 +424,44 @@ export function reducePeerRegistryEvent(state, event) {
     }
     next.peers[key] = structuredClone(event.payload);
     next.threadToPeer[event.payload.threadId] = event.payload.peerId;
+  } else if (event.type === "appServer.connected") {
+    validateConnectedPayload(event.payload);
+  } else if (event.type === "peer.attached") {
+    validateAttachedPayload(event.payload);
+    const key = String(event.payload.peerId);
+    const existing = next.peers[key];
+    if (
+      existing === undefined ||
+      existing.threadId !== event.payload.threadId
+    ) {
+      throw new Error("peer attachment does not match active registry");
+    }
+    existing.attachment = {
+      status: "attached",
+      appServerGeneration: event.payload.appServerGeneration,
+      attachmentGeneration: event.payload.attachmentGeneration,
+      windowsBootId: event.payload.windowsBootId,
+      activeTurnId: event.payload.activeTurnId,
+      attachedUtc: event.payload.attachedUtc,
+      disconnectedUtc: null,
+      disconnectReason: null,
+    };
+  } else if (event.type === "appServer.disconnected") {
+    validateDisconnectedPayload(event.payload);
+    for (const peer of Object.values(next.peers)) {
+      if (
+        peer.attachment !== "registered-unattached" &&
+        peer.attachment.appServerGeneration ===
+          event.payload.appServerGeneration &&
+        peer.attachment.attachmentGeneration ===
+          event.payload.attachmentGeneration
+      ) {
+        peer.attachment.status = "reconcile-pending";
+        peer.attachment.disconnectedUtc =
+          event.payload.disconnectedUtc;
+        peer.attachment.disconnectReason = event.payload.reason;
+      }
+    }
   } else if (event.type === "peer.unregistered") {
     validateUnregisteredPayload(event.payload);
     const key = String(event.payload.peerId);

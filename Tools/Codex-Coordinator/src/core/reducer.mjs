@@ -1491,6 +1491,8 @@ export function reduceCoordinatorEvent(state, event) {
       next.runtime.degradation = null;
       next.runtime.lastRecoveryProbeId = event.payload.probeId;
       break;
+    case "appServer.connected":
+    case "appServer.disconnected":
     case "peer.registered":
     case "peer.attached":
     case "peer.unregistered":
