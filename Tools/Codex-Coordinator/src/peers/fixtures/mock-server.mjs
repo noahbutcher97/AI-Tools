@@ -106,6 +106,14 @@ function defaultResult(request) {
           turns: [],
         },
       };
+    case "thread/start":
+      return {
+        thread: {
+          id: "thread-mock-ephemeral-1",
+          status: { type: "idle" },
+          turns: [],
+        },
+      };
     case "thread/turns/list":
       return {
         data: [],

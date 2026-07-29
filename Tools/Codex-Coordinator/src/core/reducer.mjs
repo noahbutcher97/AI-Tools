@@ -1499,6 +1499,7 @@ export function reduceCoordinatorEvent(state, event) {
     case "message.enqueued":
     case "message.dispatching":
     case "message.completed":
+    case "message.notified":
     case "message.deliveryUnknown":
     case "message.failed":
     case "message.acknowledged":

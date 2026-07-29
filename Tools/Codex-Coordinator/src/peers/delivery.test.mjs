@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,6 +17,7 @@ import {
   hashPeerDeliveryState,
   initialPeerState,
   MAX_PEER_STATE_BYTES,
+  parseRouteTrailer,
   validatePeerState,
 } from "./delivery.mjs";
 
@@ -112,20 +114,134 @@ async function createSystem({
   peerCount = 6,
   limits,
   clock = createClock(),
+  appServerClient,
+  appServerModel,
+  sidecarOverrides,
+  attachPeers = false,
+  turnTimeoutMs,
 } = {}) {
   const journal = new MemoryJournal();
   const idFactory = createIdFactory();
   const registry = createPeerRegistry({ journal, clock, idFactory });
   for (let peerId = 0; peerId < peerCount; peerId += 1) {
     await registry.registerPeer(peer(peerId));
+    if (attachPeers) {
+      await journal.append(
+        runtimeEvent(journal, "peer.attached", {
+          peerId,
+          threadId: `thread-${peerId}`,
+          appServerGeneration: "app-server-task-7",
+          attachmentGeneration: `attachment-task-7-${peerId}`,
+          windowsBootId: "windows-boot-task-7",
+          activeTurnId: null,
+          attachedUtc: clock.nowUtc(),
+        }),
+      );
+    }
   }
   const delivery = createPeerDelivery({
     journal,
     clock,
     idFactory,
     ...(limits ? { limits } : {}),
+    ...(appServerClient ? { appServerClient } : {}),
+    ...(appServerModel ? { appServerModel } : {}),
+    ...(sidecarOverrides ? { sidecarOverrides } : {}),
+    ...(turnTimeoutMs ? { turnTimeoutMs } : {}),
   });
   return { journal, registry, delivery, clock, idFactory };
+}
+
+function createDeliveryAppServer(
+  responses,
+  {
+    emitUnrelatedBeforeStart = false,
+    completeTurns = true,
+  } = {},
+) {
+  const events = new EventEmitter();
+  const calls = [];
+  const canonicalSummaries = [];
+  let turnSequence = 0;
+
+  function complete(threadId, turnId, text) {
+    queueMicrotask(() => {
+      events.emit("item/completed", {
+        threadId,
+        turnId,
+        item: {
+          id: `item-${turnId}`,
+          type: "agentMessage",
+          text,
+        },
+      });
+      events.emit("turn/completed", {
+        threadId,
+        turn: { id: turnId, status: "completed" },
+      });
+    });
+  }
+
+  return {
+    calls,
+    async startTurn(request, { onTurnStarted } = {}) {
+      calls.push({ method: "turn/start", request: structuredClone(request) });
+      const turnId = `turn-${++turnSequence}`;
+      const response = responses.shift();
+      canonicalSummaries.push(response);
+      if (emitUnrelatedBeforeStart) {
+        events.emit("item/completed", {
+          threadId: request.threadId,
+          turnId: "turn-unrelated",
+          item: {
+            id: "item-unrelated",
+            type: "agentMessage",
+            text: "unrelated result",
+          },
+        });
+        events.emit("turn/completed", {
+          threadId: request.threadId,
+          turn: { id: "turn-unrelated", status: "completed" },
+        });
+      }
+      onTurnStarted?.({ id: turnId, status: "inProgress" });
+      if (completeTurns) {
+        complete(request.threadId, turnId, response);
+      }
+      return { turn: { id: turnId, status: "inProgress" } };
+    },
+    async startSidecarTurn(
+      request,
+      { onThreadStarted, onTurnStarted } = {},
+    ) {
+      calls.push({
+        method: "sidecar/start",
+        request: structuredClone(request),
+      });
+      const threadId = `ephemeral-${turnSequence + 1}`;
+      const turnId = `turn-${++turnSequence}`;
+      onThreadStarted?.({ id: threadId });
+      onTurnStarted?.({ id: turnId, status: "inProgress" });
+      complete(threadId, turnId, responses.shift());
+      return {
+        thread: { id: threadId },
+        turn: { id: turnId, status: "inProgress" },
+        effectiveModel: request.model,
+        effectiveEffort: request.effort,
+        cwd: request.cwd,
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      };
+    },
+    async readCompletedCanonicalSummaries(threadId, limit) {
+      calls.push({
+        method: "thread/turns/list",
+        request: { threadId, limit },
+      });
+      return canonicalSummaries.slice(-limit).reverse();
+    },
+    on: events.on.bind(events),
+    off: events.off.bind(events),
+  };
 }
 
 async function temporaryRoot(t) {
@@ -507,6 +623,270 @@ test("conversation enforces one directed turn, four hops, and no coalescing", as
   assert.equal(state.delivery.conversations[conversationId].closeReason, "hop-limit");
 });
 
+test("route trailer parsing accepts only an exact final line", () => {
+  assert.equal(parseRouteTrailer("answer\n[[peer-route:reply]]"), "reply");
+  assert.equal(parseRouteTrailer("answer\r\n[[peer-route:complete]]"), "complete");
+  assert.equal(parseRouteTrailer("answer"), "complete");
+  assert.equal(parseRouteTrailer("[[peer-route:reply]]\nanswer"), "complete");
+  assert.equal(parseRouteTrailer("answer\n[[peer-route:reply]] "), "complete");
+  assert.equal(parseRouteTrailer("answer\n[[peer-route:reply]]\n"), "complete");
+});
+
+test("canonical delivery labels authority, strips the forwarded route trailer, and stops after four automatic hops", async () => {
+  const appServerClient = createDeliveryAppServer([
+    "first response\n[[peer-route:reply]]",
+    "second response\n[[peer-route:reply]]",
+    "third response\n[[peer-route:reply]]",
+    "fourth response\n[[peer-route:reply]]",
+    "fifth response\n[[peer-route:reply]]",
+  ]);
+  const { delivery } = await createSystem({
+    appServerClient,
+    attachPeers: true,
+  });
+  let current = message("automatic", {
+    text: "review this",
+    referencePaths: [
+      "D:/UnrealProjects/5.6/OperationPhoenix/one.md",
+      "D:/UnrealProjects/5.6/OperationPhoenix/two.md",
+    ],
+  });
+
+  for (let hop = 0; hop <= 4; hop += 1) {
+    const result = await delivery.deliverCanonical(current);
+    assert.equal(result.status, "completed");
+    assert.equal(result.route, "reply");
+    assert.match(result.message.result, /\[\[peer-route:reply\]\]$/);
+    if (hop < 4) {
+      assert.equal(result.nextMessage.text, `${["first", "second", "third", "fourth"][hop]} response`);
+      current = result.nextMessage;
+    } else {
+      assert.equal(result.nextMessage, null);
+      assert.equal(result.stopReason, "hop-limit");
+    }
+  }
+
+  const first = appServerClient.calls[0].request;
+  assert.equal(first.threadId, "thread-1");
+  assert.equal(first.model, undefined);
+  assert.equal(first.effort, undefined);
+  assert.equal(first.cwd, undefined);
+  assert.match(first.input[0].text, /Source: Peer 0 \(Orchestrator\)/);
+  assert.match(first.input[0].text, /Message ID:/);
+  assert.match(first.input[0].text, /Conversation ID:/);
+  assert.match(first.input[0].text, /Hop: 0\/4/);
+  assert.match(first.input[0].text, /Authority boundary: bounded peer request/);
+  assert.match(
+    first.input[0].text,
+    /D:\/UnrealProjects\/5\.6\/OperationPhoenix\/one\.md/,
+  );
+});
+
+test("sidecar uses a fresh read-only no-network thread with bounded canonical summaries and peer-zero settings", async () => {
+  const appServerClient = createDeliveryAppServer([
+    "canonical one",
+    "canonical two",
+    "canonical three",
+    "sidecar result",
+  ]);
+  const { delivery } = await createSystem({
+    appServerClient,
+    appServerModel: "current-app-model",
+    attachPeers: true,
+    sidecarOverrides: {
+      1: { model: "peer-one-model", effort: "high" },
+    },
+  });
+  for (let index = 0; index < 3; index += 1) {
+    await delivery.deliverCanonical(message(`summary-${index}`));
+  }
+
+  const result = await delivery.deliverSidecar(
+    message("sidecar", {
+      mode: "sidecar",
+      text: "analyze peer context",
+    }),
+  );
+  assert.equal(result.status, "completed");
+  assert.equal(result.effectiveModel, "peer-one-model");
+  assert.equal(result.effectiveEffort, "high");
+  assert.deepEqual(result.sandboxPolicy, {
+    type: "readOnly",
+    networkAccess: false,
+  });
+
+  const call = appServerClient.calls.at(-1).request;
+  assert.equal(call.cwd, "D:/UnrealProjects/5.6/OperationPhoenix");
+  assert.equal(call.model, "peer-one-model");
+  assert.equal(call.effort, "high");
+  assert.equal(call.ephemeral, true);
+  assert.deepEqual(call.sandboxPolicy, {
+    type: "readOnly",
+    networkAccess: false,
+  });
+  assert.match(call.additionalContext.rules.value, /scope-expansion-needed/);
+  assert.match(call.additionalContext.peerMessage.value, /untrusted/i);
+  assert.match(call.additionalContext.canonicalSummaries.value, /canonical two/);
+  assert.match(call.additionalContext.canonicalSummaries.value, /canonical three/);
+  assert.doesNotMatch(call.additionalContext.canonicalSummaries.value, /canonical one/);
+  const summaryCall = appServerClient.calls.find(
+    (item) => item.method === "thread/turns/list",
+  );
+  assert.deepEqual(summaryCall.request, {
+    threadId: "thread-1",
+    limit: 2,
+  });
+  await assert.rejects(
+    delivery.deliverSidecar({
+      ...message("message-override", { mode: "sidecar" }),
+      model: "message-controlled-model",
+    }),
+    /unknown or missing fields/,
+  );
+  assert.throws(
+    () =>
+      createPeerDelivery({
+        journal: new MemoryJournal(),
+        sidecarOverrides: { 1: { effort: "low" } },
+        sidecarOverridesOwnerPeerId: 1,
+      }),
+    /only peer 0/,
+  );
+});
+
+test("notify creates an available record without starting an app-server turn", async () => {
+  const appServerClient = createDeliveryAppServer([]);
+  const { delivery } = await createSystem({
+    appServerClient,
+    attachPeers: true,
+  });
+  const result = await delivery.deliverNotify(message("notify"));
+  const state = await delivery.readState();
+
+  assert.equal(result.status, "available");
+  assert.equal(result.mailboxPeerId, 1);
+  assert.equal(appServerClient.calls.length, 0);
+  assert.equal(state.delivery.usage.canonical.peer.length, 0);
+  assert.equal(state.delivery.usage.sidecar.peer.length, 0);
+  assert.equal(state.delivery.mailboxes["1"][0].status, "available");
+  assert.equal(
+    state.delivery.messages[result.messageId].result,
+    "message-notify",
+  );
+  assert.equal(
+    (await delivery.ackMessage(result.messageId, 1)).status,
+    "acknowledged",
+  );
+  assert.equal(
+    (await delivery.ackMessage(result.messageId, 1)).status,
+    "already-acknowledged",
+  );
+});
+
+test("canonical result cap preserves an exact reply trailer and bounds forwarded text", async () => {
+  const appServerClient = createDeliveryAppServer([
+    `${"x".repeat(4_500)}\n[[peer-route:reply]]`,
+  ]);
+  const { delivery } = await createSystem({
+    appServerClient,
+    attachPeers: true,
+  });
+  const result = await delivery.deliverCanonical(message("result-cap"));
+
+  assert.equal(result.message.result.length, 4_000);
+  assert.match(result.message.result, /\n\[\[peer-route:reply\]\]$/);
+  assert.equal(result.nextMessage.text.length, 2_000);
+});
+
+test("canonical correlation ignores pre-ack notifications from another turn", async () => {
+  const appServerClient = createDeliveryAppServer(
+    ["intended result"],
+    { emitUnrelatedBeforeStart: true },
+  );
+  const { delivery } = await createSystem({
+    appServerClient,
+    attachPeers: true,
+  });
+  const result = await delivery.deliverCanonical(message("correlation"));
+
+  assert.equal(result.message.result, "intended result");
+  assert.notEqual(result.message.result, "unrelated result");
+});
+
+test("canonical terminal timeout durably releases active capacity as delivery unknown", async () => {
+  const appServerClient = createDeliveryAppServer(
+    ["never completed"],
+    { completeTurns: false },
+  );
+  const { delivery } = await createSystem({
+    appServerClient,
+    attachPeers: true,
+    turnTimeoutMs: 10,
+  });
+
+  await assert.rejects(
+    delivery.deliverCanonical(message("terminal-timeout")),
+    /timed out/,
+  );
+  const state = await delivery.readState();
+  const timedOut = Object.values(state.delivery.messages).find(
+    (item) => item.clientDeduplicationKey === "client-terminal-timeout",
+  );
+  assert.equal(timedOut.status, "delivery-unknown");
+  assert.equal(state.delivery.activeCount, 0);
+  assert.deepEqual(state.delivery.activeByTarget, {});
+});
+
+test("canonical and sidecar routing require an idle attached target", async () => {
+  const appServerClient = createDeliveryAppServer(["unused"]);
+  const { delivery } = await createSystem({
+    appServerClient,
+    appServerModel: "current-app-model",
+  });
+  const canonical = await delivery.deliverCanonical(message("unattached"));
+  const sidecar = await delivery.deliverSidecar(
+    message("unattached-sidecar", { mode: "sidecar" }),
+  );
+
+  assert.equal(canonical.status, "blocked");
+  assert.equal(canonical.reason, "target-unattached");
+  assert.equal(sidecar.status, "blocked");
+  assert.equal(sidecar.reason, "target-unattached");
+  assert.equal(appServerClient.calls.length, 0);
+});
+
+test("canonical durable references must stay inside the registered target workspace", async () => {
+  const { delivery } = await createSystem();
+  await assert.rejects(
+    delivery.enqueueMessage(
+      message("reference-escape", {
+        referencePaths: ["D:/DevTools/AI-Tools/outside.md"],
+      }),
+    ),
+    /reference escapes the registered target workspace/,
+  );
+});
+
+test("notify respects mailbox slots reserved for queued completions", async () => {
+  const { delivery } = await createSystem({
+    limits: { mailboxRecordsPerPeer: 2 },
+  });
+  await delivery.deliverNotify(message("notify-existing"));
+  await delivery.enqueueMessage(
+    message("reserved-reply", {
+      sourcePeerId: 1,
+      targetPeerId: 0,
+    }),
+  );
+  const blocked = await delivery.deliverNotify(message("notify-overflow"));
+
+  assert.deepEqual(blocked, {
+    status: "backpressure",
+    reason: "target-mailbox-full",
+    targetPeerId: 1,
+  });
+});
+
 test("conversation clock expires without extension after wall rollback", async () => {
   const clock = createClock();
   const { delivery } = await createSystem({ clock });
@@ -695,7 +1075,8 @@ test("delivery rejects malformed messages before durable mutation", async () => 
 
 test("peer checkpoint capacity returns typed backpressure with result space reserved", async () => {
   const { delivery } = await createSystem();
-  const largeReference = `D:/${"r".repeat(1_020)}`;
+  const largeReference =
+    `D:/UnrealProjects/5.6/OperationPhoenix/${"r".repeat(980)}`;
   let capacityResult = null;
   for (let index = 0; index < 100; index += 1) {
     const result = await delivery.enqueueMessage(

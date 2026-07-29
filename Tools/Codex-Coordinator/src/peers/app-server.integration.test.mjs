@@ -221,6 +221,34 @@ function clientOptions(server, overrides = {}) {
   };
 }
 
+async function attachPeer(
+  journal,
+  peerId,
+  threadId,
+  activeTurnId = null,
+) {
+  await journal.append(
+    {
+      schemaVersion: 1,
+      sequence: journal.events.length + 1,
+      eventId: `attach-${peerId}-${journal.events.length + 1}`,
+      timestampUtc: "2026-07-29T12:00:00.000Z",
+      source: "test",
+      type: "peer.attached",
+      payload: {
+        peerId,
+        threadId,
+        appServerGeneration: APP_SERVER_GENERATION,
+        attachmentGeneration: ATTACHMENT_GENERATION,
+        windowsBootId: BOOT_ID,
+        activeTurnId,
+        attachedUtc: "2026-07-29T12:00:00.000Z",
+      },
+    },
+    { flush: true },
+  );
+}
+
 test("app-server protocol inspection fails before connection when a required schema method is absent", async () => {
   const schema = validProtocolSchema();
   schema.definitions.ClientRequest.oneOf =
@@ -504,6 +532,7 @@ test("app-server drop after turn/start records flushed deliveryUnknown and never
     clientOptions(server, { journal }),
   );
   await client.connectAppServer(record(server.endpoint));
+  await attachPeer(journal, 2, "thread-6");
 
   await assert.rejects(
     client.startTurn({
@@ -714,6 +743,143 @@ test("app-server turn requests forbid per-turn execution overrides and steering 
   );
 });
 
+test("sidecar start creates an ephemeral thread with model effort and read-only network fencing", async (t) => {
+  const server = await createMockAppServer();
+  t.after(() => server.close());
+  const journal = new MemoryJournal();
+  const registry = createPeerRegistry({ journal });
+  for (const peerId of [0, 1]) {
+    await registry.registerPeer({
+      peerId,
+      threadId: `thread-sidecar-${peerId}`,
+      label: `Sidecar ${peerId}`,
+      workspaceRoot: "D:\\DevTools\\AI-Tools",
+      codexVersion: "0.145.0",
+      schemaHash: SHA_A,
+    });
+  }
+  const delivery = createPeerDelivery({ journal });
+  const queued = await delivery.enqueueMessage({
+    sourcePeerId: 0,
+    targetPeerId: 1,
+    mode: "sidecar",
+    sourceKind: "peer",
+    text: "bounded sidecar",
+    referencePaths: [],
+    authorityLabel: "read-only analysis",
+    clientDeduplicationKey: "message-sidecar-7",
+    hop: 0,
+  });
+  await delivery.claimNextMessage(1);
+  const client = createAppServerClient(clientOptions(server, { journal }));
+  await client.connectAppServer(record(server.endpoint));
+  await attachPeer(
+    journal,
+    1,
+    "thread-sidecar-1",
+    "turn-user-active",
+  );
+
+  const request = {
+    messageId: queued.message.messageId,
+    mailboxPeerId: 0,
+    cwd: "D:\\DevTools\\AI-Tools",
+    model: "current-model",
+    effort: "medium",
+    ephemeral: true,
+    input: [{ type: "text", text: "bounded sidecar" }],
+    additionalContext: {
+      rules: { kind: "application", value: "read only" },
+      peerMessage: { kind: "untrusted", value: "peer text" },
+    },
+    sandboxPolicy: { type: "readOnly", networkAccess: false },
+  };
+  await assert.rejects(
+    client.startSidecarTurn(request),
+    /not an idle attached peer/,
+  );
+  assert.equal(
+    server.requests.some((item) => item.method === "thread/start"),
+    false,
+  );
+  await attachPeer(journal, 1, "thread-sidecar-1");
+
+  const result = await client.startSidecarTurn(request);
+
+  assert.equal(result.thread.id, "thread-mock-ephemeral-1");
+  assert.equal(result.turn.id, "turn-mock-1");
+  const threadStart = server.requests.find(
+    (item) => item.method === "thread/start",
+  );
+  const turnStart = server.requests.find(
+    (item) => item.method === "turn/start",
+  );
+  assert.deepEqual(threadStart.params, {
+    cwd: "D:\\DevTools\\AI-Tools",
+    ephemeral: true,
+    model: "current-model",
+    config: { model_reasoning_effort: "medium" },
+    sandbox: "read-only",
+  });
+  assert.equal(turnStart.params.threadId, "thread-mock-ephemeral-1");
+  assert.deepEqual(turnStart.params.sandboxPolicy, {
+    type: "readOnly",
+    networkAccess: false,
+  });
+});
+
+test("canonical summaries read only the attached target thread and return at most two completed turns", async (t) => {
+  const server = await createMockAppServer({
+    onRequest(request) {
+      if (request.method === "initialize") {
+        return { userAgent: "mock" };
+      }
+      if (request.method === "thread/turns/list") {
+        return {
+          data: [
+            { id: "turn-summary-3", status: "completed", summary: "three" },
+            { id: "turn-summary-2", status: "completed", summary: "two" },
+            { id: "turn-active", status: "inProgress", summary: "active" },
+          ],
+          nextCursor: null,
+        };
+      }
+      return {};
+    },
+  });
+  t.after(() => server.close());
+  const journal = new MemoryJournal();
+  const registry = createPeerRegistry({ journal });
+  await registry.registerPeer({
+    peerId: 1,
+    threadId: "thread-summary-1",
+    label: "Summary 1",
+    workspaceRoot: "D:\\DevTools\\AI-Tools",
+    codexVersion: "0.145.0",
+    schemaHash: SHA_A,
+  });
+  const client = createAppServerClient(clientOptions(server, { journal }));
+  await client.connectAppServer(record(server.endpoint));
+  await attachPeer(journal, 1, "thread-summary-1");
+
+  const summaries = await client.readCompletedCanonicalSummaries(
+    "thread-summary-1",
+    2,
+  );
+  assert.equal(summaries.length, 2);
+  assert.match(summaries[0], /turn-summary-3/);
+  assert.match(summaries[1], /turn-summary-2/);
+  const request = server.requests.find(
+    (item) => item.method === "thread/turns/list",
+  );
+  assert.deepEqual(request.params, {
+    threadId: "thread-summary-1",
+    limit: 2,
+    sortDirection: "desc",
+    itemsView: "summary",
+  });
+});
+
 test("app-server explicit retry requires a new dispatch, an unknown message ID, and a target thread read", async (t) => {
   let unknownMessageId;
   let exposeUnknown = true;
@@ -812,6 +978,7 @@ test("app-server explicit retry requires a new dispatch, an unknown message ID, 
     clientOptions(server, { journal }),
   );
   await client.connectAppServer(record(server.endpoint));
+  await attachPeer(journal, 2, "thread-target-retry-6");
 
   await assert.rejects(
     client.startTurn({

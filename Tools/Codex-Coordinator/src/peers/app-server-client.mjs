@@ -14,6 +14,7 @@ import WebSocket from "ws";
 
 import {
   SCHEMA_VERSION,
+  assertPeerId,
   validateEvent,
 } from "../contracts.mjs";
 import {
@@ -74,6 +75,24 @@ const START_TURN_KEYS = new Set([
   "input",
   "additionalContext",
   "retryUnknownMessageId",
+]);
+const START_SIDECAR_TURN_KEYS = new Set([
+  "messageId",
+  "mailboxPeerId",
+  "cwd",
+  "model",
+  "effort",
+  "ephemeral",
+  "input",
+  "additionalContext",
+  "sandboxPolicy",
+]);
+const REASONING_EFFORTS = new Set([
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
 ]);
 const MAX_APP_SERVER_MESSAGE_BYTES = 1024 * 1024;
 
@@ -684,6 +703,12 @@ export function createAppServerClient({
       throw new Error(`${method} returned a different thread ID`);
     }
     if (
+      method === "thread/start" &&
+      typeof result.thread?.id !== "string"
+    ) {
+      throw new TypeError("thread/start response is invalid");
+    }
+    if (
       method === "thread/turns/list" &&
       !Array.isArray(result.data)
     ) {
@@ -1177,9 +1202,17 @@ export function createAppServerClient({
       coordinatorState.peers.registry.peers[
         String(message.targetPeerId)
       ];
-    if (target?.threadId !== request.threadId) {
+    if (
+      target?.threadId !== request.threadId ||
+      target.attachment === "registered-unattached" ||
+      target.attachment?.status !== "attached" ||
+      target.attachment.appServerGeneration !== appServerGeneration ||
+      target.attachment.attachmentGeneration !== attachmentGeneration ||
+      target.attachment.windowsBootId !== windowsBootId ||
+      target.attachment.activeTurnId !== null
+    ) {
       throw new Error(
-        "turn/start target thread does not match the dispatched peer",
+        "turn/start target is not an idle attached peer",
       );
     }
     if (request.retryUnknownMessageId === undefined) {
@@ -1214,7 +1247,46 @@ export function createAppServerClient({
     }
   }
 
-  async function startTurn(request) {
+  async function validateSidecarDispatch(request) {
+    if (journal === undefined) {
+      throw new Error(
+        "sidecar turn requires the authoritative coordinator journal",
+      );
+    }
+    const coordinatorState = await reduceCoordinatorJournalEvents(
+      await journal.readFrom(0),
+    );
+    assertPeerMutationAllowed(coordinatorState);
+    const message =
+      coordinatorState.peers.delivery.messages[request.messageId];
+    if (
+      message?.status !== "dispatching" ||
+      message.mode !== "sidecar" ||
+      message.sourceKind !== "peer" ||
+      message.sourcePeerId !== request.mailboxPeerId
+    ) {
+      throw new Error(
+        `message ${request.messageId} is not an authorized sidecar dispatch`,
+      );
+    }
+    const target =
+      coordinatorState.peers.registry.peers[String(message.targetPeerId)];
+    if (
+      target?.workspaceRoot !== request.cwd ||
+      target.attachment === "registered-unattached" ||
+      target.attachment?.status !== "attached" ||
+      target.attachment.appServerGeneration !== appServerGeneration ||
+      target.attachment.attachmentGeneration !== attachmentGeneration ||
+      target.attachment.windowsBootId !== windowsBootId ||
+      target.attachment.activeTurnId !== null
+    ) {
+      throw new Error(
+        "sidecar target is not an idle attached peer in the registered workspace",
+      );
+    }
+  }
+
+  async function startTurn(request, { onTurnStarted } = {}) {
     requirePlainObject(request, "turn/start request");
     for (const key of Object.keys(request)) {
       if (FORBIDDEN_TURN_OVERRIDES.has(key)) {
@@ -1225,13 +1297,20 @@ export function createAppServerClient({
       }
     }
     requireIdentifier(request.messageId, "message ID");
+    assertPeerId(request.mailboxPeerId);
     if (
       !Number.isSafeInteger(request.mailboxPeerId) ||
-      request.mailboxPeerId < 1
+      request.mailboxPeerId < 0
     ) {
       throw new TypeError("mailbox peer ID is invalid");
     }
     const threadId = requireIdentifier(request.threadId, "thread ID");
+    if (
+      onTurnStarted !== undefined &&
+      typeof onTurnStarted !== "function"
+    ) {
+      throw new TypeError("turn callback is invalid");
+    }
     if (!Array.isArray(request.input)) {
       throw new TypeError("turn input must be an array");
     }
@@ -1254,7 +1333,7 @@ export function createAppServerClient({
     }
     await validateTurnDispatch(request);
     try {
-      return await sendRequest("turn/start", {
+      const started = await sendRequest("turn/start", {
         threadId,
         input: structuredClone(request.input),
         clientUserMessageId: request.messageId,
@@ -1266,6 +1345,8 @@ export function createAppServerClient({
               ),
             }),
       });
+      onTurnStarted?.(structuredClone(started.turn));
+      return started;
     } catch (error) {
       if (error instanceof AppServerDisconnectedError && error.sent) {
         await markDeliveryUnknown(
@@ -1279,6 +1360,180 @@ export function createAppServerClient({
       }
       throw error;
     }
+  }
+
+  async function startSidecarTurn(
+    request,
+    { onThreadStarted, onTurnStarted } = {},
+  ) {
+    requirePlainObject(request, "sidecar turn request");
+    requireExactKeys(
+      request,
+      START_SIDECAR_TURN_KEYS,
+      "sidecar turn request",
+    );
+    requireIdentifier(request.messageId, "message ID");
+    assertPeerId(request.mailboxPeerId);
+    if (
+      onThreadStarted !== undefined &&
+      typeof onThreadStarted !== "function"
+    ) {
+      throw new TypeError("sidecar thread callback is invalid");
+    }
+    if (
+      onTurnStarted !== undefined &&
+      typeof onTurnStarted !== "function"
+    ) {
+      throw new TypeError("sidecar turn callback is invalid");
+    }
+    if (
+      typeof request.cwd !== "string" ||
+      request.cwd.length === 0 ||
+      !path.isAbsolute(request.cwd)
+    ) {
+      throw new TypeError("sidecar workspace is invalid");
+    }
+    if (
+      typeof request.model !== "string" ||
+      request.model.length === 0 ||
+      request.model.length > 128
+    ) {
+      throw new TypeError("sidecar model is invalid");
+    }
+    if (!REASONING_EFFORTS.has(request.effort)) {
+      throw new TypeError("sidecar reasoning effort is invalid");
+    }
+    if (request.ephemeral !== true || !Array.isArray(request.input)) {
+      throw new TypeError("sidecar thread must be ephemeral with array input");
+    }
+    requirePlainObject(
+      request.additionalContext,
+      "additional sidecar context",
+    );
+    for (const entry of Object.values(request.additionalContext)) {
+      requirePlainObject(entry, "additional sidecar context entry");
+      if (
+        !["application", "untrusted"].includes(entry.kind) ||
+        typeof entry.value !== "string"
+      ) {
+        throw new TypeError("additional sidecar context entry is invalid");
+      }
+    }
+    requirePlainObject(request.sandboxPolicy, "sidecar sandbox policy");
+    requireExactKeys(
+      request.sandboxPolicy,
+      new Set(["type", "networkAccess"]),
+      "sidecar sandbox policy",
+    );
+    if (
+      request.sandboxPolicy.type !== "readOnly" ||
+      request.sandboxPolicy.networkAccess !== false
+    ) {
+      throw new Error("sidecar requires read-only no-network sandboxing");
+    }
+    await validateSidecarDispatch(request);
+
+    let startedThread;
+    try {
+      startedThread = await sendRequest("thread/start", {
+        cwd: request.cwd,
+        ephemeral: true,
+        model: request.model,
+        config: { model_reasoning_effort: request.effort },
+        sandbox: "read-only",
+      });
+    } catch (error) {
+      if (error instanceof AppServerDisconnectedError && error.sent) {
+        await markDeliveryUnknown(
+          request,
+          "sidecar-thread-start-acknowledgement-unknown",
+        );
+        throw new Error(
+          `message ${request.messageId} sidecar delivery is unknown`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+    onThreadStarted?.(structuredClone(startedThread.thread));
+    let startedTurn;
+    try {
+      startedTurn = await sendRequest("turn/start", {
+        threadId: startedThread.thread.id,
+        input: structuredClone(request.input),
+        clientUserMessageId: request.messageId,
+        additionalContext: structuredClone(request.additionalContext),
+        sandboxPolicy: structuredClone(request.sandboxPolicy),
+      });
+    } catch (error) {
+      if (error instanceof AppServerDisconnectedError && error.sent) {
+        await markDeliveryUnknown(
+          request,
+          "sidecar-turn-start-acknowledgement-unknown",
+        );
+        throw new Error(
+          `message ${request.messageId} sidecar delivery is unknown`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
+    onTurnStarted?.(structuredClone(startedTurn.turn));
+    return {
+      thread: structuredClone(startedThread.thread),
+      turn: structuredClone(startedTurn.turn),
+      effectiveModel: request.model,
+      effectiveEffort: request.effort,
+      cwd: request.cwd,
+      sandboxPolicy: structuredClone(request.sandboxPolicy),
+    };
+  }
+
+  async function readCompletedCanonicalSummaries(threadId, limit = 2) {
+    requireIdentifier(threadId, "thread ID");
+    if (!Number.isSafeInteger(limit) || limit < 0 || limit > 2) {
+      throw new TypeError("canonical summary limit is invalid");
+    }
+    if (journal === undefined) {
+      throw new Error(
+        "canonical summaries require the authoritative coordinator journal",
+      );
+    }
+    const coordinatorState = await reduceCoordinatorJournalEvents(
+      await journal.readFrom(0),
+    );
+    assertPeerMutationAllowed(coordinatorState);
+    const peerId =
+      coordinatorState.peers.registry.threadToPeer[threadId];
+    const peer =
+      peerId === undefined
+        ? undefined
+        : coordinatorState.peers.registry.peers[String(peerId)];
+    if (
+      peer?.attachment === "registered-unattached" ||
+      peer?.attachment?.status !== "attached" ||
+      peer.attachment.appServerGeneration !== appServerGeneration ||
+      peer.attachment.attachmentGeneration !== attachmentGeneration ||
+      peer.attachment.windowsBootId !== windowsBootId
+    ) {
+      throw new Error("canonical summary target is not an attached peer");
+    }
+    const response = await sendRequest("thread/turns/list", {
+      threadId,
+      limit: Math.max(limit, 1),
+      sortDirection: "desc",
+      itemsView: "summary",
+    });
+    return response.data
+      .filter((turn) => {
+        const status =
+          typeof turn?.status === "string"
+            ? turn.status
+            : turn?.status?.type;
+        return status === "completed";
+      })
+      .slice(0, limit)
+      .map((turn) => JSON.stringify(turn).slice(0, 1_000));
   }
 
   async function steerTurn(request) {
@@ -1383,6 +1638,8 @@ export function createAppServerClient({
     startManagedAppServer,
     reconcileAttachments,
     startTurn,
+    startSidecarTurn,
+    readCompletedCanonicalSummaries,
     steerTurn,
     interruptTurn,
     reconnect,
@@ -1410,8 +1667,12 @@ export async function reconcileAttachments(peers, client) {
   return client.reconcileAttachments(peers);
 }
 
-export async function startTurn(request, client) {
-  return client.startTurn(request);
+export async function startTurn(request, client, options) {
+  return client.startTurn(request, options);
+}
+
+export async function startSidecarTurn(request, client, options) {
+  return client.startSidecarTurn(request, options);
 }
 
 export async function steerTurn(request, client) {

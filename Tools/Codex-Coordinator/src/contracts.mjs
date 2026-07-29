@@ -23,6 +23,7 @@ export const EVENT_TYPES = Object.freeze([
   "message.enqueued",
   "message.dispatching",
   "message.completed",
+  "message.notified",
   "message.deliveryUnknown",
   "message.failed",
   "message.acknowledged",
