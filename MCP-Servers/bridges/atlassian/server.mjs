@@ -132,6 +132,42 @@ server.tool("jira_get_issue", "Get full details of a single Jira issue by key", 
   return toolJsonResult(i);
 });
 
+// ── jira_validate_keys ──
+// Use this instead of a `key in (...)` JQL query when checking whether issue
+// keys are real. That query returns only the keys it resolves, with no error and
+// no list of what it dropped, so absence reads as deletion — and absence has at
+// least three causes: the issue is gone, you cannot read it, or it is missing
+// from the search index while still fetching fine by key. This tool resolves
+// each key individually and returns exactly one verdict per key.
+server.tool("jira_validate_keys",
+  "Check whether Jira issue keys exist, one verdict per key. Prefer this over a `key in (...)` "
+  + "JQL query for reference-integrity checks: that query silently omits keys it cannot resolve, "
+  + "and omission does NOT imply deletion.",
+  {
+    keys: z.array(z.string()).describe("Issue keys to check, e.g. ['OA-794','OA-829']"),
+    checkSearchable: z.boolean().optional().default(true)
+      .describe("Also flag keys that exist but are invisible to JQL search. Costs one extra "
+        + "query per 50 keys. On by default because that case is the one that silently "
+        + "corrupts reference-integrity checks."),
+  },
+  async ({ keys, checkSearchable }) => {
+    const r = await client.validateKeys(keys, { checkSearchable });
+    return toolJsonResult({
+      ...r,
+      verdictMeaning: {
+        exists: "Resolved by direct fetch.",
+        moved: "Resolved, but under a different key — see resolvedKey.",
+        exists_not_searchable: "Exists, but absent from JQL results. A `key in (...)` query will "
+          + "silently omit it. Not deleted.",
+        not_found_or_no_permission: "HTTP 404. The API returns the same response for a missing "
+          + "issue and one you may not read; they cannot be told apart from here.",
+        no_permission: "HTTP 403.",
+        rate_limited: "Rate limited after retries. Status UNKNOWN — do not treat as absent.",
+        error: "Request failed for another reason. Status UNKNOWN — do not treat as absent.",
+      },
+    });
+  });
+
 // ── jira_list_boards ──
 // Without projectKey, the underlying /rest/agile/1.0/board endpoint returns
 // every board the credential can see across the entire Atlassian instance.
