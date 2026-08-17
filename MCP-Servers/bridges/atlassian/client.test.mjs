@@ -541,3 +541,20 @@ test('search never invents a total the endpoint does not return', async () => {
   assert.equal(r.total, null);
   assert.equal(r.count, 25);
 });
+
+test("getPage can return a single section instead of the whole body", async () => {
+  const doc = "<h2>A</h2><p>alpha</p><h2>B</h2><p>beta</p>";
+  const c = new ConfluenceClient(CREDS, { fetchImpl: async () => response(200, pageResponse(doc)) });
+  const p = await c.getPage("1", "storage", { section: "B", format: "text" });
+  assert.equal(p.body, "beta");
+  assert.equal(p.section.found, true);
+});
+
+test("getPage reports a missing section with the headings that do exist", async () => {
+  const doc = "<h2>A</h2><p>alpha</p>";
+  const c = new ConfluenceClient(CREDS, { fetchImpl: async () => response(200, pageResponse(doc)) });
+  const p = await c.getPage("1", "storage", { section: "Nope" });
+  assert.equal(p.section.found, false);
+  assert.deepEqual(p.section.availableHeadings, ["A"]);
+  assert.equal(p.body, null, "a missing section must not silently fall back to the whole page");
+});

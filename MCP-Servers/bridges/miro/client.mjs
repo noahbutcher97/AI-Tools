@@ -104,10 +104,16 @@ export class MiroClient {
     if (type) params.type = type;
     if (cursor) params.cursor = cursor;
     const data = await this.request(`/v2/boards/${boardId}/items`, params);
+    const items = (data.data || []).map(i => this._fmtItem(i));
     return {
-      items: data.data.map(i => this._fmtItem(i)),
+      count: items.length,
+      total: data.total ?? null,
+      // Cursor presence was already an unambiguous signal, but a caller had to
+      // know that. Saying it outright makes this tool consistent with every
+      // other list response in the suite.
+      isLast: !data.cursor,
+      items,
       cursor: data.cursor || null,
-      total: data.total
     };
   }
 

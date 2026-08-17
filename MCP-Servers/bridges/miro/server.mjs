@@ -133,7 +133,12 @@ server.tool("miro_get_board_items", "Get items on a Miro board. Filter by type f
   cursor: z.string().optional().describe("Pagination cursor from previous response")
 }, async ({ boardId, type, limit, cursor }) => {
   const r = await miro.getBoardItems(boardId, type, Math.min(limit, 50), cursor);
-  return toolJsonResult(r);
+  return toolListResult(r.items, {
+    isLast: r.isLast,
+    total: r.total,
+    limit: Math.min(limit, 50),
+    extra: r.cursor ? { cursor: r.cursor } : {},
+  });
 });
 
 // ── miro_get_item ──
