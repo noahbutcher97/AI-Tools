@@ -6,7 +6,8 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
-import { toolJsonResult } from "../../lib/tool-result.mjs";
+import { toolJsonResult, toolErrorResult } from "../../lib/tool-result.mjs";
+import { MiroClient } from "./client.mjs";
 
 // Load manifest so the shared resolver knows what fields to look for, then
 // inject resolved values into process.env. The legacy resolveCredentials()
@@ -65,197 +66,6 @@ function readMcpJson(filePath) {
   } catch (e) {
     console.error(`[miro-bridge] Failed to parse ${filePath}: ${e.message}`);
     return null;
-  }
-}
-
-// ══════════════════════════════════════════════════════
-//  MIRO REST API v2 CLIENT
-// ══════════════════════════════════════════════════════
-
-class MiroClient {
-  constructor(accessToken) {
-    this.baseUrl = "https://api.miro.com/v2";
-    this.token = accessToken;
-  }
-
-  async request(path, params = {}, method = "GET", body = null) {
-    const url = new URL(path, this.baseUrl);
-    if (method === "GET") {
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
-      });
-    }
-    const opts = {
-      method,
-      headers: {
-        "Authorization": `Bearer ${this.token}`,
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-      }
-    };
-    if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(url.toString(), opts);
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Miro API ${resp.status}: ${text}`);
-    }
-    if (resp.status === 204) return null;
-    return resp.json();
-  }
-
-  // ── Boards ──
-  async listBoards(teamId = null, query = null, limit = 50) {
-    const params = { limit };
-    if (teamId) params.team_id = teamId;
-    if (query) params.query = query;
-    const data = await this.request("/v2/boards", params);
-    return { total: data.total, boards: data.data.map(b => this._fmtBoard(b)) };
-  }
-
-  async getBoard(boardId) {
-    const data = await this.request(`/v2/boards/${boardId}`);
-    return this._fmtBoard(data);
-  }
-
-  // ── Board Items (generic) ──
-  async getBoardItems(boardId, type = null, limit = 50, cursor = null) {
-    const params = { limit };
-    if (type) params.type = type;
-    if (cursor) params.cursor = cursor;
-    const data = await this.request(`/v2/boards/${boardId}/items`, params);
-    return {
-      items: data.data.map(i => this._fmtItem(i)),
-      cursor: data.cursor || null,
-      total: data.total
-    };
-  }
-
-  async getItem(boardId, itemId) {
-    const data = await this.request(`/v2/boards/${boardId}/items/${itemId}`);
-    return this._fmtItem(data);
-  }
-
-  // ── Sticky Notes ──
-  async createStickyNote(boardId, content, opts = {}) {
-    const body = { data: { content } };
-    if (opts.color) body.style = { fillColor: opts.color };
-    if (opts.x !== undefined && opts.y !== undefined) {
-      body.position = { x: opts.x, y: opts.y };
-    }
-    if (opts.parentId) body.parent = { id: opts.parentId };
-    const data = await this.request(`/v2/boards/${boardId}/sticky_notes`, {}, "POST", body);
-    return this._fmtItem(data);
-  }
-
-  async updateStickyNote(boardId, itemId, content, opts = {}) {
-    const body = { data: { content } };
-    if (opts.color) body.style = { fillColor: opts.color };
-    if (opts.x !== undefined && opts.y !== undefined) {
-      body.position = { x: opts.x, y: opts.y };
-    }
-    const data = await this.request(`/v2/boards/${boardId}/sticky_notes/${itemId}`, {}, "PATCH", body);
-    return this._fmtItem(data);
-  }
-
-  // ── Shapes ──
-  async createShape(boardId, shapeType, content, opts = {}) {
-    const body = { data: { shape: shapeType, content } };
-    if (opts.x !== undefined && opts.y !== undefined) body.position = { x: opts.x, y: opts.y };
-    if (opts.width || opts.height) body.geometry = {};
-    if (opts.width) body.geometry.width = opts.width;
-    if (opts.height) body.geometry.height = opts.height;
-    if (opts.color) body.style = { fillColor: opts.color };
-    if (opts.parentId) body.parent = { id: opts.parentId };
-    const data = await this.request(`/v2/boards/${boardId}/shapes`, {}, "POST", body);
-    return this._fmtItem(data);
-  }
-
-  // ── Text ──
-  async createText(boardId, content, opts = {}) {
-    const body = { data: { content } };
-    if (opts.x !== undefined && opts.y !== undefined) body.position = { x: opts.x, y: opts.y };
-    if (opts.fontSize) body.style = { fontSize: String(opts.fontSize) };
-    const data = await this.request(`/v2/boards/${boardId}/texts`, {}, "POST", body);
-    return this._fmtItem(data);
-  }
-
-  // ── Frames ──
-  async createFrame(boardId, title, opts = {}) {
-    const body = { data: { title, type: "freeform" } };
-    if (opts.x !== undefined && opts.y !== undefined) body.position = { x: opts.x, y: opts.y };
-    if (opts.width || opts.height) body.geometry = {};
-    if (opts.width) body.geometry.width = opts.width;
-    if (opts.height) body.geometry.height = opts.height;
-    const data = await this.request(`/v2/boards/${boardId}/frames`, {}, "POST", body);
-    return this._fmtItem(data);
-  }
-
-  // ── Connectors ──
-  async createConnector(boardId, startItemId, endItemId, opts = {}) {
-    const body = {
-      startItem: { id: startItemId },
-      endItem: { id: endItemId }
-    };
-    if (opts.caption) body.captions = [{ content: opts.caption }];
-    if (opts.style) body.style = opts.style;
-    const data = await this.request(`/v2/boards/${boardId}/connectors`, {}, "POST", body);
-    return { id: data.id, type: "connector", startItem: data.startItem, endItem: data.endItem };
-  }
-
-  async getConnectors(boardId, limit = 50) {
-    const data = await this.request(`/v2/boards/${boardId}/connectors`, { limit });
-    return data.data.map(c => ({ id: c.id, type: "connector", startItem: c.startItem, endItem: c.endItem, captions: c.captions }));
-  }
-
-  // ── Tags ──
-  async getTags(boardId) {
-    const data = await this.request(`/v2/boards/${boardId}/tags`);
-    return data.data.map(t => ({ id: t.id, title: t.title, fillColor: t.fillColor }));
-  }
-
-  async createTag(boardId, title, fillColor = "yellow") {
-    const data = await this.request(`/v2/boards/${boardId}/tags`, {}, "POST", { title, fillColor });
-    return { id: data.id, title: data.title, fillColor: data.fillColor };
-  }
-
-  async attachTag(boardId, itemId, tagId) {
-    await this.request(`/v2/boards/${boardId}/items/${itemId}/tags`, {}, "POST", { id: tagId });
-    return { success: true, itemId, tagId };
-  }
-
-  // ── Delete ──
-  async deleteItem(boardId, itemId) {
-    await this.request(`/v2/boards/${boardId}/items/${itemId}`, {}, "DELETE");
-    return { deleted: true, itemId };
-  }
-
-  // ── Board Members ──
-  async getBoardMembers(boardId, limit = 50) {
-    const data = await this.request(`/v2/boards/${boardId}/members`, { limit });
-    return data.data.map(m => ({ id: m.id, name: m.name, role: m.role }));
-  }
-
-  // ── Format helpers ──
-  _fmtBoard(b) {
-    return {
-      id: b.id, name: b.name, description: b.description,
-      owner: b.owner?.name, team: b.team?.name,
-      createdAt: b.createdAt, modifiedAt: b.modifiedAt,
-      viewLink: b.viewLink
-    };
-  }
-
-  _fmtItem(i) {
-    return {
-      id: i.id, type: i.type,
-      content: i.data?.content || i.data?.title || i.data?.shape || null,
-      position: i.position || null,
-      geometry: i.geometry || null,
-      style: i.style || null,
-      parentId: i.parent?.id || null,
-      createdBy: i.createdBy?.name,
-      modifiedAt: i.modifiedAt
-    };
   }
 }
 
@@ -466,7 +276,39 @@ server.tool("miro_get_board_members", "Get members who have access to a board", 
   return toolJsonResult(r);
 });
 
+// ── miro_request ──
+// Generic passthrough, mirroring jira_request on the atlassian bridge. The
+// tools above model seventeen specific operations; anything outside that set —
+// an undocumented item type, a newer or experimental endpoint — was previously
+// unreachable without editing this file.
+//
+// Concretely: `table`, `table_text` and `widgets_stack` items enumerate on real
+// boards but serialize with null content, because the API marks them
+// unsupported and returns no data for them. They also cannot be used as a
+// `type` filter, so they cannot be fetched selectively. This tool is the route
+// to investigate such cases and to reach any endpoint added later.
+server.tool("miro_request",
+  "Call any Miro API path directly. Use when no purpose-built tool covers what you need — "
+  + "undocumented item types, newer endpoints, or anything outside this bridge's 17 tools.",
+  {
+    path: z.string().describe("API path beginning with a slash, e.g. '/v2/boards/{id}/items'. "
+      + "Paths outside /v2 are allowed."),
+    method: z.enum(["GET", "POST", "PATCH", "PUT", "DELETE"]).optional().default("GET"),
+    queryParams: z.record(z.union([z.string(), z.number(), z.boolean()])).optional()
+      .describe("Query string parameters. Numbers and booleans are accepted."),
+    bodyJson: z.record(z.any()).optional().describe("JSON request body. Ignored on GET and DELETE."),
+  },
+  async ({ path, method, queryParams, bodyJson }) => {
+    try {
+      const r = await miro.rawRequest(path, { method, queryParams, bodyJson });
+      return toolJsonResult(r);
+    } catch (e) {
+      return toolErrorResult(`${e.message}`);
+    }
+  });
+
 // ── START ──
 const transport = new StdioServerTransport();
 await server.connect(transport);
 console.error("[miro-bridge] MCP server running - " + creds.orgName + " (token from " + creds.source + ")");
+
