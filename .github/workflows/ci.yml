@@ -81,7 +81,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bridge: [perforce, discord, otter]
+        bridge: [atlassian, perforce, discord, otter]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
