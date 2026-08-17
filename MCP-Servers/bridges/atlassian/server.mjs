@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import { z } from "zod/v3";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
-import { toolJsonResult } from "../../lib/tool-result.mjs";
+import { toolJsonResult, toolListResult } from "../../lib/tool-result.mjs";
 
 // Load manifest so the shared resolver knows what fields to look for, then
 // inject resolved values into process.env. The legacy resolveCredentials()
@@ -261,12 +261,31 @@ server.tool("jira_dashboard_export", "Export all project issues as flat JSON for
 
 // ── CONFLUENCE TOOLS ──
 
-server.tool("confluence_list_spaces", "List all Confluence spaces", {
-  type: z.string().optional().describe("Filter: 'global' or 'personal'")
-}, async ({ type }) => {
-  const s = await confluence.listSpaces(50, type);
-  return toolJsonResult(s);
-});
+// The type filter used to be documented as 'global' or 'personal'. Neither
+// matches the type the largest space on a real instance actually uses
+// ('collaboration'), so filtering silently hid the main project space and
+// returned a complete-looking wrong answer. The filter now passes through
+// whatever the API accepts, and the default is no filter at all.
+server.tool("confluence_list_spaces",
+  "List Confluence spaces. Omit `type` to list every space — filtering by type can hide spaces "
+  + "whose type you did not think to ask for.",
+  {
+    type: z.string().optional()
+      .describe("Optional space type, passed through to the API. Known values include "
+        + "'global', 'personal' and 'collaboration'. Omit to list all types."),
+    limit: z.number().optional().default(50).describe("Max spaces per page"),
+    start: z.number().optional().describe("Offset for the next page. Omit for the first page."),
+  },
+  async ({ type, limit, start }) => {
+    const s = await confluence.listSpaces({ limit, type, start });
+    return toolListResult(s.spaces, {
+      isLast: s.isLast,
+      total: s.total,
+      start: s.start,
+      limit: s.limit,
+      itemsKey: "spaces",
+    });
+  });
 
 server.tool("confluence_search", "Search Confluence using CQL", {
   cql: z.string().describe("CQL query. Key fields: space, title, text, label, type, creator, lastModified"),
@@ -317,13 +336,28 @@ server.tool("confluence_get_history", "Get version history of a Confluence page"
   return toolJsonResult(h);
 });
 
-server.tool("confluence_space_pages", "List all pages in a Confluence space", {
-  spaceKey: z.string().describe("Space key"),
-  limit: z.number().optional().default(100).describe("Max pages")
-}, async ({ spaceKey, limit }) => {
-  const p = await confluence.getSpacePages(spaceKey, Math.min(limit, 200));
-  return toolJsonResult(p);
-});
+// Returns a page of results plus an explicit isLast, so a caller can page a
+// space to completion. Previously a bare array: asking for 100 and receiving
+// 100 was indistinguishable from a space holding exactly 100 pages, and there
+// was no cursor to continue with.
+server.tool("confluence_space_pages",
+  "List pages in a Confluence space, one page of results at a time. Check `isLast`: if it is "
+  + "false, call again with `start` advanced by `limit` to continue.",
+  {
+    spaceKey: z.string().describe("Space key"),
+    limit: z.number().optional().default(100).describe("Max pages per call"),
+    start: z.number().optional().describe("Offset for the next page. Omit for the first page."),
+  },
+  async ({ spaceKey, limit, start }) => {
+    const p = await confluence.getSpacePages(spaceKey, Math.min(limit, 200), { start });
+    return toolListResult(p.pages, {
+      isLast: p.isLast,
+      total: p.total,
+      start: p.start,
+      limit: p.limit,
+      itemsKey: "pages",
+    });
+  });
 
 server.tool("confluence_get_labels", "Get all labels on a Confluence page", {
   pageId: z.string().describe("Page ID")

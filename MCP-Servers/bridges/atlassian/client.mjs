@@ -329,11 +329,15 @@ export class AtlassianClient {
 }
 
 export class ConfluenceClient {
-  constructor(creds) {
+  // fetchImpl is injectable for the same reason as AtlassianClient: the
+  // pagination logic below is only meaningful if it can be tested against
+  // recorded responses rather than a live instance.
+  constructor(creds, { fetchImpl } = {}) {
     const c = creds.confluence || creds;
     this.baseUrl = `https://${c.siteName}.atlassian.net`;
     this.auth = Buffer.from(`${c.userEmail}:${c.apiToken}`).toString("base64");
     this.siteName = c.siteName;
+    this.fetch = fetchImpl || ((...args) => fetch(...args));
   }
 
   async request(path, params = {}, method = "GET", body = null) {
@@ -348,20 +352,41 @@ export class ConfluenceClient {
       headers: { "Authorization": `Basic ${this.auth}`, "Accept": "application/json", "Content-Type": "application/json" }
     };
     if (body && method !== "GET" && method !== "DELETE") opts.body = JSON.stringify(body);
-    const resp = await fetch(url.toString(), opts);
+    const resp = await this.fetch(url.toString(), opts);
     if (!resp.ok) {
       const text = await resp.text();
-      throw new Error(`Confluence API ${resp.status}: ${text}`);
+      const err = new Error(`Confluence API ${resp.status}: ${text}`);
+      err.status = resp.status;
+      err.body = text;
+      throw err;
     }
     if (resp.status === 204) return { success: true };
     return resp.json();
   }
 
-  async listSpaces(limit = 25, type = null) {
+  // Spaces come in more types than the two this tool used to document. On a real
+  // instance the largest space by page count is type "collaboration", which a
+  // global/personal filter excludes entirely — so filtering returned a confident
+  // and complete-looking result that omitted the main project space. The filter
+  // is now a pass-through: any type the API accepts is accepted here.
+  async listSpaces({ limit = 25, type = null, start = null } = {}) {
     const params = { limit };
     if (type) params.type = type;
+    if (start !== null && start !== undefined) params.start = start;
     const data = await this.request("/wiki/rest/api/space", params);
-    return data.results.map(s => ({ key: s.key, name: s.name, type: s.type, status: s.status, url: s._links?.webui ? `${this.baseUrl}/wiki${s._links.webui}` : null }));
+    const spaces = (data.results || []).map(s => ({
+      key: s.key, name: s.name, type: s.type, status: s.status,
+      url: s._links?.webui ? `${this.baseUrl}/wiki${s._links.webui}` : null,
+    }));
+    return {
+      count: spaces.length,
+      // v1 reports a per-page size, never a collection total.
+      total: null,
+      start: data.start ?? start ?? 0,
+      limit: data.limit ?? limit,
+      isLast: !data._links?.next,
+      spaces,
+    };
   }
 
   async search(cql, limit = 25, start = 0) {
@@ -407,9 +432,27 @@ export class ConfluenceClient {
     return data.results.map(v => ({ number: v.number, by: v.by?.displayName, when: v.when, message: v.message || null, minorEdit: v.minorEdit }));
   }
 
-  async getSpacePages(spaceKey, limit = 100, depth = "all") {
-    const data = await this.request("/wiki/rest/api/content", { spaceKey, type: "page", limit, depth, expand: "version,ancestors" });
-    return data.results.map(p => this._formatPage(p));
+  // Previously returned a bare array with no way to continue and no way to tell
+  // a truncated page from a complete one — asking for 100 and receiving 100 was
+  // indistinguishable from a space with exactly 100 pages.
+  //
+  // `isLast` comes from the absence of the API's own next link, which is the
+  // only reliable signal here. `total` stays null: the v1 endpoint reports the
+  // size of the page it just returned, not the size of the collection, and
+  // passing that off as a total is what made truncation invisible.
+  async getSpacePages(spaceKey, limit = 100, { start = null, depth = "all" } = {}) {
+    const params = { spaceKey, type: "page", limit, depth, expand: "version,ancestors" };
+    if (start !== null && start !== undefined) params.start = start;
+    const data = await this.request("/wiki/rest/api/content", params);
+    const pages = (data.results || []).map(p => this._formatPage(p));
+    return {
+      count: pages.length,
+      total: null,
+      start: data.start ?? start ?? 0,
+      limit: data.limit ?? limit,
+      isLast: !data._links?.next,
+      pages,
+    };
   }
 
   async getPageLabels(pageId) {
