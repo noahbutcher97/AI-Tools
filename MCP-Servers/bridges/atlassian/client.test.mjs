@@ -216,3 +216,112 @@ test("validateKeys handles an empty key list without calling out", async () => {
   assert.deepEqual(r.results, []);
   assert.equal(calls, 0);
 });
+
+// ── ConfluenceClient: pagination and space listing (audit items 6 and 8) ──
+
+import { ConfluenceClient } from "./client.mjs";
+
+function v1Page(results, hasNext) {
+  return {
+    results,
+    start: 0,
+    limit: results.length,
+    size: results.length,
+    _links: hasNext ? { next: "/rest/api/content?next=true&start=100" } : {},
+  };
+}
+
+test("confluence request attaches the HTTP status to thrown errors", async () => {
+  const c = new ConfluenceClient(CREDS, { fetchImpl: async () => response(404, "gone") });
+  await assert.rejects(
+    () => c.request("/wiki/rest/api/space/NOPE"),
+    (err) => {
+      assert.equal(err.status, 404);
+      return true;
+    },
+  );
+});
+
+test("getSpacePages forwards start so a space can be paged to completion", async () => {
+  const seen = [];
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async (url) => {
+      seen.push(String(url));
+      return response(200, v1Page([{ id: "1", title: "p" }], false));
+    },
+  });
+
+  await c.getSpacePages("PO", 100, { start: 100 });
+  assert.ok(seen[0].includes("start=100"), `start must reach the request, got ${seen[0]}`);
+});
+
+test("getSpacePages reports isLast false while a next link is present", async () => {
+  // The audit's exact symptom: 100 rows returned, no way to tell there is more.
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async () => response(200, v1Page(new Array(100).fill({ id: "1", title: "p" }), true)),
+  });
+
+  const r = await c.getSpacePages("PO", 100);
+  assert.equal(r.isLast, false, "a next link means this is not the last page");
+  assert.equal(r.count, 100);
+});
+
+test("getSpacePages reports isLast true when a full page has no next link", async () => {
+  // count === limit but complete. This is the case that is otherwise
+  // indistinguishable from truncation.
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async () => response(200, v1Page(new Array(100).fill({ id: "1", title: "p" }), false)),
+  });
+
+  const r = await c.getSpacePages("PO", 100);
+  assert.equal(r.isLast, true);
+});
+
+test("getSpacePages never fabricates a total the API did not supply", async () => {
+  // The v1 endpoint returns a per-page size, not a collection total. Reporting
+  // size as total would make every truncated page look complete.
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async () => response(200, v1Page([{ id: "1", title: "p" }], true)),
+  });
+
+  const r = await c.getSpacePages("PO", 100);
+  assert.equal(r.total, null);
+});
+
+test("listSpaces returns spaces of a type the caller did not name", async () => {
+  // The largest space on a real instance is type "collaboration", which the
+  // documented global/personal filter excludes entirely.
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async () => response(200, v1Page([
+      { key: "PO", name: "Project OnSight", type: "collaboration", status: "current" },
+      { key: "MFS", name: "Other", type: "global", status: "current" },
+    ], false)),
+  });
+
+  const r = await c.listSpaces({ limit: 100 });
+  assert.deepEqual(r.spaces.map((s) => s.key).sort(), ["MFS", "PO"]);
+});
+
+test("listSpaces forwards a caller-supplied limit instead of discarding it", async () => {
+  const seen = [];
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async (url) => {
+      seen.push(String(url));
+      return response(200, v1Page([], false));
+    },
+  });
+
+  await c.listSpaces({ limit: 100 });
+  assert.ok(seen[0].includes("limit=100"), `limit must reach the request, got ${seen[0]}`);
+});
+
+test("listSpaces states completeness like every other list response", async () => {
+  const c = new ConfluenceClient(CREDS, {
+    fetchImpl: async () => response(200, v1Page([{ key: "PO", name: "x", type: "collaboration" }], true)),
+  });
+
+  const r = await c.listSpaces({ limit: 1 });
+  assert.equal(r.isLast, false);
+  assert.equal(r.count, 1);
+  assert.equal(r.total, null);
+});
