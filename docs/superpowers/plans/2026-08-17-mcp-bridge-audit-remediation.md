@@ -24,9 +24,32 @@ V18 evidence behind them.
 |---|---|---|
 | **5 — `p4_changes(allUsers)`** | **DONE** | Suite 131 → 137 green. Live: returns `jshaun@OA_Hook_DT` CL 3564; default path byte-identical; `allUsers`+`user` rejected with `isError`. |
 | **4 — shelves** | **DONE** | Suite → 148 green. Live: `p4_shelves(allUsers)` returns CL 3553 with **55 files** in one call across `noah`/`jshaun`/`klara`; `p4_describe(shelved)` yields 55 vs 0 without. |
-| 1, 2, 3, 6, 7, 8, 9 | not started | — |
+| **1 — `jira_validate_keys`** | **DONE** | Atlassian bridge went from 0 to 15 tests. Live: the audit's own key set returns `OA-829 → exists_not_searchable`, four keys `not_found_or_no_permission`, `OA-808 → exists`. |
+| 2, 3, 6, 7, 8, 9 | not started | — |
 
-Full suite: **148/148 passing**, from a 131-test baseline. No regressions at any step.
+Suites: perforce **148/148**, atlassian **15/15** (from zero). No regressions at any step.
+
+### Task 1 notes
+
+- **The client extraction was done as its own commit before any behavior change**, per the risk
+  sequencing above. Proof it was inert: the complete tool surface (every name, description and input
+  schema for all 35 tools) was captured before and after and is byte-identical by SHA; eight
+  read-only tools across both clients were then exercised live.
+- **Searchability costs N+1 calls, not 2N.** The plan proposed a per-key search probe. Implemented
+  instead as one bulk `key in (...)` query per 50 resolved keys, diffed against the fetch-confirmed
+  set — same signal, far cheaper. That query is itself paged, so a full page is never read as
+  complete.
+- **`checkSearchable` defaults ON**, per the plan's recommendation. The `exists_not_searchable` case
+  is the one that silently corrupts reference-integrity checks, so detecting it by default is the
+  point of the tool.
+- **The response ships a `verdictMeaning` legend** stating what each verdict does *and does not*
+  license a caller to conclude — particularly that a 404 cannot be read as "deleted" and that
+  `rate_limited` / `error` mean unknown, never absent.
+
+### Still open on the Atlassian bridge
+
+`ConfluenceClient` was extracted but does **not** yet take an injected fetch and does not attach
+`err.status`. Tasks 6 and 8 need both. Do that as the first step of whichever lands first.
 
 Implementation notes worth carrying forward:
 
