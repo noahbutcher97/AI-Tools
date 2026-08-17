@@ -29,8 +29,21 @@ V18 evidence behind them.
 | **6 — Confluence pagination** | **DONE** | Live on `PO`: page 1 count 100 `isLast:false`, page 2 count 61 `isLast:true`. |
 | **8 — `confluence_list_spaces`** | **DONE** | Live: `PO` (type `collaboration`) now appears; type filter passes through; `limit`/`start` honored. |
 | **3 — `miro_request`** | **DONE** | Passthrough live. Item 3(b) resolved as **NOT ACHIEVABLE** — see below. |
-| **2 — retire 410 folklore** | **DONE** | Handoff closed with a NOT-REPRODUCIBLE banner; no skill changes needed (already migrated); memory entry flagged for deletion. |
+| **2 — retire 410 folklore** | **DONE** | Handoff closed with a NOT-REPRODUCIBLE banner; no skill changes needed (already migrated); downstream memory entry **deleted** 2026-08-17 along with its index line — no live copy of the claim remains. |
 | **7 — downstream handoff** | **DONE** | `_handoffs/2026-08-17-bridge-audit-remediation-downstream.md`. |
+
+### Acceptance criteria met with a caveat
+
+Two acceptance statements are satisfied in substance but were not exercised in full, recorded here
+rather than counted as clean:
+
+- **Task 1** asks for a batch of "live, deleted, and **restricted**" keys. No 403 case exists on this
+  instance to test against (V6, V20: the API answers 404 for unreadable issues, and there is a single
+  project). `no_permission` and `moved` are implemented defensively and documented in the tool's own
+  response legend as unexercised. Live and deleted keys are both verified.
+- **Task 4** asks for shelves "across all clients". Verified across three (`noah_OperationPhoenix`,
+  `OA_Hook_DT`, `KLaw_OperationPh`) — but the sweep is bounded by the configured depot, which is why
+  the response carries `depotScope`. Shelves in other depots remain out of range by design.
 
 ### Item 3(b) — resolved as NOT ACHIEVABLE
 
