@@ -1,8 +1,13 @@
 // Miro REST client.
 //
-// Extracted verbatim from server.mjs so request logic is unit-testable against
-// a mocked fetch, matching the client.mjs split used by the atlassian and otter
-// bridges. Mechanical move: the class body is unchanged apart from the export.
+// Extracted from server.mjs so request logic is unit-testable against a mocked
+// fetch, matching the client.mjs split used by the atlassian and otter bridges.
+//
+// Item content arrives as HTML, so readable text comes from the shared helper in
+// lib/ — the same one the atlassian bridge uses, so the two cannot drift on what
+// "text" means.
+
+import { htmlToText } from "../../lib/html-text.mjs";
 
 export class MiroClient {
   // fetchImpl is injectable so request construction can be unit tested without
@@ -178,9 +183,111 @@ export class MiroClient {
     return { id: data.id, type: "connector", startItem: data.startItem, endItem: data.endItem };
   }
 
-  async getConnectors(boardId, limit = 50) {
-    const data = await this.request(`/v2/boards/${boardId}/connectors`, { limit });
-    return data.data.map(c => ({ id: c.id, type: "connector", startItem: c.startItem, endItem: c.endItem, captions: c.captions }));
+  // Connectors are the dependency graph — how the team encodes what blocks
+  // what. Two problems made that graph unreadable.
+  //
+  // First, endpoints came back as bare IDs, so reading the graph meant
+  // enumerating every item on the board and joining by hand. resolveEndpoints
+  // does that join here instead.
+  //
+  // Second, some connectors arrive with no endpoints at all, and a caller could
+  // not tell an unattached connector from a field this bridge had dropped. It
+  // is neither: those connectors carry isSupported:false — the API declines to
+  // serialize them, the same marker it uses for table items. That reason is now
+  // reported, because "endpoint missing, cause unknown" is not a usable finding.
+  async getConnectors(boardId, { limit = 50, resolveEndpoints = false, cursor = null } = {}) {
+    const params = { limit };
+    if (cursor) params.cursor = cursor;
+    const data = await this.request(`/v2/boards/${boardId}/connectors`, params);
+
+    const connectors = (data.data || []).map((c) => {
+      const out = {
+        id: c.id,
+        type: "connector",
+        shape: c.shape ?? null,
+        startItem: c.startItem ?? null,
+        endItem: c.endItem ?? null,
+        captions: c.captions,
+      };
+      if (!c.startItem || !c.endItem) {
+        out.endpointsUnavailable = c.isSupported === false
+          ? "Connector type is not supported by the API (isSupported:false) — endpoint data is "
+            + "not serialized. This does NOT mean the connector is unattached on the board."
+          : "Endpoint absent from the API response with no isSupported flag — the connector may "
+            + "genuinely be unattached on the board.";
+      }
+      return out;
+    });
+
+    if (resolveEndpoints) {
+      const ids = new Set();
+      for (const c of connectors) {
+        if (c.startItem?.id) ids.add(c.startItem.id);
+        if (c.endItem?.id) ids.add(c.endItem.id);
+      }
+      if (ids.size > 0) {
+        const lookup = await this._itemLookup(boardId, ids);
+        for (const c of connectors) {
+          for (const end of ["startItem", "endItem"]) {
+            const ref = c[end];
+            if (ref?.id && lookup.has(ref.id)) Object.assign(ref, lookup.get(ref.id));
+          }
+        }
+      }
+    }
+
+    return {
+      count: connectors.length,
+      total: data.total ?? null,
+      isLast: !data.cursor,
+      cursor: data.cursor || null,
+      connectors,
+    };
+  }
+
+  // Builds an id -> {type, content} map by walking the board's items. Content is
+  // returned as readable text, since Miro serves it as HTML.
+  async _itemLookup(boardId, wantedIds) {
+    const lookup = new Map();
+    const all = await this.getAllBoardItems(boardId);
+    for (const item of all.items) {
+      if (wantedIds.has(item.id)) {
+        lookup.set(item.id, { type: item.type, content: htmlToText(item.content) || null });
+      }
+    }
+    return lookup;
+  }
+
+  // Pages the board itself rather than making the caller hold a cursor. The
+  // per-call cap is 50, so a 320-item board is seven round trips of bookkeeping.
+  //
+  // maxPages bounds the sweep, and when it bites the result says so — a capped
+  // enumeration that looks complete is the failure this whole effort is about.
+  async getAllBoardItems(boardId, { type = null, maxPages = 40 } = {}) {
+    const items = [];
+    let cursor = null;
+    let pages = 0;
+    let total = null;
+
+    do {
+      const page = await this.getBoardItems(boardId, type, 50, cursor);
+      items.push(...page.items);
+      total = page.total ?? total;
+      cursor = page.cursor;
+      pages += 1;
+    } while (cursor && pages < maxPages);
+
+    const truncatedByBudget = Boolean(cursor);
+    return {
+      count: items.length,
+      total: total ?? null,
+      isLast: !truncatedByBudget,
+      pagesFetched: pages,
+      ...(truncatedByBudget
+        ? { truncated: `Stopped after maxPages=${maxPages}; more items remain on the board.` }
+        : {}),
+      items,
+    };
   }
 
   // ── Tags ──

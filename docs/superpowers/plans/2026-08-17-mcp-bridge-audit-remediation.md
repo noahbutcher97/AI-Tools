@@ -936,7 +936,51 @@ Written for the Operation-Phoenix agents. Contents:
 
 ---
 
-## Deferred — audit items 7–11
+## Audit items 7–11 — DONE (2026-08-17, second pass)
+
+All five premises were verified before design. One had failed to reproduce in the first pass and was
+re-tested; two produced findings that changed the work.
+
+| # | Verified premise | Delivered |
+|---|---|---|
+| 7 | `_stripHtml` already existed in the client, unused by `getPage` | `format: "text"` on `confluence_get_page`. Live: 12,964 → 3,782 chars (71%). Reports `bodyLength` **and** `rawBodyLength`. |
+| 8 | **Reproduces** — 9 of 30 connectors on `Milestone 2 Plan` lack endpoints | `resolveEndpoints` inlines endpoint type and text; absent endpoints carry `endpointsUnavailable` with the cause. |
+| 9 | 50-item cap confirmed; cursor **and** a real `total` already returned | `miro_get_all_board_items` pages internally. Live: 322 items, 7 pages, `isLast: true`. |
+| 10 | `fields=key,issuelinks` returns the graph | `jira_get_links` with `targetExists`. Live: 30 issues, 88 links, 0 dangling. |
+| 11 | `?version=N` returns historical content | `version` on `confluence_get_page`. Live: v1/v2/v3/current all distinct. |
+
+Also added: `lib/html-text.mjs`, a single HTML-to-text implementation shared by both bridges, so
+"text" cannot come to mean different things in each. The atlassian client's local `_stripHtml` now
+delegates to it. One behaviour change falls out: tags collapse to a space rather than to nothing, so
+`<li>one</li><li>two</li>` reads as `one two` instead of `onetwo`.
+
+### Item 8 — the ambiguity is resolved
+
+The audit could not report its connector finding because it could not tell an unattached connector
+from a field the bridge had dropped. It is **neither**: those connectors carry `isSupported: false`,
+the same marker the API uses for table items. It declines to serialize them. That distinction is now
+in the response, and a caller who sees a missing endpoint without that flag is told the connector may
+genuinely be unattached.
+
+My first pass reported this item as "did not reproduce" — that was the wrong board
+(`Tasking and Review Workflow`, 8 of 8 complete). It reproduces on `Milestone 2 Plan` and `LEGO Retro`.
+
+### Item 10 — a real limitation, stated rather than glossed
+
+`jira_get_links` covers Jira **issue links**. Jira removes those when an issue is deleted, so dangling
+link objects are rare — a 30-issue sweep found 88 links and **zero** dangling.
+
+The audit's actual finding was different: a live ticket whose **description hyperlinks** two deleted
+keys (`OA-928`, `OA-937` — both confirmed 404 again here). Those are plain text inside the
+description, not link objects, and **this tool does not detect them.** The response says so in a
+`scopeNote`. Detecting that class means extracting keys from body text and passing them to
+`jira_validate_keys`.
+
+Sources are resolved per key rather than by a bulk query, for the same reason `validateKeys` is —
+confirmed live, where `OA-829` (unindexed) returned its link correctly and a bulk query would have
+dropped it.
+
+## ~~Deferred~~ — audit items 7–11 (original scoping, now superseded)
 
 Recorded so they are not lost. Not in this pass.
 
