@@ -1,9 +1,52 @@
 # Handoff: jira_search 410 -- wire searchIssues() as POST
 
+> ## CLOSED 2026-08-17 -- NOT REPRODUCIBLE. Do not apply the fix below.
+>
+> `jira_search` works. It was exercised against the live bridge in three shapes,
+> all returning HTTP 200 with a well-formed `{issues, nextPageToken, isLast}`:
+>
+> | Query | Result |
+> |---|---|
+> | `project = OA ORDER BY created DESC`, `maxResults=2` | 200, issues returned, `isLast: false` |
+> | 20-key `key in (...)`, `maxResults=100` | 200, **20 of 20 keys returned**, `isLast: true` |
+> | `key in (OA-829,OA-808)` | 200, `OA-808` returned |
+>
+> The current code calls `/rest/api/3/search/jql` with the default **GET**, and GET
+> on that path succeeds. The root cause below -- "the endpoint is POST-only; GET
+> returns 410" -- is either wrong or has been overtaken by an Atlassian change.
+> **Applying the proposed patch would rewrite working code.**
+>
+> The downstream migration list in this document is also stale. All five named
+> Operation-Phoenix skills were checked: every one already calls `jira_search`
+> directly, none contains the `jira_request` workaround, and none carries a 410
+> note. That work was either already done or never needed.
+>
+> ### Why this document was wrong for three months
+>
+> It was written from the consumer side, from a downstream diagnosis, and **was
+> never executed against the bridge**. Its own closing section admits the handoff
+> scaffold was skipped. Being specific, plausible and well-formatted, it was then
+> trusted rather than re-checked -- it propagated into five skills and a stored
+> memory entry, and a later remediation plan copied its migration list forward
+> without verifying it either.
+>
+> The lesson, and the convention adopted because of it: **a handoff must mark each
+> claim as executed or reasoned.** Nothing in this document distinguished
+> "I ran this" from "I concluded this", which is precisely what let a confident
+> wrong claim outlive its own subject matter.
+>
+> Remaining cleanup: the memory entry
+> `.../D--UnrealProjects-5-6-OperationPhoenix/memory/reference_jira_search_410_workaround.md`
+> still exists and should be deleted.
+>
+> See `docs/superpowers/plans/2026-08-17-mcp-bridge-audit-remediation.md`.
+
+---
+
 **Date**: 2026-05-06 (handoff scaffolded 2026-05-16 from downstream-consumer-side diagnosis)
 **Bridge**: `MCP-Servers/bridges/atlassian/server.mjs` (jira-bridge-mcp v2.0.0)
-**Status**: Diagnosed, fix proposed, NOT applied. Downstream consumers (Operation-Phoenix project) are routing around via `jira_request`.
-**Severity**: Medium -- `jira_search` is one of the most-called tools in the bridge; workaround is verbose; auto-discovery / IDE tooling that prefers the typed tool over `jira_request` are blocked.
+**Status**: **CLOSED 2026-08-17 -- not reproducible (see banner above).** Previously: diagnosed, fix proposed, not applied.
+**Severity**: ~~Medium~~ -- none; the reported defect does not exist.
 
 ---
 

@@ -25,7 +25,32 @@ V18 evidence behind them.
 | **5 — `p4_changes(allUsers)`** | **DONE** | Suite 131 → 137 green. Live: returns `jshaun@OA_Hook_DT` CL 3564; default path byte-identical; `allUsers`+`user` rejected with `isError`. |
 | **4 — shelves** | **DONE** | Suite → 148 green. Live: `p4_shelves(allUsers)` returns CL 3553 with **55 files** in one call across `noah`/`jshaun`/`klara`; `p4_describe(shelved)` yields 55 vs 0 without. |
 | **1 — `jira_validate_keys`** | **DONE** | Atlassian bridge went from 0 to 15 tests. Live: the audit's own key set returns `OA-829 → exists_not_searchable`, four keys `not_found_or_no_permission`, `OA-808 → exists`. |
-| 2, 3, 6, 7, 8, 9 | not started | — |
+| **9 — shared list envelope** | **DONE** | `toolListResult` in `lib/`, 12 tests. `isLast` required; `total` never derived from page length; truncated-and-last rejected. |
+| **6 — Confluence pagination** | **DONE** | Live on `PO`: page 1 count 100 `isLast:false`, page 2 count 61 `isLast:true`. |
+| **8 — `confluence_list_spaces`** | **DONE** | Live: `PO` (type `collaboration`) now appears; type filter passes through; `limit`/`start` honored. |
+| **3 — `miro_request`** | **DONE** | Passthrough live. Item 3(b) resolved as **NOT ACHIEVABLE** — see below. |
+| **2 — retire 410 folklore** | **DONE** | Handoff closed with a NOT-REPRODUCIBLE banner; no skill changes needed (already migrated); memory entry flagged for deletion. |
+| **7 — downstream handoff** | **DONE** | `_handoffs/2026-08-17-bridge-audit-remediation-downstream.md`. |
+
+### Item 3(b) — resolved as NOT ACHIEVABLE
+
+Promised in Revision 2 to be reported honestly either way. Every route checked with the passthrough:
+
+| Route | Result |
+|---|---|
+| v2 items list | `content: null`, `isSupported: false`, **no `data` field at all** |
+| v2 single item | identical — empty |
+| `/v2/boards/{id}/tables` | HTTP 400, endpoint does not exist |
+| `/v2-experimental/boards/{id}/tables` | HTTP 403 `insufficientPermissions` — exists, but gated |
+| v1 `/boards/{id}/widgets` | returns the table as `grid`, **same id**, timestamps only — no cells |
+
+The token holds `boards:read` and `boards:write`, so the 403 is program-level gating, not a missing
+scope that can be requested. **Table cell text is not retrievable by any route available to this
+installation, and no bridge change will alter that.** The passthrough remains worth having: it is
+what made the question answerable, and it unblocks the next unmodelled type without another change.
+
+Incidental: `widgets_stack` is a third affected type, and the v2 items endpoint **rejects** these
+types as a `type` filter, so they cannot be enumerated selectively.
 
 Suites: perforce **148/148**, atlassian **15/15** (from zero). No regressions at any step.
 
