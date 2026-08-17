@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
-import { toolTextResult, toolErrorResult, toolJsonResult } from "../../lib/tool-result.mjs";
+import { toolTextResult, toolErrorResult, toolJsonResult, toolListResult } from "../../lib/tool-result.mjs";
 import {
   parseOpenedFiles,
   parseChangeSpecDescription,
@@ -326,25 +326,28 @@ server.tool(
     }
 
     const truncated = clNumbers.length >= maxChangelists;
-    return toolJsonResult({
+    return toolListResult(changelists, {
+      isLast: !truncated,
+      // Deliberately null. The number of changelists that carry shelves is not
+      // the number of pending changelists that exist, and reporting it as a
+      // total would be exactly the fabrication this envelope prevents.
+      total: null,
       scope: allUsers ? "all-users" : `user:${P4USER}`,
-      // Named explicitly: "all-users" is a USER scope, not a server-wide one.
-      // This sweep is still bounded by the bridge's configured depot, so shelves
-      // in other depots are out of range — a caller must be able to see that
-      // rather than read isLast:true as "every shelf on the server".
-      depotScope: DEPOT_ROOT,
       ...(allUsers
         ? { warning: "No user filter — reports shelves for every user visible to this ticket." }
         : {}),
-      changelistsInspected: clNumbers.length,
-      total: changelists.length,
-      isLast: !truncated,
       ...(truncated
-        ? {
-            truncated: `Stopped at maxChangelists=${maxChangelists}. More pending changelists may exist.`,
-          }
+        ? { truncated: `Stopped at maxChangelists=${maxChangelists}. More pending changelists may exist.` }
         : {}),
-      changelists,
+      itemsKey: "changelists",
+      extra: {
+        // "all-users" is a USER scope, not a server-wide one. This sweep is
+        // still bounded by the configured depot, so shelves in other depots are
+        // out of range — a caller must be able to see that rather than read
+        // isLast:true as "every shelf on the server".
+        depotScope: DEPOT_ROOT,
+        changelistsInspected: clNumbers.length,
+      },
     });
   },
 );

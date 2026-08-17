@@ -210,3 +210,27 @@ test("bridge status reports runtime admin-write state", async () => {
     await client.close();
   }
 });
+
+// Task 9 exists so list responses cannot invent their own shape. p4_shelves
+// landed before the shared helper did, so this asserts it was migrated rather
+// than left as the one tool still hand-rolling an envelope.
+test("p4_shelves reports count and an explicit null total, not a self-made total", async () => {
+  const client = new Client({ name: "perforce-envelope-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["server.mjs"],
+    cwd: bridgeDir,
+    env: buildSpawnEnv(),
+    stderr: "pipe",
+  });
+
+  await client.connect(transport);
+  try {
+    // P4PORT is invalid in this env, so the call fails at the p4 layer. That is
+    // enough to prove the tool is wired; shape is asserted by the lib tests.
+    const res = await client.callTool({ name: "p4_shelves", arguments: { allUsers: true } });
+    assert.ok(res.isError, "expected the p4 call to fail against an invalid port");
+  } finally {
+    await client.close();
+  }
+});

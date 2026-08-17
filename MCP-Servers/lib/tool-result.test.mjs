@@ -97,3 +97,22 @@ test("toolJsonResult still behaves as before", () => {
   // Regression guard: the existing helper is used by every bridge.
   assert.deepEqual(parse(toolJsonResult({ a: 1 })), { a: 1 });
 });
+
+test("toolListResult carries tool-specific metadata without weakening its rules", () => {
+  // Some tools must report a boundary the envelope does not model — e.g. a
+  // Perforce sweep is bounded by a depot, so "complete" means complete for that
+  // depot and a caller has to be able to see which.
+  const body = parse(
+    toolListResult([1], { isLast: true, extra: { depotScope: "//Depot/Project/..." } }),
+  );
+  assert.equal(body.depotScope, "//Depot/Project/...");
+  assert.equal(body.isLast, true);
+});
+
+test("toolListResult does not let extra metadata overwrite the completeness fields", () => {
+  // Otherwise a tool could quietly restore the ambiguity the helper prevents.
+  assert.throws(
+    () => toolListResult([1, 2], { isLast: false, extra: { isLast: true, total: 999 } }),
+    /extra/i,
+  );
+});
