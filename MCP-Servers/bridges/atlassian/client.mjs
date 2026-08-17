@@ -1,4 +1,4 @@
-import { htmlToText } from "../../lib/html-text.mjs";
+import { htmlToText, extractSection } from "../../lib/html-text.mjs";
 
 // Atlassian + Confluence HTTP clients.
 //
@@ -503,15 +503,29 @@ export class ConfluenceClient {
   // `version` fetches a historical revision. Version metadata was already
   // available but content was not, so "did this text exist at version N-1?"
   // was unanswerable.
-  async getPage(pageId, bodyFormat = "storage", { format = "html", version = null } = {}) {
+  // `section` narrows the body to one heading's subtree. Useful on its own, and
+  // the remaining lever if a page is large enough that even stripped text is
+  // unwieldy. A section that does not match is reported as such, with the
+  // headings that do exist — never silently falling back to the whole page,
+  // which would hand back far more than was asked for.
+  async getPage(pageId, bodyFormat = "storage", { format = "html", version = null, section = null } = {}) {
     const expand = `body.${bodyFormat},version,space,ancestors,children.page,children.comment,metadata.labels`;
     const params = { expand };
     if (version !== null && version !== undefined) params.version = version;
     const data = await this.request(`/wiki/rest/api/content/${pageId}`, params);
-    const raw = data.body?.[bodyFormat]?.value || null;
+    const full = data.body?.[bodyFormat]?.value || null;
+
+    let raw = full;
+    let sectionInfo = null;
+    if (section) {
+      sectionInfo = extractSection(full, section);
+      raw = sectionInfo.found ? sectionInfo.html : null;
+    }
+
     const asText = format === "text" && raw !== null ? htmlToText(raw) : null;
     return {
       ...this._formatPage(data),
+      ...(sectionInfo ? { section: sectionInfo } : {}),
       body: format === "text" ? asText : raw,
       // Both lengths are reported so a caller can see what stripping removed,
       // and can tell a genuinely short page from an over-aggressive strip.

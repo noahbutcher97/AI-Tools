@@ -1012,14 +1012,43 @@ A review pass before merging found four issues; three were fixed, one recorded.
    pages the board with a budget, and if that budget bit, an endpoint that was simply never reached
    looked identical to one the API refuses to serialize. Now reports `endpointLookupComplete`, and
    marks unreached endpoints `unresolved` rather than leaving them silently unfilled.
-4. **`miro_get_board_items` (single page) still has no `isLast`** — not fixed. Cursor presence is an
-   unambiguous signal and callers already use it, so this is consistency rather than correctness.
-   Recorded as a follow-up.
+4. **`miro_get_board_items` (single page) still has no `isLast`** — ~~not fixed~~ **DONE, see below.**
 
 Two of these were caught only by re-running the live smoke after the unit tests were green — the
 `totalSize` bug in particular was encoded into the new unit tests as a mocked field the real API
 never sends, so the tests passed while asserting a fiction. Mocked tests confirm the code does what
 you think; only the live call confirms you were right about the API.
+
+## Follow-ups — both DONE (2026-08-17, third pass)
+
+### `miro_get_board_items` now states completeness
+
+The last list response in the suite that did not. Live proof of why it mattered: a page of the
+264-item board returns `count: 50` — exactly the limit — with `total: 322` and `isLast: false`.
+Before, that was indistinguishable from a complete result. Now every list-returning tool across all
+bridges states whether it is the last page.
+
+### `section` selector on `confluence_get_page`
+
+The audit asked for it alongside `format`. Built as `extractSection` in `lib/html-text.mjs`, shared
+rather than bridge-local, matching the `htmlToText` decision.
+
+A section runs to the next heading of the **same or shallower** level, so an `h3` nested under an
+`h2` travels with its parent while the following `h2` does not. Live: `section: "Aura Tiers"` on a
+real page returns **152 characters** where the whole page is 3,782.
+
+Two behaviours are deliberate, both driven by real page structure rather than guessed at:
+
+- **Ambiguity is reported, not resolved.** A sampled page carries both `Auras` and `Auras ` (trailing
+  whitespace). Matching is whitespace- and case-insensitive, and a title matching more than one
+  heading returns `matchCount` plus an `ambiguous` note rather than silently picking the first. Live:
+  `section: "Auras"` returns `matchCount: 2`.
+- **A missing section does NOT fall back to the full page.** It returns `found: false` with
+  `availableHeadings`, so a caller can correct itself in one more call. Falling back would hand back
+  far more than was asked for — the opposite of the point.
+
+**This does not close item 7's 400KB acceptance.** That page still does not exist on this instance to
+test against. `section` is the lever if one recurs; it is not evidence that one was handled.
 
 ## ~~Deferred~~ — audit items 7–11 (original scoping, now superseded)
 

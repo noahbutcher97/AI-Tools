@@ -348,9 +348,13 @@ server.tool("confluence_get_page",
     version: z.number().optional()
       .describe("Fetch a specific historical version instead of the current one. Fetch two "
         + "versions and compare to determine when content appeared."),
+    section: z.string().optional()
+      .describe("Return only this heading's subtree instead of the whole body. If the heading is "
+        + "not found the response says so and lists the headings that exist — it does NOT fall "
+        + "back to the full page."),
   },
-  async ({ pageId, bodyFormat, format, version }) => {
-    const p = await confluence.getPage(pageId, bodyFormat, { format, version });
+  async ({ pageId, bodyFormat, format, version, section }) => {
+    const p = await confluence.getPage(pageId, bodyFormat, { format, version, section });
     return toolJsonResult(p);
   });
 

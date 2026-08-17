@@ -271,3 +271,24 @@ test("resolveEndpoints reports a complete lookup as complete", async () => {
   assert.equal(r.connectors[0].startItem.content, "A");
   assert.equal(r.connectors[0].startItem.unresolved, undefined);
 });
+
+// Follow-up: the single-page item listing returned a cursor but never stated
+// completeness, leaving it the last tool in this family where a full page was
+// indistinguishable from the final one.
+test("getBoardItems states whether it is the last page", async () => {
+  const c = new MiroClient("tok", {
+    fetchImpl: async () => response(200, { data: [{ id: "a", type: "shape" }], total: 300, cursor: "more" }),
+  });
+  const r = await c.getBoardItems("b1");
+  assert.equal(r.isLast, false);
+  assert.equal(r.count, 1);
+  assert.equal(r.total, 300);
+});
+
+test("getBoardItems reports the final page as last", async () => {
+  const c = new MiroClient("tok", {
+    fetchImpl: async () => response(200, { data: [{ id: "a", type: "shape" }], total: 1, cursor: null }),
+  });
+  const r = await c.getBoardItems("b1");
+  assert.equal(r.isLast, true);
+});
