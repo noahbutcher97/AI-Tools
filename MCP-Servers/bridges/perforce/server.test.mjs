@@ -76,6 +76,65 @@ test("Perforce MCP server registers changelist and move tools", async () => {
   }
 });
 
+// Audit item 5: there was no documented way to list pending changelists across
+// every user, so a cross-team shelf sweep had to drop to raw CLI. The tool must
+// advertise `allUsers` in its schema, or callers cannot discover the capability.
+// See docs/superpowers/plans/2026-08-17-mcp-bridge-audit-remediation.md (V7).
+test("p4_changes advertises an allUsers parameter", async () => {
+  const client = new Client({ name: "perforce-allusers-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["server.mjs"],
+    cwd: bridgeDir,
+    env: buildSpawnEnv(),
+    stderr: "pipe",
+  });
+
+  await client.connect(transport);
+  try {
+    const { tools } = await client.listTools();
+    const changes = tools.find((t) => t.name === "p4_changes");
+    assert.ok(changes, "p4_changes should be registered");
+    assert.ok(
+      Object.keys(changes.inputSchema.properties ?? {}).includes("allUsers"),
+      "p4_changes must expose allUsers so cross-user pending work is reachable",
+    );
+  } finally {
+    await client.close();
+  }
+});
+
+// Audit item 4: the workspace's process rules require every pending-work sweep
+// to also enumerate shelves, which p4_describe could not do (no -S option).
+test("p4_describe exposes shelved, and p4_shelves is registered", async () => {
+  const client = new Client({ name: "perforce-shelves-test", version: "1.0.0" });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: ["server.mjs"],
+    cwd: bridgeDir,
+    env: buildSpawnEnv(),
+    stderr: "pipe",
+  });
+
+  await client.connect(transport);
+  try {
+    const { tools } = await client.listTools();
+    const describe = tools.find((t) => t.name === "p4_describe");
+    assert.ok(
+      Object.keys(describe.inputSchema.properties ?? {}).includes("shelved"),
+      "p4_describe must expose shelved so `p4 describe -S` is reachable",
+    );
+
+    const shelves = tools.find((t) => t.name === "p4_shelves");
+    assert.ok(shelves, "p4_shelves should be registered");
+    const props = Object.keys(shelves.inputSchema.properties ?? {});
+    assert.ok(props.includes("allUsers"), "p4_shelves must reach across users");
+    assert.ok(props.includes("maxChangelists"), "p4_shelves must bound its N+1 describe fan-out");
+  } finally {
+    await client.close();
+  }
+});
+
 test("admin write tools remain registered when P4_ENABLE_ADMIN=true", async () => {
   const client = new Client({ name: "perforce-server-admin-test", version: "1.0.0" });
   const transport = new StdioClientTransport({
