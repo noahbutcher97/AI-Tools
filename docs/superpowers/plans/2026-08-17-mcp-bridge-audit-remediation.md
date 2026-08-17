@@ -71,10 +71,11 @@ Suites: perforce **148/148**, atlassian **15/15** (from zero). No regressions at
   license a caller to conclude — particularly that a 404 cannot be read as "deleted" and that
   `rate_limited` / `error` mean unknown, never absent.
 
-### Still open on the Atlassian bridge
+### ~~Still open on the Atlassian bridge~~ — RESOLVED by Task 6
 
-`ConfluenceClient` was extracted but does **not** yet take an injected fetch and does not attach
-`err.status`. Tasks 6 and 8 need both. Do that as the first step of whichever lands first.
+`ConfluenceClient` now takes an injected fetch and attaches `err.status`, matching the Jira client.
+(Left visible rather than deleted: this section was briefly stale after Task 6 landed, which in a
+plan written *because* a stale document propagated a false claim is worth one line of irony.)
 
 Implementation notes worth carrying forward:
 

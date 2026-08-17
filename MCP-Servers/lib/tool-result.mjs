@@ -49,6 +49,7 @@ export function toolListResult(items, opts = {}) {
     truncated,
     start,
     limit,
+    extra,
     itemsKey = "items",
   } = opts;
 
@@ -76,12 +77,28 @@ export function toolListResult(items, opts = {}) {
     );
   }
 
+  // Tool-specific metadata the envelope does not model — for example a sweep
+  // bounded by a Perforce depot, where "complete" means complete for that depot
+  // and the caller must be able to see which. It may not overwrite the
+  // completeness fields, or a tool could quietly reintroduce the very ambiguity
+  // this helper exists to prevent.
+  const RESERVED = ["count", "total", "isLast", "truncated"];
+  if (extra) {
+    const clash = RESERVED.filter((k) => k in extra);
+    if (clash.length > 0) {
+      throw new Error(
+        `toolListResult: extra may not overwrite completeness fields (${clash.join(", ")}).`,
+      );
+    }
+  }
+
   const body = { count, total: total ?? null, isLast };
   if (start !== undefined) body.start = start;
   if (limit !== undefined) body.limit = limit;
   if (scope !== undefined) body.scope = scope;
   if (warning !== undefined) body.warning = warning;
   if (truncated !== undefined) body.truncated = truncated;
+  if (extra) Object.assign(body, extra);
   body[itemsKey] = list;
 
   return toolJsonResult(body);
