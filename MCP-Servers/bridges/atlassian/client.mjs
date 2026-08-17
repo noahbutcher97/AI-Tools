@@ -1,3 +1,5 @@
+import { htmlToText } from "../../lib/html-text.mjs";
+
 // Atlassian + Confluence HTTP clients.
 //
 // Extracted verbatim from server.mjs so the request/parse logic is unit-
@@ -133,6 +135,89 @@ export class AtlassianClient {
       summary,
       results,
     };
+  }
+
+  // ── Link graph ──
+  //
+  // Returns current links per issue with type, direction and target, plus
+  // whether each target still resolves — so a dangling link is a one-call
+  // check instead of a per-issue changelog replay.
+  //
+  // Sources are resolved one key at a time rather than by a bulk
+  // `key in (...)` query, for the same reason validateKeys is: a bulk query
+  // silently omits an unindexed issue, and a graph missing a node is worse
+  // than no graph at all.
+  async getLinks(keys, options = {}) {
+    const { checkTargets = true, concurrency = 5, maxRetries = 3, retryDelayMs = 1000 } = options;
+
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return { total: 0, isLast: true, danglingCount: 0, linkCount: 0, results: [] };
+    }
+
+    const results = new Array(keys.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < keys.length) {
+        const i = cursor;
+        cursor += 1;
+        results[i] = await this._linksForKey(keys[i], { maxRetries, retryDelayMs });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, keys.length) }, () => worker()));
+
+    if (checkTargets) {
+      const targets = [...new Set(
+        results.flatMap((r) => r.links.map((l) => l.targetKey)).filter(Boolean),
+      )];
+      if (targets.length > 0) {
+        const verdicts = await this.validateKeys(targets, { checkSearchable: false, concurrency });
+        const live = new Map(verdicts.results.map((v) => [v.key, v.verdict]));
+        for (const r of results) {
+          for (const l of r.links) {
+            const verdict = live.get(l.targetKey);
+            // Only a confirmed resolution counts as existing. An unknown state
+            // (rate limited, request error) must not read as a live target.
+            l.targetExists = verdict === "exists" || verdict === "moved"
+              || verdict === "exists_not_searchable";
+            l.targetVerdict = verdict ?? "unchecked";
+          }
+        }
+      }
+    }
+
+    const allLinks = results.flatMap((r) => r.links);
+    return {
+      total: results.length,
+      isLast: true,
+      linkCount: allLinks.length,
+      danglingCount: allLinks.filter((l) => l.targetExists === false).length,
+      results,
+    };
+  }
+
+  async _linksForKey(key, { maxRetries, retryDelayMs }) {
+    const resolved = await this._resolveKey(key, { maxRetries, retryDelayMs });
+    if (resolved.verdict !== "exists" && resolved.verdict !== "moved") {
+      // The source itself is unresolvable — reported, never dropped.
+      return { key, sourceVerdict: resolved.verdict, links: [] };
+    }
+    try {
+      const data = await this.request(`/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: "issuelinks" });
+      const links = (data.fields?.issuelinks || []).map((l) => {
+        const outward = l.outwardIssue || null;
+        const inward = l.inwardIssue || null;
+        const target = outward || inward;
+        return {
+          type: l.type?.name ?? null,
+          direction: outward ? "outward" : "inward",
+          relation: outward ? (l.type?.outward ?? null) : (l.type?.inward ?? null),
+          targetKey: target?.key ?? null,
+        };
+      });
+      return { key, sourceVerdict: "exists", links };
+    } catch (e) {
+      return { key, sourceVerdict: "error", error: e.message, links: [] };
+    }
   }
 
   async _resolveKey(key, { maxRetries, retryDelayMs }) {
@@ -394,12 +479,28 @@ export class ConfluenceClient {
     return { total: data.totalSize, results: data.results.map(p => this._formatPage(p)) };
   }
 
-  async getPage(pageId, bodyFormat = "storage") {
+  // `format: "text"` strips markup server-side. Large pages are mostly macro
+  // and attachment wrappers rather than prose — on a sampled page this took
+  // 12,964 characters to 3,055 — and returning raw HTML pushed callers into
+  // writing their own stripping just to read a page.
+  //
+  // `version` fetches a historical revision. Version metadata was already
+  // available but content was not, so "did this text exist at version N-1?"
+  // was unanswerable.
+  async getPage(pageId, bodyFormat = "storage", { format = "html", version = null } = {}) {
     const expand = `body.${bodyFormat},version,space,ancestors,children.page,children.comment,metadata.labels`;
-    const data = await this.request(`/wiki/rest/api/content/${pageId}`, { expand });
+    const params = { expand };
+    if (version !== null && version !== undefined) params.version = version;
+    const data = await this.request(`/wiki/rest/api/content/${pageId}`, params);
+    const raw = data.body?.[bodyFormat]?.value || null;
+    const asText = format === "text" && raw !== null ? htmlToText(raw) : null;
     return {
       ...this._formatPage(data),
-      body: data.body?.[bodyFormat]?.value || null,
+      body: format === "text" ? asText : raw,
+      // Both lengths are reported so a caller can see what stripping removed,
+      // and can tell a genuinely short page from an over-aggressive strip.
+      ...(raw !== null ? { rawBodyLength: raw.length } : {}),
+      ...(format === "text" ? { bodyLength: asText === null ? 0 : asText.length } : {}),
       children: data.children?.page?.results?.map(c => ({ id: c.id, title: c.title, status: c.status })) || [],
       labels: data.metadata?.labels?.results?.map(l => l.name) || [],
       commentCount: data.children?.comment?.size || 0
@@ -517,9 +618,12 @@ export class ConfluenceClient {
     };
   }
 
+  // Delegates to the shared implementation in lib/ so this bridge and the miro
+  // bridge cannot drift apart on what "text" means. Behaviour differs from the
+  // previous local copy in one respect: tags now collapse to a space rather
+  // than to nothing, so adjacent blocks no longer weld together
+  // ("<li>one</li><li>two</li>" reads as "one two", not "onetwo").
   _stripHtml(html) {
-    return html.replace(/<ac:.*?\/>/g, '').replace(/<ac:.*?>.*?<\/ac:.*?>/gs, '')
-      .replace(/<ri:.*?\/>/g, '').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+    return htmlToText(html);
   }
 }

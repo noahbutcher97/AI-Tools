@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import { z } from "zod";
 
 import { loadBridgeConfigOrExit } from "../../lib/bridge-base.mjs";
-import { toolJsonResult, toolErrorResult } from "../../lib/tool-result.mjs";
+import { toolJsonResult, toolErrorResult, toolListResult } from "../../lib/tool-result.mjs";
 import { MiroClient } from "./client.mjs";
 
 // Load manifest so the shared resolver knows what fields to look for, then
@@ -224,12 +224,60 @@ server.tool("miro_create_connector", "Create a connector (arrow/line) between tw
 });
 
 // ── miro_get_connectors ──
-server.tool("miro_get_connectors", "Get all connectors on a board", {
-  boardId: z.string().describe("Board ID")
-}, async ({ boardId }) => {
-  const r = await miro.getConnectors(boardId);
-  return toolJsonResult(r);
-});
+// Connectors encode what blocks what. Endpoints used to come back as bare IDs,
+// so reading the graph meant enumerating every item and joining by hand; and
+// when an endpoint was absent there was no way to tell an unattached connector
+// from a dropped field. Both are addressed: resolveEndpoints does the join, and
+// an absent endpoint now carries the reason.
+server.tool("miro_get_connectors",
+  "Get connectors on a board — the dependency graph. Pass resolveEndpoints=true to inline what "
+  + "each endpoint actually is, instead of getting bare item IDs to join yourself.",
+  {
+    boardId: z.string().describe("Board ID"),
+    resolveEndpoints: z.boolean().optional().default(false)
+      .describe("Inline each endpoint's type and text. Costs a full board enumeration."),
+    limit: z.number().optional().default(50).describe("Max connectors per call (1-50)"),
+    cursor: z.string().optional().describe("Pagination cursor from a previous response"),
+  },
+  async ({ boardId, resolveEndpoints, limit, cursor }) => {
+    const r = await miro.getConnectors(boardId, {
+      limit: Math.min(limit, 50), resolveEndpoints, cursor,
+    });
+    return toolListResult(r.connectors, {
+      isLast: r.isLast,
+      total: r.total,
+      itemsKey: "connectors",
+      extra: {
+        ...(r.cursor ? { cursor: r.cursor } : {}),
+        endpointNote: "A connector with `endpointsUnavailable` is NOT necessarily unattached on the "
+          + "board — read the field, which distinguishes an API serialization limit from a genuinely "
+          + "missing endpoint.",
+      },
+    });
+  });
+
+// Pages the board server-side. The per-call cap is 50, so a 320-item board is
+// seven round trips of cursor bookkeeping for the caller.
+server.tool("miro_get_all_board_items",
+  "Get EVERY item on a board, paging internally. Use instead of miro_get_board_items when you need "
+  + "the whole board rather than one page.",
+  {
+    boardId: z.string().describe("Board ID"),
+    type: z.string().optional()
+      .describe("Optional item type filter. Note: undocumented types (table, table_text, "
+        + "widgets_stack) are rejected by the API as a filter value."),
+    maxPages: z.number().optional().default(40)
+      .describe("Safety bound on pages fetched. If it truncates, the response says so."),
+  },
+  async ({ boardId, type, maxPages }) => {
+    const r = await miro.getAllBoardItems(boardId, { type, maxPages });
+    return toolListResult(r.items, {
+      isLast: r.isLast,
+      total: r.total,
+      ...(r.truncated ? { truncated: r.truncated } : {}),
+      extra: { pagesFetched: r.pagesFetched },
+    });
+  });
 
 // ── miro_get_tags ──
 server.tool("miro_get_tags", "Get all tags defined on a board", {

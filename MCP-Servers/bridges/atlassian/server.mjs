@@ -132,6 +132,32 @@ server.tool("jira_get_issue", "Get full details of a single Jira issue by key", 
   return toolJsonResult(i);
 });
 
+// ── jira_get_links ──
+// Reconstructing the link graph otherwise means reading per-issue changelogs and
+// replaying link-creation events one issue at a time. targetExists makes
+// dangling-link detection a one-call check.
+server.tool("jira_get_links",
+  "Get current issue links for a set of keys — type, direction, target — with a targetExists flag "
+  + "per target, so dangling links are detectable in one call.",
+  {
+    issueKeys: z.array(z.string()).describe("Issue keys to read links for"),
+    checkTargets: z.boolean().optional().default(true)
+      .describe("Verify each link target still resolves. Adds one lookup per distinct target."),
+  },
+  async ({ issueKeys, checkTargets }) => {
+    const r = await client.getLinks(issueKeys, { checkTargets });
+    return toolJsonResult({
+      ...r,
+      note: "Sources are resolved per key, not by a bulk `key in (...)` query, so an issue missing "
+        + "from the search index still appears. targetExists is false only when the target was "
+        + "checked and did not resolve; see targetVerdict for the reason.",
+      scopeNote: "This covers Jira ISSUE LINKS only. Jira removes those when an issue is deleted, "
+        + "so dangling link objects are rare. A hyperlink to a dead issue inside a description or "
+        + "comment is plain text, not a link object, and is NOT detected here — extract those keys "
+        + "yourself and pass them to jira_validate_keys.",
+    });
+  });
+
 // ── jira_validate_keys ──
 // Use this instead of a `key in (...)` JQL query when checking whether issue
 // keys are real. That query returns only the keys it resolves, with no error and
@@ -296,13 +322,31 @@ server.tool("confluence_search", "Search Confluence using CQL", {
   return toolJsonResult(r);
 });
 
-server.tool("confluence_get_page", "Get a Confluence page by ID with full body, children, labels", {
-  pageId: z.string().describe("Page ID (numeric string)"),
-  bodyFormat: z.enum(["storage", "view"]).optional().default("storage").describe("'storage' (raw) or 'view' (rendered)")
-}, async ({ pageId, bodyFormat }) => {
-  const p = await confluence.getPage(pageId, bodyFormat);
-  return toolJsonResult(p);
-});
+// format:"text" strips markup server-side. Large pages are mostly macro and
+// attachment wrappers rather than prose, so raw HTML can exceed the tool-result
+// cap and spill to a file, pushing the caller into writing their own stripping
+// just to read a page.
+//
+// version fetches a historical revision, so "did this text exist at version
+// N-1?" is answerable by fetching two versions and comparing.
+server.tool("confluence_get_page",
+  "Get a Confluence page by ID with body, children and labels. Pass format='text' for readable "
+  + "text instead of HTML — large pages are mostly markup, and raw HTML may exceed the result cap.",
+  {
+    pageId: z.string().describe("Page ID (numeric string)"),
+    bodyFormat: z.enum(["storage", "view"]).optional().default("storage")
+      .describe("'storage' (raw) or 'view' (rendered)"),
+    format: z.enum(["html", "text"]).optional().default("html")
+      .describe("'text' strips markup server-side. Response reports both bodyLength and "
+        + "rawBodyLength so you can see what was removed."),
+    version: z.number().optional()
+      .describe("Fetch a specific historical version instead of the current one. Fetch two "
+        + "versions and compare to determine when content appeared."),
+  },
+  async ({ pageId, bodyFormat, format, version }) => {
+    const p = await confluence.getPage(pageId, bodyFormat, { format, version });
+    return toolJsonResult(p);
+  });
 
 server.tool("confluence_get_page_by_title", "Get a Confluence page by space key and exact title", {
   spaceKey: z.string().describe("Space key"),
