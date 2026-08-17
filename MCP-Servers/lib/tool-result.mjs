@@ -24,6 +24,69 @@ export function toolJsonResult(data, { compact = false } = {}) {
   };
 }
 
+// toolListResult(items, opts) → pretty-printed JSON with a completeness envelope
+//
+// Every list-returning tool shares this shape so a caller can always tell
+// coverage from truncation. A page whose length equals its limit is otherwise
+// indistinguishable from a complete result, which is how a truncated Confluence
+// space read as the whole space and a capped Miro page read as the whole board.
+//
+// Three rules are enforced rather than documented, because documenting them is
+// what failed before:
+//
+//   1. `isLast` is required. A list result cannot be constructed without
+//      stating whether it is complete.
+//   2. `total` defaults to an explicit null. It is never derived from the page
+//      length — a fabricated total is precisely what makes truncation invisible.
+//      Pass a real one only when the upstream API supplies it.
+//   3. A result cannot claim to be both truncated and the last page.
+export function toolListResult(items, opts = {}) {
+  const {
+    isLast,
+    total = null,
+    scope,
+    warning,
+    truncated,
+    start,
+    limit,
+    itemsKey = "items",
+  } = opts;
+
+  if (typeof isLast !== "boolean") {
+    throw new Error(
+      "toolListResult: isLast is required and must be a boolean — a list response must state "
+      + "whether it is complete, since a full page is otherwise indistinguishable from the last one.",
+    );
+  }
+
+  const list = Array.isArray(items) ? items : [];
+  const count = list.length;
+
+  if (total !== null && total !== undefined && total < count) {
+    throw new Error(
+      `toolListResult: total (${total}) is smaller than the ${count} items returned — `
+      + "an incoherent total misleads more than an absent one.",
+    );
+  }
+
+  if (isLast && truncated) {
+    throw new Error(
+      "toolListResult: a truncated result cannot also be the last page — if a server-side cap "
+      + "was applied, isLast must be false.",
+    );
+  }
+
+  const body = { count, total: total ?? null, isLast };
+  if (start !== undefined) body.start = start;
+  if (limit !== undefined) body.limit = limit;
+  if (scope !== undefined) body.scope = scope;
+  if (warning !== undefined) body.warning = warning;
+  if (truncated !== undefined) body.truncated = truncated;
+  body[itemsKey] = list;
+
+  return toolJsonResult(body);
+}
+
 export function toolTextResult(text) {
   return {
     content: [{ type: "text", text: text || "(no output)" }],
