@@ -319,7 +319,13 @@ server.tool("confluence_search", "Search Confluence using CQL", {
   start: z.number().optional().default(0).describe("Pagination offset")
 }, async ({ cql, limit, start }) => {
   const r = await confluence.search(cql, Math.min(limit, 100), start);
-  return toolJsonResult(r);
+  return toolListResult(r.results, {
+    isLast: r.isLast,
+    total: r.total,
+    start: r.start,
+    limit: r.limit,
+    itemsKey: "results",
+  });
 });
 
 // format:"text" strips markup server-side. Large pages are mostly macro and

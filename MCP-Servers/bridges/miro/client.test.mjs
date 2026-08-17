@@ -228,3 +228,46 @@ test("getAllBoardItems stops at a page budget and says it truncated", async () =
   assert.equal(r.isLast, false);
   assert.match(r.truncated, /maxPages|page/i);
 });
+
+test("resolveEndpoints says so when the board sweep could not be completed", async () => {
+  // Otherwise an endpoint that simply was not reached looks identical to one
+  // the API refuses to serialize — reintroducing the exact ambiguity that
+  // endpointsUnavailable exists to remove, by a different route.
+  const c = new MiroClient("tok", {
+    fetchImpl: async (url) => {
+      if (String(url).includes("/connectors")) {
+        return response(200, connectorPage([
+          { id: "c1", type: "connector", startItem: { id: "far-away" }, endItem: { id: "far-away2" } },
+        ]));
+      }
+      // Board never runs out of pages, so the lookup hits its budget.
+      return response(200, { data: [{ id: "other", type: "shape" }], total: 9999, cursor: "more" });
+    },
+  });
+
+  const r = await c.getConnectors("b1", { resolveEndpoints: true, lookupMaxPages: 2 });
+  assert.equal(r.endpointLookupComplete, false);
+  assert.match(r.endpointLookupNote, /incomplete|truncat|budget/i);
+  assert.equal(r.connectors[0].startItem.unresolved, true);
+});
+
+test("resolveEndpoints reports a complete lookup as complete", async () => {
+  const c = new MiroClient("tok", {
+    fetchImpl: async (url) => {
+      if (String(url).includes("/connectors")) {
+        return response(200, connectorPage([
+          { id: "c1", type: "connector", startItem: { id: "i1" }, endItem: { id: "i2" } },
+        ]));
+      }
+      return response(200, {
+        data: [{ id: "i1", type: "card", data: { title: "A" } }, { id: "i2", type: "card", data: { title: "B" } }],
+        total: 2, cursor: null,
+      });
+    },
+  });
+
+  const r = await c.getConnectors("b1", { resolveEndpoints: true });
+  assert.equal(r.endpointLookupComplete, true);
+  assert.equal(r.connectors[0].startItem.content, "A");
+  assert.equal(r.connectors[0].startItem.unresolved, undefined);
+});

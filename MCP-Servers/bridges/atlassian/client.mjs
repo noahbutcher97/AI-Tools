@@ -474,9 +474,25 @@ export class ConfluenceClient {
     };
   }
 
+  // This is the tool callers fall back to when space enumeration fails them, and
+  // a full page was previously indistinguishable from the last one.
+  //
+  // The endpoint returns {start, limit, size, _links.next} and NO total — the
+  // previous code read `data.totalSize`, which this API does not send, so the
+  // reported total was always undefined. Verified against the live instance.
+  // Completeness therefore comes from the next link, as elsewhere in v1, and
+  // total stays an explicit null rather than a fabricated number.
   async search(cql, limit = 25, start = 0) {
     const data = await this.request("/wiki/rest/api/content/search", { cql, limit, start, expand: "version,space,ancestors" });
-    return { total: data.totalSize, results: data.results.map(p => this._formatPage(p)) };
+    const results = (data.results || []).map(p => this._formatPage(p));
+    return {
+      count: results.length,
+      total: null,
+      start: data.start ?? start,
+      limit: data.limit ?? limit,
+      isLast: !data._links?.next,
+      results,
+    };
   }
 
   // `format: "text"` strips markup server-side. Large pages are mostly macro

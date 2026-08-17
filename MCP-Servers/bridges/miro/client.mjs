@@ -195,7 +195,7 @@ export class MiroClient {
   // is neither: those connectors carry isSupported:false — the API declines to
   // serialize them, the same marker it uses for table items. That reason is now
   // reported, because "endpoint missing, cause unknown" is not a usable finding.
-  async getConnectors(boardId, { limit = 50, resolveEndpoints = false, cursor = null } = {}) {
+  async getConnectors(boardId, { limit = 50, resolveEndpoints = false, cursor = null, lookupMaxPages = 40 } = {}) {
     const params = { limit };
     if (cursor) params.cursor = cursor;
     const data = await this.request(`/v2/boards/${boardId}/connectors`, params);
@@ -219,6 +219,9 @@ export class MiroClient {
       return out;
     });
 
+    let lookupComplete = null;
+    let lookupNote = null;
+
     if (resolveEndpoints) {
       const ids = new Set();
       for (const c of connectors) {
@@ -226,13 +229,30 @@ export class MiroClient {
         if (c.endItem?.id) ids.add(c.endItem.id);
       }
       if (ids.size > 0) {
-        const lookup = await this._itemLookup(boardId, ids);
+        const { lookup, complete } = await this._itemLookup(boardId, ids, lookupMaxPages);
+        lookupComplete = complete;
         for (const c of connectors) {
           for (const end of ["startItem", "endItem"]) {
             const ref = c[end];
-            if (ref?.id && lookup.has(ref.id)) Object.assign(ref, lookup.get(ref.id));
+            if (!ref?.id) continue;
+            if (lookup.has(ref.id)) {
+              Object.assign(ref, lookup.get(ref.id));
+            } else if (!complete) {
+              // Critical distinction. An endpoint we simply did not reach must
+              // not look like one the API refuses to serialize — that is the
+              // ambiguity endpointsUnavailable exists to remove, and silently
+              // failing to resolve would reintroduce it by another route.
+              ref.unresolved = true;
+            }
           }
         }
+        if (!complete) {
+          lookupNote = `Endpoint lookup incomplete: the board sweep hit its page budget `
+            + `(lookupMaxPages=${lookupMaxPages}). Endpoints marked unresolved were NOT reached — `
+            + `this is not the same as an endpoint the API declines to serialize.`;
+        }
+      } else {
+        lookupComplete = true;
       }
     }
 
@@ -241,21 +261,26 @@ export class MiroClient {
       total: data.total ?? null,
       isLast: !data.cursor,
       cursor: data.cursor || null,
+      ...(lookupComplete !== null ? { endpointLookupComplete: lookupComplete } : {}),
+      ...(lookupNote ? { endpointLookupNote: lookupNote } : {}),
       connectors,
     };
   }
 
   // Builds an id -> {type, content} map by walking the board's items. Content is
   // returned as readable text, since Miro serves it as HTML.
-  async _itemLookup(boardId, wantedIds) {
+  // Returns the map plus whether the sweep that built it was complete. The
+  // caller needs that: a partial sweep means some endpoints were never seen,
+  // and "not seen" must stay distinguishable from "not serializable".
+  async _itemLookup(boardId, wantedIds, maxPages = 40) {
     const lookup = new Map();
-    const all = await this.getAllBoardItems(boardId);
+    const all = await this.getAllBoardItems(boardId, { maxPages });
     for (const item of all.items) {
       if (wantedIds.has(item.id)) {
         lookup.set(item.id, { type: item.type, content: htmlToText(item.content) || null });
       }
     }
-    return lookup;
+    return { lookup, complete: all.isLast === true };
   }
 
   // Pages the board itself rather than making the caller hold a cursor. The
