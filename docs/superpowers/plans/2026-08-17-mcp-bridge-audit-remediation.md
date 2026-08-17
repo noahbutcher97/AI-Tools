@@ -943,7 +943,7 @@ re-tested; two produced findings that changed the work.
 
 | # | Verified premise | Delivered |
 |---|---|---|
-| 7 | `_stripHtml` already existed in the client, unused by `getPage` | `format: "text"` on `confluence_get_page`. Live: 12,964 → 3,782 chars (71%). Reports `bodyLength` **and** `rawBodyLength`. |
+| 7 | `_stripHtml` already existed in the client, unused by `getPage` | `format: "text"` on `confluence_get_page`. Live: 12,964 → 3,782 chars (71%). Reports `bodyLength` **and** `rawBodyLength`. **Acceptance partially unverified — see below.** |
 | 8 | **Reproduces** — 9 of 30 connectors on `Milestone 2 Plan` lack endpoints | `resolveEndpoints` inlines endpoint type and text; absent endpoints carry `endpointsUnavailable` with the cause. |
 | 9 | 50-item cap confirmed; cursor **and** a real `total` already returned | `miro_get_all_board_items` pages internally. Live: 322 items, 7 pages, `isLast: true`. |
 | 10 | `fields=key,issuelinks` returns the graph | `jira_get_links` with `targetExists`. Live: 30 issues, 88 links, 0 dangling. |
@@ -953,6 +953,21 @@ Also added: `lib/html-text.mjs`, a single HTML-to-text implementation shared by 
 "text" cannot come to mean different things in each. The atlassian client's local `_stripHtml` now
 delegates to it. One behaviour change falls out: tags collapse to a space rather than to nothing, so
 `<li>one</li><li>two</li>` reads as `one two` instead of `onetwo`.
+
+### Item 7 — mechanism verified, stated acceptance NOT verified
+
+The audit's acceptance was "a 400KB page can be read as text in one call." That **cannot be
+demonstrated on this instance**: the two pages it cites (404,787 and 266,366 characters) do not exist
+here — searches on `title ~ "Inventory"`, `title ~ "Production"` and `text ~ "inventory"` all return
+nothing, and the largest page found across a 25-page sample is 12,964 characters.
+
+What is measured: **71% reduction** (12,964 → 3,782) on the largest available page. What is
+inference: applying that ratio to 404,787 characters gives roughly 117KB, which **may still exceed
+the tool-result cap**. Do not record item 7 as closing the 400KB case.
+
+The audit also asked for a `section` selector ("pull one heading's subtree"), which was **not built**.
+That is the actual remedy if a genuinely huge page recurs, and should be the first follow-up if one
+does.
 
 ### Item 8 — the ambiguity is resolved
 
@@ -979,6 +994,32 @@ description, not link objects, and **this tool does not detect them.** The respo
 Sources are resolved per key rather than by a bulk query, for the same reason `validateKeys` is —
 confirmed live, where `OA-829` (unindexed) returned its link correctly and a bulk query would have
 dropped it.
+
+### Pre-merge review — what it caught
+
+A review pass before merging found four issues; three were fixed, one recorded.
+
+1. **No server-registration tests on `atlassian` or `miro`** — every other bridge has one, and these
+   two are loaded by path by live workspaces, so a typo in a tool definition would have surfaced in
+   someone's session rather than in CI. Added; both bridges now cover registration and the key
+   parameters of every tool added in this effort.
+2. **`confluence_search` still carried the cross-cutting bug** — `start`/`limit` and no completeness
+   statement, in the very tool the audit fell back to when space enumeration failed it. Now uses the
+   shared envelope. **Fixing it exposed a pre-existing bug**: the code read `data.totalSize`, which
+   this endpoint does not return, so its reported total had always been `undefined`. Completeness now
+   comes from `_links.next`, and `total` is an explicit null.
+3. **`resolveEndpoints` could reintroduce item 8's ambiguity by another route** — the endpoint lookup
+   pages the board with a budget, and if that budget bit, an endpoint that was simply never reached
+   looked identical to one the API refuses to serialize. Now reports `endpointLookupComplete`, and
+   marks unreached endpoints `unresolved` rather than leaving them silently unfilled.
+4. **`miro_get_board_items` (single page) still has no `isLast`** — not fixed. Cursor presence is an
+   unambiguous signal and callers already use it, so this is consistency rather than correctness.
+   Recorded as a follow-up.
+
+Two of these were caught only by re-running the live smoke after the unit tests were green — the
+`totalSize` bug in particular was encoded into the new unit tests as a mocked field the real API
+never sends, so the tests passed while asserting a fiction. Mocked tests confirm the code does what
+you think; only the live call confirms you were right about the API.
 
 ## ~~Deferred~~ — audit items 7–11 (original scoping, now superseded)
 

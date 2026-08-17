@@ -504,3 +504,40 @@ test("getLinks reports a source key it could not resolve rather than omitting it
   assert.equal(r.results.length, 1);
   assert.equal(r.results[0].sourceVerdict, "not_found_or_no_permission");
 });
+
+// confluence_search was the fallback the audit used when space enumeration
+// failed it — and it carried the same defect: start and limit, but no statement
+// of completeness. Verified against the live API: this endpoint returns
+// {start, limit, size, _links.next} and NO totalSize, despite the previous code
+// reading data.totalSize (which was therefore always undefined). isLast comes
+// from the next link, as with the other v1 endpoints.
+
+function searchPage(count, hasNext) {
+  return {
+    results: new Array(count).fill({ id: '1', title: 'p' }),
+    start: 0,
+    limit: count,
+    size: count,
+    _links: hasNext ? { next: '/rest/api/content/search?next=true' } : {},
+  };
+}
+
+test('search reports isLast false while a next link is present', async () => {
+  const c = new ConfluenceClient(CREDS, { fetchImpl: async () => response(200, searchPage(25, true)) });
+  const r = await c.search('type=page', 25, 0);
+  assert.equal(r.isLast, false);
+});
+
+test('search reports isLast true when a full page has no next link', async () => {
+  // count === limit but complete — the ambiguity this whole effort is about.
+  const c = new ConfluenceClient(CREDS, { fetchImpl: async () => response(200, searchPage(25, false)) });
+  const r = await c.search('type=page', 25, 0);
+  assert.equal(r.isLast, true);
+});
+
+test('search never invents a total the endpoint does not return', async () => {
+  const c = new ConfluenceClient(CREDS, { fetchImpl: async () => response(200, searchPage(25, true)) });
+  const r = await c.search('type=page', 25, 0);
+  assert.equal(r.total, null);
+  assert.equal(r.count, 25);
+});

@@ -249,9 +249,14 @@ server.tool("miro_get_connectors",
       itemsKey: "connectors",
       extra: {
         ...(r.cursor ? { cursor: r.cursor } : {}),
+        ...(r.endpointLookupComplete !== undefined
+          ? { endpointLookupComplete: r.endpointLookupComplete }
+          : {}),
+        ...(r.endpointLookupNote ? { endpointLookupNote: r.endpointLookupNote } : {}),
         endpointNote: "A connector with `endpointsUnavailable` is NOT necessarily unattached on the "
           + "board — read the field, which distinguishes an API serialization limit from a genuinely "
-          + "missing endpoint.",
+          + "missing endpoint. An endpoint marked `unresolved` was simply not reached, which is "
+          + "different again; check endpointLookupComplete.",
       },
     });
   });
