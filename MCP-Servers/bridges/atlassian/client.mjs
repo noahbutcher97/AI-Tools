@@ -6,10 +6,13 @@
 // mechanical: the class bodies are unchanged apart from the export keyword.
 
 export class AtlassianClient {
-  constructor(creds) {
+  // fetchImpl is injectable so request/parse logic can be unit tested without a
+  // live instance, matching the otter bridge's client. Defaults to global fetch.
+  constructor(creds, { fetchImpl } = {}) {
     this.baseUrl = `https://${creds.siteName}.atlassian.net`;
     this.auth = Buffer.from(`${creds.userEmail}:${creds.apiToken}`).toString("base64");
     this.siteName = creds.siteName;
+    this.fetch = fetchImpl || ((...args) => fetch(...args));
   }
 
   async request(path, params = {}, method = "GET", body = null) {
@@ -28,13 +31,164 @@ export class AtlassianClient {
       }
     };
     if (body && method !== "GET" && method !== "DELETE") opts.body = JSON.stringify(body);
-    const resp = await fetch(url.toString(), opts);
+    const resp = await this.fetch(url.toString(), opts);
     if (!resp.ok) {
       const text = await resp.text();
-      throw new Error(`Atlassian API ${resp.status}: ${text}`);
+      // The status is attached as a value, not just formatted into the message.
+      // Callers that must tell a missing issue from an unreadable one (404 vs
+      // 403) cannot recover it by parsing the string. Message text is unchanged
+      // so anything matching on it keeps working.
+      const err = new Error(`Atlassian API ${resp.status}: ${text}`);
+      err.status = resp.status;
+      err.body = text;
+      throw err;
     }
     if (resp.status === 204) return { success: true };
     return resp.json();
+  }
+
+  // ── Key validation ──
+  //
+  // A JQL `key in (...)` query returns only the keys it resolves. There is no
+  // error and no list of omissions, so a caller reading the result infers that
+  // an absent key was deleted. That inference is unsafe for two distinct
+  // reasons: the API returns the same 404 for a missing issue and one the
+  // caller may not read, and a live issue can be missing from the search index
+  // while still fetching fine by key.
+  //
+  // So resolution is per key, by direct fetch — the only route that sees an
+  // unindexed issue — and every input key gets exactly one verdict. Omission is
+  // structurally impossible: results.length always equals keys.length.
+
+  async validateKeys(keys, options = {}) {
+    const {
+      checkSearchable = true,
+      concurrency = 5,
+      maxRetries = 3,
+      retryDelayMs = 1000,
+    } = options;
+
+    const summary = {
+      exists: 0,
+      moved: 0,
+      exists_not_searchable: 0,
+      not_found_or_no_permission: 0,
+      no_permission: 0,
+      rate_limited: 0,
+      error: 0,
+    };
+
+    if (!Array.isArray(keys) || keys.length === 0) {
+      return { total: 0, isLast: true, unresolved: 0, summary, results: [] };
+    }
+
+    // Phase 1 — one direct fetch per key, bounded concurrency.
+    const results = new Array(keys.length);
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < keys.length) {
+        const i = cursor;
+        cursor += 1;
+        results[i] = await this._resolveKey(keys[i], { maxRetries, retryDelayMs });
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, keys.length) }, () => worker()),
+    );
+
+    // Phase 2 — searchability, as ONE bulk query per chunk rather than a second
+    // fetch per key. Any key that resolved by fetch but does not come back from
+    // JQL is the case that silently corrupts reference-integrity checks.
+    if (checkSearchable) {
+      const live = results.filter((r) => r.verdict === "exists" || r.verdict === "moved");
+      if (live.length > 0) {
+        try {
+          const seen = await this._searchableKeys(live.map((r) => r.resolvedKey || r.key));
+          for (const r of live) {
+            if (!seen.has(r.resolvedKey || r.key)) {
+              r.verdict = "exists_not_searchable";
+              r.note =
+                "Fetches by key but is absent from JQL results — it will be silently omitted "
+                + "from any `key in (...)` query. Do not treat that omission as deletion.";
+            }
+          }
+        } catch (e) {
+          // Searchability is an enrichment. If the search itself fails, say so
+          // rather than downgrading verdicts already established by fetch.
+          for (const r of live) {
+            r.searchableCheck = `skipped: ${e.message}`;
+          }
+        }
+      }
+    }
+
+    for (const r of results) summary[r.verdict] += 1;
+
+    return {
+      total: results.length,
+      isLast: true,
+      // Keys whose true state could not be established. Never fold these into a
+      // missing-style verdict — unknown is not absent.
+      unresolved: summary.rate_limited + summary.error,
+      summary,
+      results,
+    };
+  }
+
+  async _resolveKey(key, { maxRetries, retryDelayMs }) {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        const data = await this.request(`/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: "key" });
+        const resolved = data && data.key;
+        if (resolved && resolved !== key) {
+          return { key, verdict: "moved", resolvedKey: resolved };
+        }
+        return { key, verdict: "exists" };
+      } catch (e) {
+        if (e.status === 429 && attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+          continue;
+        }
+        if (e.status === 429) {
+          return {
+            key,
+            verdict: "rate_limited",
+            status: 429,
+            note: "Rate limited after retries — status unknown, not confirmed absent.",
+          };
+        }
+        if (e.status === 404) {
+          return {
+            key,
+            verdict: "not_found_or_no_permission",
+            status: 404,
+            note: "The API returns 404 both for a missing issue and one you may not read; "
+              + "these are not distinguishable from here.",
+          };
+        }
+        if (e.status === 403) return { key, verdict: "no_permission", status: 403 };
+        return { key, verdict: "error", status: e.status ?? null, note: e.message };
+      }
+    }
+  }
+
+  // Returns the set of keys JQL can actually see, chunked so a large batch does
+  // not exceed the query's result window, and paged so a full page is never
+  // mistaken for a complete one.
+  async _searchableKeys(keys, chunkSize = 50) {
+    const seen = new Set();
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      let nextPageToken = null;
+      do {
+        const params = { jql: `key in (${chunk.join(",")})`, maxResults: 100, fields: "key" };
+        if (nextPageToken) params.nextPageToken = nextPageToken;
+        const data = await this.request("/rest/api/3/search/jql", params);
+        for (const issue of data.issues || []) seen.add(issue.key);
+        nextPageToken = data.isLast === true ? null : data.nextPageToken || null;
+      } while (nextPageToken);
+    }
+    return seen;
   }
 
   async listProjects() {
