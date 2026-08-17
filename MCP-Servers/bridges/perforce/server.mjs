@@ -31,6 +31,8 @@ import {
   buildReopenArgs,
   buildMoveArgs,
   buildChangesArgs,
+  buildDescribeArgs,
+  parseDescribeShelved,
   parseUsersOutput,
   parseGroupsOutput,
   parseGroupSpec,
@@ -194,7 +196,8 @@ server.tool(
   `List changelists from \`p4 changes\`. Defaults to the last 10 submitted by ${P4USER}. `
     + `Set status='pending' for pending CLs. Filter by \`user\` (any user), or by \`client\` `
     + `to list changes in a specific workspace — pass client='${P4CLIENT}' for this workspace's `
-    + `pending CLs (any user). With neither user nor client, defaults to ${P4USER}.`,
+    + `pending CLs (any user). With neither user nor client, defaults to ${P4USER}. `
+    + `Pass allUsers=true to drop the user filter entirely and see EVERY user's changelists.`,
   {
     max: z.number().optional().default(10).describe("Max changelists to return"),
     user: z.string().optional().describe(`Filter by user. Omit (with no client) to default to ${P4USER}.`),
@@ -202,27 +205,147 @@ server.tool(
       .string()
       .optional()
       .describe(`Filter by client/workspace (e.g. '${P4CLIENT}'). When set, does not force the user filter.`),
+    allUsers: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "List changelists for EVERY user, not just the configured default. Required for cross-team "
+        + "sweeps (e.g. enumerating all pending shelves). Cannot be combined with `user`.",
+      ),
     status: z.enum(["submitted", "pending"]).optional().default("submitted"),
   },
-  async ({ max, user, client, status }) => {
-    return toolResult(
-      p4(buildChangesArgs({ status, max, user, client, defaultUser: P4USER, depotRoot: DEPOT_ROOT })),
-    );
+  async ({ max, user, client, allUsers, status }) => {
+    let args;
+    try {
+      args = buildChangesArgs({ status, max, user, client, allUsers, defaultUser: P4USER, depotRoot: DEPOT_ROOT });
+    } catch (e) {
+      return toolErrorResult(e.message);
+    }
+    const result = p4(args);
+    if (!result.ok) return toolErrorResult(result.output);
+    // Unscoped (all-user) queries reach beyond this workspace's owner, so they
+    // carry the scope banner used elsewhere in this bridge (p4_users, p4_groups)
+    // and by jira_list_boards. Only the allUsers path is wrapped — the default
+    // path stays raw text, which 23 downstream skills depend on.
+    if (!allUsers) return toolTextResult(result.output);
+    return toolJsonResult({
+      scope: "all-users",
+      warning: "No user filter — lists changelists for every user visible to this ticket.",
+      changes: result.output,
+    });
   },
 );
 
 server.tool(
   "p4_describe",
-  "Show full details of a changelist — description, files, diffs.",
+  "Show full details of a changelist — description, files, diffs. "
+    + "Pass shelved=true for `p4 describe -S`, which lists a pending changelist's SHELVED files "
+    + "(the default form does not show them).",
   {
     changelist: z.string().describe("Changelist number"),
     summaryOnly: z.boolean().optional().default(false),
+    shelved: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("List shelved files (`-S`). Required to see shelved content on a pending changelist."),
   },
-  async ({ changelist, summaryOnly }) => {
-    const cmdArgs = ["describe"];
-    if (summaryOnly) cmdArgs.push("-s");
-    cmdArgs.push(changelist);
-    return toolResult(p4(cmdArgs, { timeout: 60000 }));
+  async ({ changelist, summaryOnly, shelved }) => {
+    return toolResult(
+      p4(buildDescribeArgs({ changelist, summaryOnly, shelved }), { timeout: 60000 }),
+    );
+  },
+);
+
+// Audit item 4. The workflow wants one call: every pending changelist with its
+// owner, client, description and shelved file list. Composing this client-side
+// meant a `p4 changes` plus one `p4 describe -S -s` per changelist — the loop
+// that found a 55-file unregistered shelf (CL 3553).
+//
+// The describe fan-out is bounded: maxChangelists caps how many are inspected,
+// and when the cap bites the response says so rather than looking complete.
+server.tool(
+  "p4_shelves",
+  "List pending changelists together with their shelved files, in one call. "
+    + `Defaults to ${P4USER}; pass allUsers=true for a cross-team shelf sweep.`,
+  {
+    client: z.string().optional().describe(`Filter by client/workspace (e.g. '${P4CLIENT}').`),
+    allUsers: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Inspect every user's pending changelists, not just the configured default."),
+    maxChangelists: z
+      .number()
+      .optional()
+      .default(25)
+      .describe("Upper bound on changelists inspected. If it truncates, the response reports it."),
+    onlyShelved: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe("Omit changelists that have no shelved files."),
+  },
+  async ({ client, allUsers, maxChangelists, onlyShelved }) => {
+    let changesArgs;
+    try {
+      changesArgs = buildChangesArgs({
+        status: "pending",
+        max: maxChangelists,
+        client,
+        allUsers,
+        defaultUser: P4USER,
+        depotRoot: DEPOT_ROOT,
+      });
+    } catch (e) {
+      return toolErrorResult(e.message);
+    }
+
+    const listed = p4(changesArgs);
+    if (!listed.ok) return toolErrorResult(listed.output);
+
+    const clNumbers = listed.output
+      .split(/\r?\n/)
+      .map((line) => line.match(/^Change (\d+) /))
+      .filter(Boolean)
+      .map((m) => m[1]);
+
+    const changelists = [];
+    for (const cl of clNumbers) {
+      const described = p4(buildDescribeArgs({ changelist: cl, shelved: true, summaryOnly: true }), {
+        timeout: 60000,
+      });
+      if (!described.ok) {
+        changelists.push({ changelist: cl, error: described.output.trim(), files: [] });
+        continue;
+      }
+      const parsed = parseDescribeShelved(described.output);
+      if (onlyShelved && parsed.files.length === 0) continue;
+      changelists.push({ ...parsed, shelvedFileCount: parsed.files.length });
+    }
+
+    const truncated = clNumbers.length >= maxChangelists;
+    return toolJsonResult({
+      scope: allUsers ? "all-users" : `user:${P4USER}`,
+      // Named explicitly: "all-users" is a USER scope, not a server-wide one.
+      // This sweep is still bounded by the bridge's configured depot, so shelves
+      // in other depots are out of range — a caller must be able to see that
+      // rather than read isLast:true as "every shelf on the server".
+      depotScope: DEPOT_ROOT,
+      ...(allUsers
+        ? { warning: "No user filter — reports shelves for every user visible to this ticket." }
+        : {}),
+      changelistsInspected: clNumbers.length,
+      total: changelists.length,
+      isLast: !truncated,
+      ...(truncated
+        ? {
+            truncated: `Stopped at maxChangelists=${maxChangelists}. More pending changelists may exist.`,
+          }
+        : {}),
+      changelists,
+    });
   },
 );
 

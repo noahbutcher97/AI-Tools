@@ -33,6 +33,8 @@ import {
   buildReopenArgs,
   buildMoveArgs,
   buildChangesArgs,
+  buildDescribeArgs,
+  parseDescribeShelved,
   parseUsersOutput,
   parseGroupsOutput,
   parseGroupSpec,
@@ -1004,6 +1006,139 @@ describe("buildChangesArgs", () => {
       buildChangesArgs({ max: 50, defaultUser: "me", depotRoot }),
       ["changes", "-s", "submitted", "-u", "me", "-m", "50", "//Depot/..."],
     );
+  });
+
+  // ── allUsers (audit item 5) ──
+  // Without this, there is no documented way to see other users' pending work;
+  // the audit had to drop to raw CLI to find a 55-file shelf. Verified against
+  // the live server: dropping -u surfaces CLs that -u hides, and the trailing
+  // depot-root scope does not re-apply a user filter.
+  // See docs/superpowers/plans/2026-08-17-mcp-bridge-audit-remediation.md (V7).
+
+  it("allUsers drops the default user filter entirely", () => {
+    assert.deepEqual(
+      buildChangesArgs({ status: "pending", allUsers: true, defaultUser: "me", depotRoot }),
+      ["changes", "-s", "pending", "-m", "10", "//Depot/..."],
+    );
+  });
+
+  it("allUsers still scopes to the depot root and honors max", () => {
+    assert.deepEqual(
+      buildChangesArgs({ status: "pending", allUsers: true, max: 200, defaultUser: "me", depotRoot }),
+      ["changes", "-s", "pending", "-m", "200", "//Depot/..."],
+    );
+  });
+
+  it("allUsers combines with a client filter without emitting -u", () => {
+    assert.deepEqual(
+      buildChangesArgs({ status: "pending", allUsers: true, client: "ws1", defaultUser: "me", depotRoot }),
+      ["changes", "-s", "pending", "-c", "ws1", "-m", "10", "//Depot/..."],
+    );
+  });
+
+  it("rejects allUsers combined with an explicit user rather than silently picking one", () => {
+    assert.throws(
+      () => buildChangesArgs({ allUsers: true, user: "bob", defaultUser: "me", depotRoot }),
+      /allUsers/i,
+    );
+  });
+
+  it("allUsers: false behaves exactly as if it were absent", () => {
+    // Regression guard: 23 skills across three workspaces call p4_changes.
+    assert.deepEqual(
+      buildChangesArgs({ allUsers: false, defaultUser: "me", depotRoot }),
+      buildChangesArgs({ defaultUser: "me", depotRoot }),
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// buildDescribeArgs / parseDescribeShelved — audit item 4.
+//
+// p4_describe could not produce `p4 describe -S`, so enumerating shelves
+// required raw CLI. The fixture below is real `p4 describe -S -s 3564` output
+// captured from the live server, CRLF endings included — a naive split("\n")
+// leaves \r on every line and corrupts the trailing action token.
+// See docs/superpowers/plans/2026-08-17-mcp-bridge-audit-remediation.md (V7, V21).
+// ─────────────────────────────────────────────────────────────────────────
+
+const SHELVED_FIXTURE = [
+  "Change 3564 by jshaun@OA_Hook_DT on 2026/08/12 14:08:38 *pending*",
+  "",
+  "\tOA-909 safety shelf: full reconnect chain working state. Not for submit.",
+  "",
+  "Shelved files ...",
+  "",
+  "... //Project1/Operation-Phoenix/OnSight/Source/Private/Core/Data/OSRejoinSave.cpp#1 add",
+  "... //Project1/Operation-Phoenix/OnSight/Source/Private/Core/GI_OSBase.cpp#13 edit",
+  "... //Project1/Operation-Phoenix/OnSight/Source/Private/Online/OSSessionManager.cpp#14 edit",
+  "",
+].join("\r\n");
+
+describe("buildDescribeArgs", () => {
+  it("defaults to a plain describe with no flags", () => {
+    assert.deepEqual(buildDescribeArgs({ changelist: "3564" }), ["describe", "3564"]);
+  });
+
+  it("summaryOnly emits -s", () => {
+    assert.deepEqual(buildDescribeArgs({ changelist: "3564", summaryOnly: true }), ["describe", "-s", "3564"]);
+  });
+
+  it("shelved emits -S", () => {
+    assert.deepEqual(buildDescribeArgs({ changelist: "3564", shelved: true }), ["describe", "-S", "3564"]);
+  });
+
+  it("shelved and summaryOnly combine into the -S -s form the sweep needs", () => {
+    assert.deepEqual(
+      buildDescribeArgs({ changelist: "3564", shelved: true, summaryOnly: true }),
+      ["describe", "-S", "-s", "3564"],
+    );
+  });
+});
+
+describe("parseDescribeShelved", () => {
+  it("extracts changelist metadata from the header line", () => {
+    const r = parseDescribeShelved(SHELVED_FIXTURE);
+    assert.equal(r.changelist, "3564");
+    assert.equal(r.user, "jshaun");
+    assert.equal(r.client, "OA_Hook_DT");
+    assert.equal(r.status, "pending");
+  });
+
+  it("extracts the description without its leading tab", () => {
+    const r = parseDescribeShelved(SHELVED_FIXTURE);
+    assert.equal(r.description, "OA-909 safety shelf: full reconnect chain working state. Not for submit.");
+  });
+
+  it("extracts every shelved file with path, revision and action", () => {
+    const r = parseDescribeShelved(SHELVED_FIXTURE);
+    assert.equal(r.files.length, 3);
+    assert.deepEqual(r.files[0], {
+      path: "//Project1/Operation-Phoenix/OnSight/Source/Private/Core/Data/OSRejoinSave.cpp",
+      rev: "1",
+      action: "add",
+    });
+    assert.equal(r.files[2].action, "edit");
+    assert.equal(r.files[2].rev, "14");
+  });
+
+  it("does not leave carriage returns on the parsed action", () => {
+    // Regression guard: the live server emits CRLF.
+    const r = parseDescribeShelved(SHELVED_FIXTURE);
+    assert.ok(r.files.every((f) => !/[\r\n]/.test(f.action)), "action must be clean of CR");
+  });
+
+  it("returns an empty file list for a changelist with nothing shelved", () => {
+    const noShelf = ["Change 3553 by noah@ws on 2026/08/09 10:00:00 *pending*", "", "\tno shelf here", ""].join("\r\n");
+    const r = parseDescribeShelved(noShelf);
+    assert.deepEqual(r.files, []);
+    assert.equal(r.changelist, "3553");
+  });
+
+  it("returns a null-ish record rather than throwing on empty input", () => {
+    const r = parseDescribeShelved("");
+    assert.equal(r.changelist, null);
+    assert.deepEqual(r.files, []);
   });
 });
 

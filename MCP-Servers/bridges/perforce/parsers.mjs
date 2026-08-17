@@ -327,18 +327,63 @@ export function replaceDescriptionInSpec(spec, newDescription) {
 // back to defaultUser when no `client` is given either — so `client`-scoped
 // queries list changes by ANY user in that workspace (the old p4_changelists
 // semantics), not just the configured one.
-export function buildChangesArgs({ status = "submitted", max = 10, user = undefined, client = undefined, defaultUser, depotRoot }) {
+export function buildChangesArgs({ status = "submitted", max = 10, user = undefined, client = undefined, allUsers = false, defaultUser, depotRoot }) {
   const hasUser = user !== undefined && user !== null && user !== "";
   const hasClient = client !== undefined && client !== null && client !== "";
+  if (allUsers && hasUser) {
+    throw new Error("allUsers cannot be combined with an explicit user — pass one or the other.");
+  }
   const args = ["changes", "-s", status];
   if (hasUser) {
     args.push("-u", user);
-  } else if (!hasClient) {
+  } else if (!hasClient && !allUsers) {
     args.push("-u", defaultUser);
   }
   if (hasClient) args.push("-c", client);
   args.push("-m", String(max), depotRoot);
   return args;
+}
+
+// `p4 describe` argument builder. `shelved` maps to -S, which is the only way
+// to see a pending changelist's shelved files; without it a shelf sweep has to
+// drop to raw CLI. -S must precede -s to match p4's documented form.
+export function buildDescribeArgs({ changelist, summaryOnly = false, shelved = false }) {
+  const args = ["describe"];
+  if (shelved) args.push("-S");
+  if (summaryOnly) args.push("-s");
+  args.push(String(changelist));
+  return args;
+}
+
+// Parses `p4 describe -S [-s] <cl>` into a structured record. The server emits
+// CRLF, so lines are split on /\r?\n/ — leaving \r attached corrupts the
+// trailing action token ("add\r" instead of "add").
+export function parseDescribeShelved(output) {
+  const empty = { changelist: null, user: null, client: null, status: null, description: null, files: [] };
+  if (!output || !output.trim()) return empty;
+
+  const lines = output.split(/\r?\n/);
+  const header = lines[0] || "";
+  const m = header.match(/^Change (\d+) by ([^@\s]+)@(\S+) on \S+(?: \S+)?(?:\s+\*(\w+)\*)?/);
+
+  const descLines = lines
+    .filter((line) => line.startsWith("\t"))
+    .map((line) => line.slice(1));
+
+  const files = lines.reduce((acc, line) => {
+    const f = line.match(/^\.\.\. (.+)#(\d+) (\S+)$/);
+    if (f) acc.push({ path: f[1], rev: f[2], action: f[3] });
+    return acc;
+  }, []);
+
+  return {
+    changelist: m ? m[1] : null,
+    user: m ? m[2] : null,
+    client: m ? m[3] : null,
+    status: m && m[4] ? m[4] : null,
+    description: descLines.length ? descLines.join("\n").trim() : null,
+    files,
+  };
 }
 
 export function buildMoveArgs({ source, target, changelist = undefined, preview = false, recursive = false }) {
