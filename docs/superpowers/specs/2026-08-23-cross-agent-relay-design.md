@@ -255,10 +255,30 @@ flight rather than the session. The generalised warning stands regardless:
 **after any `config.toml` change, verify the setting is live before treating a
 result as evidence — a restarted session is not a restarted daemon.**
 
+**There is no supported way to restart that daemon on Windows.** Measured
+2026-08-24:
+
+```
+> codex app-server daemon restart
+Error: codex app-server daemon lifecycle is only supported on Unix platforms
+```
+
+This makes the caching problem substantially worse on this platform than the
+earlier entries imply. A `config.toml` change affecting anything the daemon
+holds cannot be applied deliberately — it takes effect only when the daemon
+happens to restart for some unrelated reason. The remaining options are to stop
+the process directly, which is not the sanctioned lifecycle and is an operator
+decision, or to wait.
+
+Practical consequence for anyone reading this later: **verify the setting is
+live before treating any result as evidence**, because on Windows the usual
+"change the config and restart" loop is not actually available, and a test run
+after an edit is very likely testing the old value.
+
 **To resume this test** (deferred 2026-08-24 until the busy OperationPhoenix
 session reaches a pause):
 
-1. `codex app-server daemon restart`
+1. `codex app-server daemon restart` — Unix only; see above
 2. Confirm the daemon pid actually changed — the whole point is that the old one
    was serving stale config, and reading a second failure as a design result
    would repeat the mistake this section documents.
@@ -328,6 +348,40 @@ queued to a thread that later comes back alive is delivered on resume, hours
 later and out of order with everything sent since. Recorded as a measured fact;
 Unit 2 builds on it in neither direction, and simply refuses to queue into a
 thread it cannot see as live.
+
+**Lock presence is NOT a sufficient liveness signal. Proven 2026-08-24, and this
+supersedes the earlier conclusion in this document.**
+
+Earlier the concern was raised that a restart might leave a lock behind, probed
+against a thread that turned out to be live, and closed as "lock presence remains
+a valid liveness signal". That conclusion was correct for the case tested and
+wrong as a general rule.
+
+Measured with every Codex process stopped — zero TUI sessions and the app-server
+daemon terminated, confirmed by process enumeration returning nothing:
+
+```
+locks still present:  4
+relay still reports:  01a020bf-943f-…  [codex]  idle  102 turns  — addressable
+```
+
+Nothing can be live when no process exists, so this is a **proven false positive**
+in the addressability signal, not a suspected one. Locks are removed on some
+exits and not others: an earlier measurement found a cleanly-ended thread with
+its lock gone, while these four survived their sessions.
+
+The consequence is the failure this design exists to prevent. Relay would report
+that thread addressable, `codex queue` would accept a message with exit 0, and it
+would sit undelivered in `queued_items` until the thread is resumed — possibly
+never. The pre-flight re-check does not help, because the lock it re-reads is the
+thing that is wrong.
+
+A sound and cheap tightening is available and is **not yet implemented**: no
+Codex process on the machine implies no live Codex thread, regardless of locks.
+That is a weaker claim than mapping processes to threads — which was separately
+established to be unsound — but it is a valid necessary condition and it catches
+exactly this case. Per-thread liveness beyond that has only one proven signal,
+queue consumption, which is intrusive and slow.
 
 **Reading that signature requires a wait of at least ~30 seconds.** "The queued
 row persists" is an absence-based negative, and an absence only means anything
