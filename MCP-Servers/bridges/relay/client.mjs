@@ -136,6 +136,52 @@ function readLockedThreadIds(codexHome, warnings) {
     .filter((id) => THREAD_ID.test(id));
 }
 
+// Codex's own thread index: state_5.sqlite `threads` carries rollout_path, cwd
+// and thread_source per id. Using it replaces a walk of ~1700 rollout files plus
+// a first-line read of each match, and removes the dependence on the rollout
+// filename convention.
+//
+// Windows extended-length paths: 1648 of 1723 indexed cwd values are stored as
+// \\?\D:\..., which does not compare equal to the plain path a caller passes.
+// Comparing raw would make scope filtering miss almost every real session.
+export function stripExtendedPrefix(p) {
+  if (!p) return p;
+  const s = String(p);
+  if (s.startsWith("\\\\?\\UNC\\")) return `\\\\${s.slice("\\\\?\\UNC\\".length)}`;
+  if (s.startsWith("\\\\?\\")) return s.slice("\\\\?\\".length);
+  return s;
+}
+
+// id -> { cwd, threadSource, rolloutPath }, or null when the index is absent.
+// Absence is normal on an older install, and falls back to the rollout scan.
+async function readThreadIndex(codexHome, openDb, warnings) {
+  const file = path.join(codexHome, "state_5.sqlite");
+  if (!fs.existsSync(file)) return null;
+  let db;
+  try {
+    db = await openDb(file);
+  } catch (err) {
+    warnings.push(`codex thread index unreadable (${err.message}); falling back to a rollout scan`);
+    return null;
+  }
+  try {
+    const index = new Map();
+    for (const row of db.prepare("select id, rollout_path, cwd, thread_source from threads").all()) {
+      index.set(String(row.id).toLowerCase(), {
+        cwd: stripExtendedPrefix(row.cwd) || null,
+        threadSource: row.thread_source || null,
+        rolloutPath: row.rollout_path || null,
+      });
+    }
+    return index;
+  } catch (err) {
+    warnings.push(`codex thread index query failed (${err.message}); falling back to a rollout scan`);
+    return null;
+  } finally {
+    db.close?.();
+  }
+}
+
 // thread id -> rollout path. The id is the filename suffix:
 // rollout-<timestamp>-<thread-id>.jsonl. A full walk of the tree measured 32ms
 // for 1684 files, so this is done once per discovery rather than per target.
@@ -245,28 +291,49 @@ async function readCodexTargets(codexHome, now, openDb, warnings) {
   // Nothing live means the 400MB store is never opened.
   if (!ids.length) return [];
 
-  const rollouts = indexRollouts(codexHome, warnings);
+  // Codex's own index answers cwd, thread_source and rollout path directly.
+  // The filename-convention walk is kept only for what the index cannot cover:
+  // an older install with no index, or a live thread it has not recorded.
+  const threadIndex = await readThreadIndex(codexHome, openDb, warnings);
+  let rollouts = null;
+  const scanRollouts = () => {
+    if (!rollouts) rollouts = indexRollouts(codexHome, warnings);
+    return rollouts;
+  };
   const stats = await readTurnStats(codexHome, ids, openDb, warnings);
 
   const targets = [];
   for (const id of ids) {
-    const rollout = rollouts.get(id.toLowerCase()) || null;
-    let meta = null;
-    if (!rollout) {
-      warnings.push(`codex thread ${id} is locked but has no rollout file`);
-    } else {
-      try {
-        meta = readSessionMeta(rollout);
-      } catch (err) {
-        warnings.push(`codex rollout for ${id} unreadable: ${err.message}`);
+    const indexed = threadIndex ? threadIndex.get(id.toLowerCase()) || null : null;
+    let cwd = indexed?.cwd || null;
+    let threadSource = indexed?.threadSource || null;
+    let rollout = indexed?.rolloutPath || null;
+
+    // thread_source is null on 74 of 1723 indexed rows. Guessing either way is
+    // wrong: "user" would offer subagent internals as targets, "subagent" would
+    // hide real sessions. Read the rollout instead — at the indexed path, so
+    // still no directory walk.
+    if (!threadSource) {
+      if (!rollout) rollout = scanRollouts().get(id.toLowerCase()) || null;
+      if (!rollout) {
+        warnings.push(`codex thread ${id} is locked but has no rollout file`);
+      } else {
+        try {
+          const meta = readSessionMeta(rollout);
+          threadSource = meta?.thread_source || null;
+          cwd = cwd || meta?.cwd || null;
+        } catch (err) {
+          warnings.push(`codex rollout for ${id} unreadable: ${err.message}`);
+        }
       }
     }
 
     // Over three days this machine held 132 threads of which 3 were root chats.
     // Without this filter the list is mostly other agents' internals. A thread
-    // whose rollout could not be read has no thread_source to judge, so it is
-    // kept and reported unaddressable rather than silently dropped.
-    if (meta && meta.thread_source !== "user") continue;
+    // whose kind could not be determined is kept and reported unaddressable
+    // rather than silently dropped.
+    if (threadSource && threadSource !== "user") continue;
+    const meta = cwd ? { cwd } : null;
 
     const entry = stats ? stats.get(id) : null;
     const turns = stats ? entry?.turns ?? 0 : null;

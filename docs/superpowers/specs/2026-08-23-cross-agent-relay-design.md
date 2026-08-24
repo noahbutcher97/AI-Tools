@@ -104,6 +104,32 @@ Measured while building Unit 1, three refinements to that directory:
   directory usable as a target list rather than a view of other agents'
   internals.
 
+**Codex keeps its own thread index, and it is the better source.** Measured
+2026-08-24: `~/.codex/state_5.sqlite`, table `threads`, 1723 rows carrying
+`id`, `rollout_path`, `cwd` and `thread_source` per thread. Reading it replaces
+the rollout directory walk *and* the per-thread first-line read, and removes the
+dependence on the rollout filename convention entirely. Full discovery against
+the live machine: **13ms**, against ~32ms for the walk alone.
+
+Two fields in that table are traps at face value:
+
+- **1648 of 1723 `cwd` values carry the Windows extended-length prefix**
+  (`\\?\D:\...`), which does not compare equal to the plain path a caller
+  passes. Comparing raw would make scope filtering miss almost every real
+  session. Stripped on read.
+- **`thread_source` is null on 74 rows.** Guessing either way is wrong: "user"
+  would offer subagent internals as targets, "subagent" would hide real
+  sessions. Those rows fall back to reading the rollout — at the *indexed* path,
+  so still no directory walk.
+
+`source = 'cli'` is not a usable substitute for `thread_source`: cross-tabulated,
+it misses 8 user threads and covers only 190 of 198.
+
+The filename-convention walk is retained solely for what the index cannot cover —
+an older install with no `state_5.sqlite`, or a live thread it has not recorded —
+and a locked thread absent from the index is reported unaddressable rather than
+dropped.
+
 **`thread_turns` carries neither `cwd` nor `thread_source`.** The full column
 list in this section is exhaustive; both fields live only in the rollout's
 `session_meta` first record. Codex discovery is therefore necessarily a
