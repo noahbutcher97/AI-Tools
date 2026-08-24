@@ -402,12 +402,41 @@ would sit undelivered in `queued_items` until the thread is resumed — possibly
 never. The pre-flight re-check does not help, because the lock it re-reads is the
 thing that is wrong.
 
-A sound and cheap tightening is available and is **not yet implemented**: no
-Codex process on the machine implies no live Codex thread, regardless of locks.
-That is a weaker claim than mapping processes to threads — which was separately
-established to be unsound — but it is a valid necessary condition and it catches
-exactly this case. Per-thread liveness beyond that has only one proven signal,
-queue consumption, which is intrusive and slow.
+**The process-enumeration guard was implemented in outline, then rejected.** It
+would have been a necessary condition — no Codex process implies no live thread —
+but it fails on two counts measured 2026-08-24:
+
+- **Cost.** No daemon pid file or named pipe exists to key off, so it needs a
+  process listing per check. `tasklist` measured ~150ms and PowerShell more,
+  against 13ms for the whole of discovery.
+- **Failure direction, which is disqualifying.** `tasklist /FI` invoked through
+  this project's shell was silently mangled — the flag became a filesystem path —
+  and returned *zero* processes while six were running. A guard built on that
+  would refuse every send while Codex works normally. **A false negative here is
+  worse than the false positive it fixes**, because it breaks the working case
+  rather than the broken one.
+
+**What was implemented instead: a queue-backlog check.** `queue_1.sqlite` already
+records undelivered messages per thread. A message still pending past the wake
+threshold does not *infer* liveness — it **proves non-consumption**, whatever the
+lock says. The check is one indexed query, costs nothing, and refuses the send
+under its own cause (`target_not_consuming`) naming the backlog size and age.
+
+Two properties hold it in place, both mutation-tested:
+
+- **It fails open.** An absent or unreadable queue store lets the send proceed,
+  because a guard that failed closed would block all traffic on any install
+  lacking the store — repeating in a new form the exact mistake that disqualified
+  process enumeration.
+- **The threshold is 30s**, three times the largest measured wake latency, so
+  ordinary in-flight traffic is never read as a stall. Dropping it makes
+  back-to-back sends fail.
+
+**What this does and does not cover.** It catches a thread that has *already*
+failed to consume, which is the case that silently accumulates. It does not catch
+the *first* message to a thread that has just died — nothing cheap can, since
+that thread's queue is still empty at send time. Stated as a residual limit
+rather than closed.
 
 **Reading that signature requires a wait of at least ~30 seconds.** "The queued
 row persists" is an absence-based negative, and an absence only means anything

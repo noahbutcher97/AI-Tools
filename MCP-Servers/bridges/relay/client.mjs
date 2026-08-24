@@ -402,6 +402,7 @@ export const SEND_CAUSES = {
   QUEUE_FAILED: "queue_failed",
   DELEGATE_FAILED: "delegate_failed",
   REFERENCE_UNRESOLVED: "reference_unresolved",
+  NOT_CONSUMING: "target_not_consuming",
 };
 
 // ── The Claude delivery delegate (spec 4.4) ──
@@ -808,6 +809,44 @@ async function relayViaDelegate({ target, message, origin, originTarget, verifie
   };
 }
 
+// Undelivered messages waiting on a thread past the wake threshold. Returns
+// null when there is no evidence of a stall — including when the queue store
+// cannot be read at all.
+//
+// This guard FAILS OPEN by design. It exists to catch one proven failure, and a
+// guard that failed closed would refuse all traffic on any install where the
+// store is absent or unreadable — worse than the over-reporting it fixes. The
+// rejected alternative, enumerating Codex processes, fails closed exactly that
+// way: a filter that silently matches nothing makes relay refuse every send
+// while Codex runs normally, which is what a mangled `tasklist /FI` did during
+// this work.
+//
+// Threshold default 30s: three times the largest measured wake latency (9.3s),
+// so ordinary in-flight traffic is never mistaken for a stall.
+async function readQueueBacklog(codexHome, threadId, openDb, now, thresholdMs = 30_000) {
+  const file = path.join(codexHome, "queue_1.sqlite");
+  if (!fs.existsSync(file)) return null;
+  let db;
+  try {
+    db = await openDb(file);
+  } catch {
+    return null;
+  }
+  try {
+    const row = db
+      .prepare("select count(*) as n, min(created_at_ms) as oldest from queued_items where thread_id = ?")
+      .get(threadId);
+    if (!row || !row.n || !row.oldest) return null;
+    const oldestMs = now - row.oldest;
+    if (oldestMs < thresholdMs) return null;
+    return { count: row.n, oldestMs };
+  } catch {
+    return null;
+  } finally {
+    db.close?.();
+  }
+}
+
 export async function sendMessage(options = {}) {
   const {
     to,
@@ -821,6 +860,9 @@ export async function sendMessage(options = {}) {
     origin,
     // Turn id in the TARGET's transcript that this message answers.
     re = null,
+    // How long an undelivered message may sit before the target counts as
+    // stalled. Three times the largest measured wake latency.
+    backlogThresholdMs = 30_000,
     // Authenticated caller identity, supplied by the calling face from its own
     // process environment. Never accepted from a tool argument.
     verifiedOrigin = null,
@@ -887,6 +929,21 @@ export async function sendMessage(options = {}) {
       return fail(SEND_CAUSES.REFERENCE_UNRESOLVED, resolved.detail, target.kind);
     }
     reference = resolved;
+  }
+
+  // Lock presence over-reports liveness — proven, four locks survived with every
+  // Codex process stopped — so the lock check below is necessary but not
+  // sufficient. This adds the one cheap signal that PROVES the opposite: a
+  // message still undelivered past the wake threshold means the thread is not
+  // draining its queue, whatever its lock says.
+  const backlog = await readQueueBacklog(codexHome, target.id, openDb, now, backlogThresholdMs);
+  if (backlog) {
+    return fail(
+      SEND_CAUSES.NOT_CONSUMING,
+      `that thread has ${backlog.count} undelivered message(s) pending, the oldest for ${formatDuration(backlog.oldestMs)}; ` +
+        `it is not consuming its queue, so this would join the backlog rather than arrive`,
+      target.kind,
+    );
   }
 
   // Pre-flight liveness, re-read immediately before invoking rather than
