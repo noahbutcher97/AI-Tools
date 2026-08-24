@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "name": "relay",
+  "displayName": "Cross-Agent Relay",
+  "description": "Discover and message the other Claude Code and Codex sessions running on this machine.",
+  "version": "0.1.0",
+  "main": "server.mjs",
+  "package": "package.json",
+  "fields": [],
+  "notes": [
+    "This bridge needs no credentials. It reads the machine-local session registries",
+    "(~/.claude/sessions and ~/.codex) and shells out to already-authenticated CLIs.",
+    "Codex targets are queued with `codex queue`. Claude targets are relayed by a",
+    "`claude -p` delegate confined to the SendMessage tool.",
+    "Optional env: RELAY_SPOOL relocates the failure spool, default ~/.cross-agent-relay/spool.log."
+  ]
+}

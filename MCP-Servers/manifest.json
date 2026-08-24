@@ -44,6 +44,11 @@
         "preserveLegacyConfig": true,
         "manifestNeeded": "docs/UEMCP-MANIFEST-SPEC.md"
       }
+    },
+    "relay": {
+      "displayName": "Cross-Agent Relay",
+      "summary": "Discover and message other Claude and Codex sessions on this machine.",
+      "source": { "type": "co-located", "path": "bridges/relay" }
     }
   }
 }
