@@ -201,6 +201,34 @@ network directly. The premise of 3.4 — that spawned commands are offline and a
 MCP server is therefore the clean crossing — does not hold in this
 configuration.
 
+**The sandbox crossing is real after all — for filesystem scope, not network.**
+Measured 2026-08-25, and this restores the claim the entry above retired.
+
+A relay CLI invoked from a Codex shell command reaches the delegate, and the
+delegate runs — `claude -p` returns normally under the sandbox. What fails is the
+delivery itself:
+
+```
+ListAgents  -> "No reachable agents"
+SendMessage -> "No agent named 'ai-tools-dd' is reachable"
+```
+
+`~/.claude/sessions` is outside the workspace, so a sandboxed process cannot read
+the registry, sees no peers, and has nothing to address. The same boundary made
+the failure spool unwritable (`EPERM` on `~/.cross-agent-relay/spool.log`).
+
+An MCP server is spawned by the Codex **parent**, not through the command
+sandbox, so it reads that registry normally — which is precisely why `relay_list`
+succeeds from the MCP tool while the identical CLI path cannot see a single
+session. **So Codex → Claude is only possible through the MCP face**, and the
+per-tool approval question is on that capability's critical path rather than
+being a convenience.
+
+The original reasoning in 3.4 was therefore correct and the mechanism was
+mis-stated: it is not that the sandbox blocks the network — with
+`network_access = true` it plainly does not — but that it confines the filesystem
+to the workspace, and both the peer registry and the spool live outside it.
+
 Consequences, stated separately so they are not conflated:
 
 - **The MCP-as-sandbox-crossing claim is untestable here**, not disproven.

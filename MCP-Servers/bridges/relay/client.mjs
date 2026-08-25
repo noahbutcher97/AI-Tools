@@ -720,27 +720,46 @@ async function defaultRunQueue(threadId, text) {
   return { code: result.status ?? 1, stdout: result.stdout || "", stderr: result.stderr || "" };
 }
 
+// Where the spool goes when the primary location cannot be written. Measured:
+// a relay invoked from a Codex shell command runs under workspace-write, so
+// anything outside the workspace — including the home directory the spool
+// deliberately lives in — fails with EPERM. The fallback must still be outside
+// any repository, because keeping message bodies out of git is the reason the
+// spool is not workspace-local in the first place.
+export function fallbackSpoolPath() {
+  return path.join(os.tmpdir(), "cross-agent-relay-spool.log");
+}
+
 // Append-only, human-readable, and never read back by anything in this module.
 // Spec section 2 rejected a fallback transport because a second delivery path
 // reintroduces duplicate delivery, reordering, racing drains and ambiguous
 // addressing; a drained spool is that path by another name.
-function spool(spoolPath, entry) {
-  try {
-    fs.mkdirSync(path.dirname(spoolPath), { recursive: true });
-    const block = [
-      `--- ${new Date(entry.now).toISOString()}`,
-      `target: ${entry.to}${entry.kind ? ` (${entry.kind})` : ""}`,
-      `cause:  ${entry.cause}`,
-      `detail: ${entry.detail}`,
-      "message:",
-      entry.message,
-      "",
-    ].join("\n");
-    fs.appendFileSync(spoolPath, `${block}\n`);
-    return spoolPath;
-  } catch (err) {
-    return `spool write failed: ${err.message}`;
+//
+// Returns { path, error }. A path is reported only when something was actually
+// written: naming a file that holds nothing would send an operator looking for
+// a message that is not there.
+function spool(spoolPath, fallbackPath, entry) {
+  const block = [
+    `--- ${new Date(entry.now).toISOString()}`,
+    `target: ${entry.to}${entry.kind ? ` (${entry.kind})` : ""}`,
+    `cause:  ${entry.cause}`,
+    `detail: ${entry.detail}`,
+    "message:",
+    entry.message,
+    "",
+  ].join("\n");
+
+  const attempts = [];
+  for (const candidate of [spoolPath, fallbackPath].filter(Boolean)) {
+    try {
+      fs.mkdirSync(path.dirname(candidate), { recursive: true });
+      fs.appendFileSync(candidate, `${block}\n`);
+      return { path: candidate, error: null };
+    } catch (err) {
+      attempts.push(`${candidate}: ${err.message}`);
+    }
   }
+  return { path: null, error: `could not spool the message anywhere — ${attempts.join("; ")}` };
 }
 
 function isThreadId(value) {
@@ -854,6 +873,7 @@ export async function sendMessage(options = {}) {
     dryRun = false,
     now = Date.now(),
     spoolPath = defaultSpoolPath(),
+    spoolFallbackPath = fallbackSpoolPath(),
     runQueue = defaultRunQueue,
     runDelegate = defaultRunDelegate,
     allowDelegate = false,
@@ -872,13 +892,10 @@ export async function sendMessage(options = {}) {
     ...discovery
   } = options;
 
-  const fail = (cause, detail, kind) => ({
-    ok: false,
-    cause,
-    detail,
-    to,
-    spooled: spool(spoolPath, { now, to, kind, cause, detail, message }),
-  });
+  const fail = (cause, detail, kind) => {
+    const written = spool(spoolPath, spoolFallbackPath, { now, to, kind, cause, detail, message });
+    return { ok: false, cause, detail, to, spooled: written.path, spoolError: written.error };
+  };
 
   // Discovery is run here rather than accepting a listing from the caller: a
   // listing that is seconds old is already stale on both sides.

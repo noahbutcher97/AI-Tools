@@ -98,7 +98,11 @@ async function runSend(options) {
   } else {
     console.error(`relay: ${result.cause}`);
     console.error(`  ${result.detail}`);
+    // Only report a location when something was actually written. Printing a
+    // path that holds nothing sends an operator looking for a message that is
+    // not there.
     if (result.spooled) console.error(`  message spooled to ${result.spooled}`);
+    else if (result.spoolError) console.error(`  MESSAGE NOT SPOOLED: ${result.spoolError}`);
   }
   // A failed send must not look like a success to a script or a shell chain.
   if (!result.ok) process.exitCode = 1;
