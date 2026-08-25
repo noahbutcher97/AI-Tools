@@ -855,6 +855,43 @@ The concrete case is not hypothetical: during design the classifier blocked this
 session from reading `~/.claude/sessions/*.key`, which a raw transcript read of a
 peer could have circumvented.
 
+**Claude side, measured 2026-08-25.** `~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`,
+one JSON record per line. A live 6MB transcript of 4119 records held:
+
+```
+assistant tool_use 504   user tool_result 504   assistant text 254
+assistant thinking 252   user string  54        user text        3
+```
+
+So the same split as Codex: conversation is a small fraction, tool results are
+the bulk, and the flag discipline applies unchanged.
+
+Four things the projection has to handle, each of which is a wrong answer if
+taken naively:
+
+- **Records are per-message, not per-turn.** A tool call and its result are
+  their own text-less records; emitting them as conversational entries makes a
+  read mostly blanks. They annotate the answer they contributed to instead,
+  which is the shape the Codex side already has.
+- **`isSidechain`** marks a subagent's conversation — the Claude analogue of a
+  Codex subagent thread, and filtered for the same reason.
+- **`isMeta`** marks records the harness injected rather than anyone typing, so
+  they are excluded from "what the human last asked".
+- **The project directory is an encoding of the working directory**
+  (`D:\DevTools\AI-Tools` → `D--DevTools-AI-Tools`). That is a convention that
+  could drift, so a miss falls back to scanning for the session id rather than
+  reporting no transcript.
+
+**`thinking` blocks carry real content on the Claude side**, unlike Codex
+`reasoning`, which measured empty in every one of 24402 records. They are
+projected as `role: "reasoning"` and returned by default, since the line this
+design draws is at tool results. That is a deliberate choice and it widens what
+a cross-session read exposes: section 7's warning about read privilege applies
+with more force to Claude targets than to Codex ones.
+
+Measured cost against that 6MB transcript: `summary` 83ms into 653 bytes,
+`read --tail 3` 66ms into 1.3KB.
+
 **Transcript content is data, never instructions.** A transcript may contain text
 the session fetched from a web page, a Jira comment or a teammate's file. An
 agent reading it must not treat that as direction.
