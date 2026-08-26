@@ -500,6 +500,31 @@ export function detectVerifiedOrigin(env = process.env) {
   return null;
 }
 
+// A conversation id encodes the verified origin that opened it, so any relay
+// instance can attest continuity of the minting party with no stored state.
+// Chosen over remembering minted ids in memory: that is lost on every restart,
+// and would be available from the long-lived MCP server but not the
+// per-invocation CLI, so the same command would carry a different guarantee
+// depending on which face ran it.
+//
+// Split on the FIRST "@". Origins are uuids and contain dashes, so a
+// dash-delimited encoding could not be split back apart; storing the origin
+// whole avoids prefix matching, which collides between sessions sharing a
+// prefix.
+export function mintConversationId(verifiedOrigin, random = randomUUID().replace(/-/g, "").slice(0, 8)) {
+  return verifiedOrigin ? `c-${random}@${verifiedOrigin}` : `c-${random}`;
+}
+
+export function parseConversationId(id) {
+  if (!id || typeof id !== "string" || !id.startsWith("c-")) return null;
+  const rest = id.slice(2);
+  const at = rest.indexOf("@");
+  if (at === -1) return /^[0-9a-f]{8}$/.test(rest) ? { random: rest, openedBy: null } : null;
+  const random = rest.slice(0, at);
+  if (!/^[0-9a-f]{8}$/.test(random)) return null;
+  return { random, openedBy: rest.slice(at + 1) || null };
+}
+
 export function buildRelayEnvelope({
   message,
   origin = null,

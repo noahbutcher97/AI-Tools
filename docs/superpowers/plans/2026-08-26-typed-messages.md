@@ -1,6 +1,6 @@
 # Typed Messages and Conversation Correlation — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Give every relayed message a machine-readable header carrying intent, a conversation id, and a message id, so a receiving agent can tell a question from a notice and correlate an answer with what it answers.
 
@@ -36,7 +36,7 @@
   - `parseConversationId(id: string|null) => { random: string, openedBy: string|null } | null`
   - `null` return means the id is not relay-shaped and must be treated as an opaque claim.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `MCP-Servers/bridges/relay/conversation.test.mjs`:
 
@@ -93,12 +93,12 @@ test("a non-relay id parses as null rather than throwing", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd MCP-Servers/bridges/relay && node --test conversation.test.mjs`
 Expected: FAIL — `does not provide an export named 'mintConversationId'`
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 In `client.mjs`, immediately after the `detectVerifiedOrigin` function (around line 501):
 
@@ -129,12 +129,12 @@ export function parseConversationId(id) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd MCP-Servers/bridges/relay && node --test conversation.test.mjs`
 Expected: PASS, 8/8
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add MCP-Servers/bridges/relay/client.mjs MCP-Servers/bridges/relay/conversation.test.mjs
