@@ -551,6 +551,33 @@ export function conversationVerdict(conversationId, verifiedOrigin) {
   };
 }
 
+// The transport carries no metadata — codex queue and SendMessage both take a
+// plain string — so a typed message is necessarily a machine-readable line
+// riding inside the body. JSON.stringify escapes newlines rather than emitting
+// them, which is what keeps this to one physical line regardless of its
+// contents; a header split across lines would not parse at all.
+export const RELAY_META_PREFIX = "RELAY-META ";
+
+export function buildMetaLine({
+  kind = "notice",
+  conversation = null,
+  messageId = null,
+  inReplyTo = null,
+  from = { id: null, provider: null, verified: false },
+} = {}) {
+  return (
+    RELAY_META_PREFIX +
+    JSON.stringify({
+      v: 1,
+      kind,
+      conversation,
+      message_id: messageId,
+      in_reply_to: inReplyTo,
+      from: { id: from.id ?? null, provider: from.provider ?? null, verified: Boolean(from.verified) },
+    })
+  );
+}
+
 export function buildRelayEnvelope({
   message,
   origin = null,

@@ -270,7 +270,7 @@ git commit -m "relay: report four conversation attestation verdicts without stor
   - `buildMetaLine({ kind, conversation, messageId, inReplyTo, from }) => string` — one physical line
   - `from` shape: `{ id: string|null, provider: string|null, verified: boolean }`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `MCP-Servers/bridges/relay/meta.test.mjs`:
 
@@ -348,12 +348,12 @@ test("a multi-line message body cannot break the header onto a second line", () 
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd MCP-Servers/bridges/relay && node --test meta.test.mjs`
 Expected: FAIL — `does not provide an export named 'RELAY_META_PREFIX'`
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 In `client.mjs`, after `conversationVerdict`:
 
@@ -385,12 +385,12 @@ export function buildMetaLine({
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd MCP-Servers/bridges/relay && node --test meta.test.mjs`
 Expected: PASS, 7/7
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add MCP-Servers/bridges/relay/client.mjs MCP-Servers/bridges/relay/meta.test.mjs
