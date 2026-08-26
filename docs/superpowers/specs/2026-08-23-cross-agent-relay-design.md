@@ -1268,6 +1268,67 @@ a bare id can address something the peer no longer remembers. `--re` therefore
 sends a short quote of the referenced turn alongside the id, so the reference
 survives compaction on the receiver.
 
+### 4.7 Bounding runaway exchanges
+
+Delivery wakes an idle session with no human input (3.2) and every delivered
+message costs a model turn. Once 4.4a gave the Codex direction a verified reply
+address, two agents could sustain an exchange indefinitely. The missing address
+had been suppressing that by accident; this section replaces the accident with
+something deliberate.
+
+**The threat is an accidental loop, not a malicious one.** Two agents politely
+acknowledging each other overnight is the realistic failure. An adversary who
+can spawn processes already defeats the identity model entirely (7), so
+designing these caps against a determined attacker would buy nothing while
+costing legitimate use.
+
+**Two caps.** Messages in one conversation are capped at **20**; relayed
+messages machine-wide are capped at **200 per rolling hour**. The first targets
+the failure precisely, because a loop is one conversation ping-ponging. The
+second catches an agent minting a fresh conversation per message — no longer
+an accident, but identical in cost.
+
+**A ledger file, not process memory, and one path for both providers.** The
+count must be shared across the two sides of a loop, which are different
+processes in different sessions, and must read the same from the long-lived MCP
+server and the per-invocation CLI. A file is the only thing satisfying both
+without a daemon, and adding a daemon to prevent runaway cost would be its own
+joke.
+
+It lives in the **temp directory**, not under the user profile, and this is
+load-bearing rather than incidental. The spool learned that a Codex-sandboxed
+server cannot write under the home directory; if the ledger inherited that
+fallback, the Codex side would count in one file and the Claude side in
+another, and a shared counter that is not shared is worse than none. `TEMP` and
+`TMP` are among the eighteen variables Codex does pass (4.4a), so both
+providers resolve the same path.
+
+Appends are atomic at this size, counting is a read, and no lock protocol is
+needed. A race over-counts rather than under-counts, which errs toward
+refusing — the safe direction for a cost guard.
+
+**Retention is 24 hours; the global window is one hour.** The conversation cap
+counts every retained entry for that conversation, so a slow loop cannot reset
+itself by falling below an hourly window. At the global ceiling the file holds
+under five thousand lines.
+
+**Refusal must be actionable, because this is the first thing in the design
+that can refuse a legitimate send.** A twenty-message working exchange between
+two agents is plausible. The error names the conversation, says which cap was
+hit, and says that a genuinely longer exchange should open a new conversation
+deliberately rather than by accident.
+
+**An unwritable ledger fails open, loudly.** Refusing every send because a
+counter file is broken would cause the outage it exists to prevent. The send
+proceeds, the failure is spooled, and the guard reports itself inoperative.
+That is defeatable by anyone who can make the file unwritable, which is again
+the adversary this section does not claim to stop.
+
+**Residual, stated rather than implied.** A loop slower than twenty messages
+per day stays under both caps and still costs about twenty turns a day.
+Clearing the temp directory resets the counters. Neither is worth more
+machinery, but a reader should not have to infer them.
+
 ## 5. Safety disciplines
 
 1. Delegate confinement (4.4) - no laundering in the write direction.
@@ -1277,12 +1338,15 @@ survives compaction on the receiver.
 5. Scope defaults to caller `cwd` so a broadcast cannot accidentally reach
    sessions in unrelated projects.
 
-**What this list does not contain, noted rather than quietly absent:** there
-is no discipline governing message *volume*. Every discipline above bounds
-what a message may cause; none bounds how many there may be. See the first
-entry in section 7 — it is listed as a risk rather than added here as a
-discipline, because a discipline the code does not implement would be a claim
-rather than a rule.
+6. Bounded exchange volume (4.7) - a conversation cap and a machine-wide
+   hourly cap, so a reply loop between two agents cannot run unattended at
+   the user's expense. The only discipline here that can refuse a legitimate
+   action, which is why its refusal names the remedy.
+
+Disciplines 1-5 bound what a message may *cause*. Discipline 6 was added
+2026-08-26 because none of them bounded how many messages there may *be*, and
+the verified reply address in 4.4a turned that gap from theoretical into
+reachable.
 
 ## 6. Failure handling
 
@@ -1402,8 +1466,10 @@ section 2 rejected it for.
   have. Candidate mitigations, none chosen: a hop count carried in the header
   and refused past a limit; a per-target send rate limit; or a
   same-conversation reply cap keyed to the conversation id the typed-message
-  work already mints. Choosing one is a design decision and should precede
-  building agent-to-agent workflows on this, not follow them.
+  work already mints. **Resolved 2026-08-26: see 4.7**, which takes the
+  conversation cap with an hourly machine-wide backstop. Two residuals remain
+  and are stated there: a loop slower than the caps still costs about twenty
+  turns a day, and an unwritable ledger fails open by design.
 - **Relay cannot authenticate its own MCP client** (4.4a) - whoever spawns an
   MCP server controls its environment and the metadata on every request it
   receives, so an agent able to start a process can run its own relay and emit
