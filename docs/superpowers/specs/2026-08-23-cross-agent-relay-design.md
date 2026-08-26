@@ -947,6 +947,43 @@ the spool, which is human-readable and never agent-drained. Silent degradation
 is the failure mode this project has been bitten by repeatedly; a loud note to
 a human is the trade being made.
 
+**Two levels of trust, not one.** The metadata *key* is allow-listed: relay
+reads `x-codex-turn-metadata` because it knows that name and what publishes it.
+A host inventing some other metadata key gets no trust and yields no origin,
+which is the safe default and the reason a deny-list *inside* the namespace is
+acceptable rather than reckless. Allow-list the namespace, deny-list the fields
+within it. Metadata present but carrying no identity key is treated exactly as
+metadata absent.
+
+**Names are unconstrained; shape and size are not.** Passing unknown *names*
+through is the point. Passing unknown *shapes* through is not, and the two are
+easy to conflate:
+
+- **Scalars only.** Strings, numbers and booleans are carried; objects and
+  arrays are dropped. A deny-list that matches key names cannot see a
+  credential nested under an innocuous parent, and descriptive turn metadata
+  has no need of structure.
+- **A 2 KB cap on the whole blob**, applied after filtering. `RELAY-META` is
+  prepended to every relayed message and travels the delegate path inside a
+  spawned prompt, so an unbounded blob is a cost paid on every send rather than
+  once. The measured blob is roughly 300 bytes, so the cap is headroom, not a
+  squeeze.
+- **On exceeding the cap, carry nothing and record the overflow.** Not a
+  truncation, which would produce invalid JSON, and not a silent subset, which
+  would make the blob quietly unreliable in a way no recipient could detect.
+
+**The unknown-key note is deduplicated in the MCP face only.** The CLI never
+sees request metadata, and the MCP server is long-lived per session, so an
+in-memory set of already-noted keys is coherent there and unnecessary
+elsewhere — the mirror of the reasoning that made conversation-id minting
+stateless, since the CLI could not have carried memory across invocations.
+
+**What this discloses to a recipient.** The blob tells a peer agent the
+sender's model, reasoning effort and sandbox mode. On one machine under one
+user that is a small disclosure and was chosen deliberately over a minimal
+origin. It is still a disclosure, and a deployment spanning users or trust
+boundaries must revisit it rather than inherit it.
+
 **The blob is thinner on the Claude side, by host capability rather than by
 choice.** Claude-spawned MCP servers publish a session id, an entrypoint and a
 project directory. They do not publish model or effort: those variables exist
@@ -1017,6 +1054,21 @@ section 9 guard 3 applies: a **named** test must die, not a count.
    can lie about provenance while every test passes.
 7. The existing assertion that the messaging-token variable is never accessed
    extends to the new path.
+8. An object or array value is dropped while scalar siblings survive — one
+   assertion for each half, since a test that only checks the survivors passes
+   when nothing is filtered at all.
+9. A blob over the cap yields no blob **and** a recorded overflow, and the
+   message still sends. The send must not fail because metadata was oversized.
+10. Metadata under an unrecognised namespace key yields no origin rather than a
+    trusted one, which is the namespace allow-list doing its job.
+11. Metadata present with no identity key behaves identically to metadata
+    absent.
+
+**Existing tests this changes.** `meta.test.mjs` asserts a deep equality on the
+whole `from` object, so it fails the moment `channel` and `host` appear. That
+is the test doing its job and it should be updated deliberately, not loosened
+into a subset check — a deep equality on a security-relevant structure is
+what makes an unintended field addition visible.
 
 These run against fixtures recorded from the probe, so they **cannot** detect
 Codex changing `_meta` in the field. That is not a gap more fixtures would
