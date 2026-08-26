@@ -1,8 +1,12 @@
 # Cross-Agent Relay - Design
 
 Date: 2026-08-23
-Status: Design approved in principle; spec pending Noah review
-Author: Claude (session operationphoenix-b1)
+Status: Units 1-5 delivered. Sections 4.4a-4.4c revised 2026-08-26 and not
+yet re-reviewed. Individual sections carry their own correction dates; the
+date above is the document's, not each claim's.
+Authors: Claude (session operationphoenix-b1), with later sections and the
+2026-08-26 corrections by other sessions. Attribution matters here only
+because a reader should not assume one pair of eyes checked all of it.
 
 ## 1. Purpose
 
@@ -29,12 +33,25 @@ Explicitly out of scope, each for a stated reason:
 - **A redundant fallback transport.** Rejected during design: a second delivery
   path is never exercised, rots, and introduces duplicate-delivery, reordering,
   racing-drain and ambiguous-addressing failures. Failure handling is a spool
-  plus a loud error instead (section 8).
+  plus a loud error instead (section 6).
 
 ## 3. Measured facts
 
 Everything below was measured on 2026-08-23, not assumed. Re-verify before
 relying on any of it after a Claude Code or Codex update.
+
+**Two warnings about that sentence, both earned.** First, it is a claim about
+this section and was not true of the whole document: section 4.4a carried a
+table row presented as measured that had been inferred from the row beside it,
+and it stood for three days. A blanket assurance of measurement makes
+individual claims harder to question, not easier — prefer a date and a method
+per claim over a promise at the top.
+
+Second, the re-verify instruction has already been needed and missed. A Codex
+update landed 2026-08-24 and changed how MCP tools are invoked, which
+invalidated part of what follows. Nobody re-verified, and two days went into
+diagnosing the consequences as a bug. The instruction is correct; treat it as
+a task with an owner rather than a note.
 
 ### 3.1 Claude session registry
 
@@ -673,7 +690,7 @@ claude -p --allowedTools SendMessage
 with the prompt on **stdin**. Measured at 14s end to end, and it wakes idle
 targets (3.2).
 
-Two implementation notes:
+Implementation notes:
 
 - `--allowedTools` is variadic and will swallow a positional prompt. Pass the
   prompt on stdin, never as a trailing argument.
@@ -701,15 +718,24 @@ A `claude -p` spawn registers as an ordinary session under a name derived from
 whatever cwd it ran in — observed as `lib-c1`, `lib-9a`, `relay-32` — and exits
 within seconds. Three consequences, in severity order:
 
-1. **Replies are impossible.** `SendMessage`'s contract is to reply by copying
-   the `from` attribute, and that address is dead on arrival every time. A Codex
-   agent that asks a Claude session a question through the relay can never
-   receive the answer. Reply routing is not solved here; it is a real design
-   question and probably belongs with the deferred handoff system.
-2. **Attribution is unverifiable.** The recipient sees the delegate's ephemeral
-   name. Any claim about the true origin lives in the message body, which is the
-   part a caller controls — and the relay cannot authenticate its own caller
-   either, so it cannot do better than pass a claim along.
+1. **Replies were impossible. Superseded 2026-08-26 — see 4.4a.**
+   `SendMessage`'s contract is to reply by copying the `from` attribute, and
+   the delegate's address is dead on arrival every time. That remains true of
+   the delegate's own address. What changed is that the envelope now carries a
+   verified origin for the *original* sender, so a recipient replies to the
+   sender's own thread through `relay_send` rather than to the delegate. The
+   text below was written when no such address existed and concluded reply
+   routing belonged with the deferred handoff system; it does not.
+   Bidirectional agent workflows are the reason the origin work was done.
+2. **Attribution is unverifiable through the delegate, and partly recovered
+   around it (4.4a).** The recipient still sees the delegate's ephemeral name,
+   and any claim in the message body is caller-controlled. The origin header
+   is not: relay reads it from a host channel the caller cannot write.
+   The clause "the relay cannot authenticate its own caller either" was
+   written before that work and is the more durable half of this sentence —
+   4.4a briefly overclaimed against it, and an adversarial pass restored it.
+   Relay authenticates against the host that spawned it; it cannot prove it is
+   the instance that host spawned.
 3. The delegate's name leaks the directory it ran in and varies run to run.
 
 Mitigation, which is honest rather than sufficient: the relay prepends a header
@@ -1251,13 +1277,23 @@ survives compaction on the receiver.
 5. Scope defaults to caller `cwd` so a broadcast cannot accidentally reach
    sessions in unrelated projects.
 
+**What this list does not contain, noted rather than quietly absent:** there
+is no discipline governing message *volume*. Every discipline above bounds
+what a message may cause; none bounds how many there may be. See the first
+entry in section 7 — it is listed as a risk rather than added here as a
+discipline, because a discipline the code does not implement would be a claim
+rather than a rule.
+
 ## 6. Failure handling
 
 No fallback transport. On any delivery failure the relay:
 
-1. Returns an error naming the cause (target not found, **target disappeared
-   since listing**, zero turns, delegate nonzero exit, delegate produced no
-   confirmation).
+1. Returns an error naming the cause, from the closed set enumerated below.
+2. Writes the message to a spool file so nothing is lost.
+
+Those two steps were previously numbered around forty lines apart, with the
+whole taxonomy discussion between them, so step 2 read as a consequence of the
+paragraph above it rather than as half of the failure contract.
 
 "Target disappeared since listing" is its own named cause, not a variant of
 "target not found". Both registries turn over on the order of minutes (3.3,
@@ -1279,6 +1315,22 @@ from an ended session:
 
 A Claude target resolves to its own refusal: Claude delivery needs the Unit 3
 delegate.
+
+**That table resolves addressing only, and the implemented cause set is
+wider.** Delivery fails after a target resolves too. The full set the code
+must match: `target_not_found`, `target_disappeared`,
+`target_not_addressable`, `claude_target_needs_delegate`,
+`target_not_consuming`, `queue_failed`, `delegate_failed`,
+`reference_unresolved`. Three of those postdate this section and were added to
+the code without it being updated: `target_not_consuming` is the queue-backlog
+guard that refuses a target whose queue is not draining, `reference_unresolved`
+belongs to threading (4.6), and `delegate_failed` to the delegate path (4.4).
+
+A taxonomy maintained in two places drifts, and this one did. This list is the
+authority: a cause present in the code and absent here is a defect in the
+spec, and the wording above previously named a cause ("zero turns") that the
+table calls something else ("target not yet addressable"), which is how the
+drift started.
 
 Two limits this design accepts rather than papers over:
 
@@ -1306,8 +1358,6 @@ see this case (3.5).
 Worth stating separately because it outlives this code: **`codex queue` reports
 success for any syntactically valid thread id whose session is dead.** Anyone
 invoking it directly is exposed to this, not just the relay.
-2. Writes the message to a spool file so nothing is lost.
-
 The spool is **human-readable and never agent-drained**. The moment an agent
 drains it, it becomes a second delivery path and reintroduces every failure mode
 section 2 rejected it for.
@@ -1340,6 +1390,20 @@ section 2 rejected it for.
   process, since MCP servers are children of the TUI rather than the
   app-server. Confirm liveness per setting, which is what the original wording
   actually says.
+- **No rate limit, no loop detection, no hop count** (3.2, 4.4a) - delivery
+  wakes a fully idle session with no human input, and every delivered message
+  costs a model turn in the recipient. Nothing bounds how many messages an
+  agent may send, and nothing detects two agents replying to one another
+  indefinitely. Until 2026-08-26 the Codex-to-Claude direction carried no
+  reply address, which suppressed the loop case **by accident**; the origin
+  work removed that accident deliberately, so this risk is created by the
+  feature rather than merely coexisting with it. The cost is real money and
+  it accrues while nobody is watching, which is the worst shape a runaway can
+  have. Candidate mitigations, none chosen: a hop count carried in the header
+  and refused past a limit; a per-target send rate limit; or a
+  same-conversation reply cap keyed to the conversation id the typed-message
+  work already mints. Choosing one is a design decision and should precede
+  building agent-to-agent workflows on this, not follow them.
 - **Relay cannot authenticate its own MCP client** (4.4a) - whoever spawns an
   MCP server controls its environment and the metadata on every request it
   receives, so an agent able to start a process can run its own relay and emit
