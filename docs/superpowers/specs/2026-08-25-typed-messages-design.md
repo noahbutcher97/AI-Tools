@@ -61,6 +61,30 @@ RELAY-META {"v":1,"kind":"request","conversation":"c-4b2c9f1a@01a034fa-7e07-7c71
             "from":{"id":"2ed73e8c-…","provider":"claude","verified":true}}
 ```
 
+**Wrapped above for readability; emitted as a single physical line.** This is not
+cosmetic. A recipient parses by finding the line beginning `RELAY-META ` and
+JSON-parsing the remainder, so a header split across lines would not parse. The
+line is therefore emitted unwrapped however long it gets.
+
+### Parsing contract
+
+The same rule the body markers already follow, stated for the header because
+omitting it is how a forgery gets in:
+
+- A `RELAY-META` line is authoritative **only before the first `BODY-BEGIN`
+  marker**. That region is relay-written and a sender cannot place text there.
+- A `RELAY-META` line appearing **inside** the body region is sender-supplied
+  data. It is not structure, and a parser that scans the whole message for the
+  first `RELAY-META` can be fed a forged one.
+- **Take the first occurrence before the first `BODY-BEGIN`, and no other.**
+
+### Unknown versions
+
+A recipient seeing a `v` it does not know should read the prose header and treat
+the message as an ordinary relayed note, not discard it. The prose header is
+always present precisely so an unrecognised schema degrades to something a human
+or an older agent can still act on.
+
 - `v` — schema version. Present from the first release so a later change is
   detectable rather than ambiguous.
 - `kind` — `request` | `reply` | `notice`. Default `notice`.
@@ -109,8 +133,15 @@ origin:
 | Verdict | Condition |
 |---|---|
 | `opened by you` | sender's verified origin matches the encoded one |
-| `opened by <id>, you are <other>` | the ordinary reply case, not an error |
-| `claimed, unverifiable` | sender has no verified origin |
+| `opened by <id>, you are <other>` | both known and different — the ordinary reply case, not an error |
+| `opened by an unverified sender` | the id carries no `@` part, whether or not this sender is verified |
+| `claimed, unverifiable` | this sender has no verified origin, whatever the id encodes |
+
+The third and fourth rows are distinct and were nearly collapsed. They describe
+opposite absences: one is a conversation that was *opened* without proof, the
+other is a sender who cannot prove who they are *now*. A reply from a verified
+session into an unverifiably-opened conversation is the third, not the fourth,
+and reporting it as the fourth would understate what is known.
 
 **What this proves and does not prove.** It proves continuity of the *minting
 party*. It does not prove the integrity of the conversation: anyone who has seen
@@ -151,6 +182,14 @@ Each has a defined answer, so none of them is discovered in production:
   reported `claimed, unverifiable`. Absence of proof is stated, not fatal.
 - **`kind: reply` with no `in_reply_to`** — allowed. The header notes the reply
   has no referent rather than rejecting a message that is otherwise fine.
+- **`kind: reply` with no `conversation`** — relay would otherwise mint a fresh
+  one, silently starting a new thread while the message says it continues an old
+  one. The header states that the reply opened a new conversation instead,
+  because a correlation that quietly points at the wrong thread is worse than
+  one that is visibly absent.
+- **Both `--re` and `in_reply_to` supplied** — coherent and allowed. They answer
+  different questions: which message this responds to, and which of the
+  recipient's own turns it is about. Neither implies the other.
 - **A conversation id that does not parse** — treated as an opaque claimed id.
   Never a crash, never a rejection.
 - **Encoded origin differs from the sender** — the *normal* reply case. It must
@@ -175,7 +214,22 @@ Following what has worked in this bridge:
 - One live exchange between two real sessions, output read rather than merely
   confirmed to have run.
 
-## 9. Compatibility
+## 9. One integration requirement, found by checking
+
+The Claude delegate relays text through a **model**, instructed to keep
+"everything else byte for byte — including the BODY marker lines". The meta line
+would survive on that general clause alone, but the instruction names the BODY
+markers specifically, and a specific list reads as exhaustive to a model
+deciding what matters. A dropped meta line would fail silently: delivery would
+succeed and the correlation would simply be gone.
+
+**The delegate instruction must name the `RELAY-META` line explicitly**, and a
+test must assert it survives a delegate round trip rather than only a direct
+queue. This is the one place where a header that works everywhere else can be
+lost, because it is the one path with a model between the sender and the
+recipient.
+
+## 10. Compatibility
 
 An unadorned send still works exactly as today and carries `kind: notice`. No
 existing caller changes. Recipients that ignore `RELAY-META` see the prose header
