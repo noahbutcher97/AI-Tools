@@ -578,6 +578,24 @@ export function buildMetaLine({
   );
 }
 
+// A RELAY-META line is authoritative only BEFORE the first BODY-BEGIN marker.
+// That region is relay-written and a sender cannot place text there; anything
+// inside the body region is sender-supplied data, not structure. A parser that
+// scanned the whole message for the first RELAY-META could be fed a forged one.
+export function parseMetaFromMessage(text) {
+  const lines = String(text || "").split("\n");
+  for (const line of lines) {
+    if (/-BODY-BEGIN$/.test(line.trim())) return null;
+    if (!line.startsWith(RELAY_META_PREFIX)) continue;
+    try {
+      return JSON.parse(line.slice(RELAY_META_PREFIX.length));
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export function buildRelayEnvelope({
   message,
   origin = null,

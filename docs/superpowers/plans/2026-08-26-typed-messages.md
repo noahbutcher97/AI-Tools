@@ -409,7 +409,7 @@ git commit -m "relay: build a single-line machine-readable message header"
 - Consumes: `RELAY_META_PREFIX` from Task 3.
 - Produces: `parseMetaFromMessage(text: string) => object | null` — reads only the region before the first `-BODY-BEGIN` line.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `meta.test.mjs`:
 
@@ -453,12 +453,12 @@ test("a malformed header yields null rather than throwing", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd MCP-Servers/bridges/relay && node --test meta.test.mjs`
 Expected: FAIL — `does not provide an export named 'parseMetaFromMessage'`
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 In `client.mjs`, after `buildMetaLine`:
 
@@ -482,12 +482,12 @@ export function parseMetaFromMessage(text) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd MCP-Servers/bridges/relay && node --test meta.test.mjs`
 Expected: PASS, 12/12
 
-- [ ] **Step 5: Mutation-test the parsing contract**
+- [x] **Step 5: Mutation-test the parsing contract**
 
 This is a security boundary, so the guard must be watched going red.
 
@@ -505,7 +505,7 @@ cp /tmp/c.pristine.mjs client.mjs
 
 Expected: `not ok` for *a header planted inside the body is ignored* and *a message with only a planted header yields nothing*, by name. If the mutation reports no failures, the guard is not pinned — stop and fix the test.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add MCP-Servers/bridges/relay/client.mjs MCP-Servers/bridges/relay/meta.test.mjs
