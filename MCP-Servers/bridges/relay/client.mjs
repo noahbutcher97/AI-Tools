@@ -525,6 +525,32 @@ export function parseConversationId(id) {
   return { random, openedBy: rest.slice(at + 1) || null };
 }
 
+// Four verdicts, no stored state. The third and fourth describe opposite
+// absences and must not be collapsed: one is a conversation opened without
+// proof, the other a sender who cannot prove who they are now.
+export function conversationVerdict(conversationId, verifiedOrigin) {
+  const parsed = parseConversationId(conversationId);
+  if (!verifiedOrigin || !parsed) {
+    return {
+      code: "sender_unverifiable",
+      text: "conversation claimed by the sender; relay cannot verify who is sending",
+    };
+  }
+  if (!parsed.openedBy) {
+    return {
+      code: "opened_unverified",
+      text: "this conversation was opened by a sender relay could not verify",
+    };
+  }
+  if (parsed.openedBy === verifiedOrigin) {
+    return { code: "opened_by_you", text: "opened by you" };
+  }
+  return {
+    code: "opened_by_other",
+    text: `opened by ${parsed.openedBy}, and you are ${verifiedOrigin}`,
+  };
+}
+
 export function buildRelayEnvelope({
   message,
   origin = null,

@@ -153,7 +153,7 @@ git commit -m "relay: mint and parse conversation ids that encode their opener"
 - Consumes: `parseConversationId` from Task 1.
 - Produces: `conversationVerdict(conversationId: string|null, verifiedOrigin: string|null) => { code: string, text: string }` where `code` is one of `opened_by_you`, `opened_by_other`, `opened_unverified`, `sender_unverifiable`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `conversation.test.mjs`:
 
@@ -206,12 +206,12 @@ test("an unparseable conversation id is treated as an opaque claim", () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `cd MCP-Servers/bridges/relay && node --test conversation.test.mjs`
 Expected: FAIL — `does not provide an export named 'conversationVerdict'`
 
-- [ ] **Step 3: Write the minimal implementation**
+- [x] **Step 3: Write the minimal implementation**
 
 In `client.mjs`, after `parseConversationId`:
 
@@ -243,12 +243,12 @@ export function conversationVerdict(conversationId, verifiedOrigin) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `cd MCP-Servers/bridges/relay && node --test conversation.test.mjs`
 Expected: PASS, 13/13
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add MCP-Servers/bridges/relay/client.mjs MCP-Servers/bridges/relay/conversation.test.mjs
