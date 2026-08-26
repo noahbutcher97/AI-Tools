@@ -867,9 +867,20 @@ It returns `null` rather than a null-filled object, matching
 `detectVerifiedOrigin()` and the optional-chaining idiom at both call sites.
 Two resolvers feed it: `detectVerifiedOrigin(env)` keeps its signature and
 serves the CLI and Claude's MCP face; `detectRequestOrigin(extra)` reads the
-request metadata. Request metadata wins when both are present, because both are
-host-injected and equally unforgeable, so freshness is the only tiebreaker that
-distinguishes them. Provider is taken from the **metadata key namespace**, not
+request metadata. The two are not expected to co-occur: a server spawned by Codex has no
+identity in its environment, and one spawned by Claude receives no Codex turn
+metadata. If both yield an identity and they **agree**, request metadata is
+reported as the channel, being the per-call one. If both yield an identity and
+they **disagree**, no origin is claimed at all and the disagreement is recorded
+to the spool.
+
+That last rule is deliberately fail-closed, replacing an earlier draft which
+said the fresher value wins and the disagreement is not an error. Two channels
+that should never both speak, speaking and contradicting each other, is a
+condition this design did not anticipate — and an unanticipated condition is
+the worst possible moment to stamp `VERIFIED` on whichever value a tiebreak
+rule happens to select. An adversary able to influence one channel but not the
+other would have found that rule to be an override. Provider is taken from the **metadata key namespace**, not
 from the values inside it. Addressing uses `thread_id`, which is what
 `codex queue` accepts; `session_id` was equal to it when measured and is
 carried but never used to address. The top-level `threadId` is a fallback for
@@ -912,6 +923,30 @@ call, never authorship of the content — and an authenticated-looking header
 invites exactly that over-reading, which is why the header says so in as many
 words.
 
+**A second limit, and the sharper one: relay cannot authenticate its own
+client.** Both channels rest on the same unstated premise — that this relay
+process is the instance the *host* spawned. Whoever spawns an MCP server
+controls both its environment and the `_meta` on every request it receives. An
+agent with the ability to start a process can therefore run its own relay
+instance, hand it any identity it likes, and emit an envelope reading
+`VERIFIED` that a recipient cannot distinguish from a genuine one.
+
+This is not introduced by the per-call channel; the environment channel has
+carried it since this bridge existed, and the earlier wording — *an agent
+cannot set the environment of the server process it is talking to* — is true
+only of the server the host spawned. The accurate claim is narrower and worth
+stating in the form a reader can act on: **relay guarantees it did not take
+the identity from the caller's arguments. It does not guarantee that no
+adversary could have produced the value.** Against an agent that cannot spawn
+processes the guarantee is strong; against one that can, it is a statement
+about relay's own conduct rather than about the sender.
+
+No cheap remedy exists. A real one needs a secret the sender cannot produce,
+and the only such secret within reach is `CLAUDE_CODE_MESSAGING_TOKEN`, which
+safety discipline 4 forbids reading. Recording the limit is therefore the
+mitigation, and any future claim to have closed it should be met by asking who
+spawned the relay that wrote the header.
+
 Process ancestry was the first route found and is the weakest: the parent's
 command line carries the thread id only for `resume`-launched sessions, is stale
 if a TUI switches threads (the same trap that produced a retracted stale-lock
@@ -934,7 +969,18 @@ field does not break the envelope format.
 | Channel | Rule | Reason |
 |---|---|---|
 | environment | explicit **allow-list** of three variable names | `CLAUDE_CODE_MESSAGING_TOKEN` lives in that same namespace; safety discipline 4 forbids reading credential material, and a prefix scan would eventually reach it |
-| request metadata | **pass through**, minus a credential deny-list | `x-codex-turn-metadata` is a named, host-authored object whose declared purpose is describing the turn, not a shared namespace where credentials happen to live |
+| request metadata | **pass through**, minus the credential deny-list below | `x-codex-turn-metadata` is a named, host-authored object whose declared purpose is describing the turn, not a shared namespace where credentials happen to live |
+
+The deny-list is enumerated here rather than left to an implementer, because
+"a credential deny-list" is exactly the kind of phrase two people implement
+differently. A key is dropped when its name, lowercased with separators
+removed, contains any of: `token`, `secret`, `password`, `passwd`, `apikey`,
+`key`, `auth`, `credential`, `bearer`, `cookie`, `session`, `jwt`,
+`signature`, `sig`, `private`. The list over-matches on purpose — dropping an
+innocuous field costs a line of metadata, while missing a credential costs a
+credential. Note `session` is on it, so `session_id` is dropped from the blob;
+that is intended, since the identity it duplicates is already carried as
+`from.id` and does not need a second copy inside `host`.
 
 The asymmetric rules follow from asymmetric risk, not from convenience. The
 residual risk is stated rather than hidden: a credential field named something
@@ -946,6 +992,26 @@ Relay therefore passes unknown keys through and records each new key once to
 the spool, which is human-readable and never agent-drained. Silent degradation
 is the failure mode this project has been bitten by repeatedly; a loud note to
 a human is the trade being made.
+
+**`host` describes the calling thread, never this message — and one field
+makes that easy to get backwards.** The envelope's first line says the message
+*was not typed by a human*. The blob will carry `thread_source: "user"`, which
+reports how the calling **thread** was started and says nothing about who
+composed **this** message. A recipient parsing the header could reach the
+opposite conclusion from the one the prose states, in the same envelope.
+
+The field is still carried verbatim, because rewriting host field names would
+forfeit the pass-through integrity that is the point of the container. The
+contradiction is resolved by relay stating its own claim explicitly instead of
+leaving it to be inferred: `from.submitted_by` is always `"agent"`, because
+relay only ever writes a header for a message submitted through a tool call.
+Where a `host` field invites an authorship reading, the sibling is the
+authoritative answer and `host` is descriptive context.
+
+`submitted_by` deliberately does **not** say the text was composed by an
+agent. An agent may be relaying words a human gave it. It says who made the
+call, which is the only part relay observes — the same boundary the limit in
+4.4a draws, expressed in a field rather than a sentence.
 
 **Two levels of trust, not one.** The metadata *key* is allow-listed: relay
 reads `x-codex-turn-metadata` because it knows that name and what publishes it.
@@ -1002,7 +1068,7 @@ not is not made to read it before reaching the body.
 ```json
 {"v":1, "kind":"request", "conversation":"c-4b2c9f1a@...",
  "from":{"id":"01a03ec6-...", "provider":"codex", "verified":true,
-         "channel":"request-metadata",
+         "channel":"request-metadata", "submitted_by":"agent",
          "host":{"turn_id":"01a03ecb-...", "thread_source":"user",
                  "model":"gpt-5.6-terra", "reasoning_effort":"high"}}}
 ```
@@ -1043,7 +1109,11 @@ section 9 guard 3 applies: a **named** test must die, not a count.
 1. Arguments carrying a counterfeit `_meta` must not influence resolved
    identity. Mutating the resolver to read from arguments instead of the
    request kills a named test. This mirrors the live probe that passed a forged
-   session id in tool arguments and received the genuine ids back.
+   session id in tool arguments and received the genuine ids back — but note
+   that probe used a tool with an **empty** argument schema, while `relay_send`
+   declares properties and `additionalProperties: false`. The measurement
+   settles the empty-schema case; the populated-schema case is assumed and must
+   be covered by this test rather than inherited from the probe.
 2. Request metadata beats environment when both are present.
 3. Absent and malformed metadata both yield unverified and never throw.
 4. A denied key is dropped; removing the deny-list kills a named test.
@@ -1270,6 +1340,15 @@ section 2 rejected it for.
   process, since MCP servers are children of the TUI rather than the
   app-server. Confirm liveness per setting, which is what the original wording
   actually says.
+- **Relay cannot authenticate its own MCP client** (4.4a) - whoever spawns an
+  MCP server controls its environment and the metadata on every request it
+  receives, so an agent able to start a process can run its own relay and emit
+  a `VERIFIED` envelope a recipient cannot distinguish from a genuine one.
+  Pre-dates the per-call channel and applies equally to the environment one.
+  The honest guarantee is that relay did not read the identity from the
+  caller's arguments, not that no adversary could produce it. No remedy within
+  reach: closing it needs a secret the sender cannot produce, and the only
+  candidate is forbidden by safety discipline 4.
 - **Metadata deny-list is not an allow-list** (4.4b) - host turn metadata is
   passed through minus a credential deny-list, so a credential field named
   something the list does not anticipate would reach a recipient. Accepted
