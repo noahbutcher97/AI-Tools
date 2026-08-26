@@ -296,11 +296,31 @@ messaging bridge.
 - whether a **claimed** thread id is live and sits in the same workspace, by
   checking it against the thread index.
 
-That last check is corroboration, not authentication, and the difference must
-survive into the wording of the envelope. A claim that is consistent with a live
-thread in the caller's own workspace is meaningfully better than an unchecked
-claim - it defeats a sender naming a thread in a workspace it is not in - and it
-is still not proof of authorship. The design already keeps verdicts like this
-distinct rather than collapsing them (see the conversation attestation codes),
-and this path needs a third state of the same kind rather than reuse of
-`VERIFIED`.
+That last check is far weaker than it first reads, and the measurement matters
+more than the argument. Querying the thread index: **1,514 unarchived threads
+share the OperationPhoenix workspace, 304 of them touched within seven days.** A
+workspace check therefore admits any of several hundred live threads, including
+threads the caller was never on and threads belonging to a different concurrent
+TUI in the same tree. Its real content is "this id is a live thread in this
+workspace", not "this id plausibly belongs to this caller". Stating it as the
+latter repeats guard 4 - constraining a thread-level claim with a
+workspace-level fact.
+
+The honest envelope wording is therefore closer to *workspace verified, thread
+claimed* than to anything using the word corroborated.
+
+**Note also what `process.ppid` does and does not buy.** It identifies the
+calling TUI from the OS, but a TUI is not addressable: `codex queue` needs a
+thread id. So the ppid supports diagnostics and cannot supply a reply address.
+Any option should be assessed against both halves of the requirement separately
+- saying who called, and giving somewhere to reply - because this path can
+currently satisfy the first without the second.
+
+### The cheap unknown to settle first
+
+Whether Codex passes anything identifying in the MCP `initialize` handshake is
+unanswered and would make the question above moot if it does. `clientInfo`
+arrives on every MCP connection; if it carries a thread id, origin on this path
+is solved outright and no corroboration scheme is needed. Settling it costs a
+logging line in the relay server plus one newly started Codex session, and it
+should be done **before** any design work on origin wording, not after.
