@@ -1179,6 +1179,89 @@ catches the mirror image, which happened twice in this build:
    finding gets acted on rather than investigated. It sends people to fix what
    is not broken.
 
+Guards 1-4 all weigh a claim against its evidence. Two more check something
+prior: whether the evidence, or the action, was ever attached to the subject at
+all. Both fired in one sitting on the Codex approval question, and each
+overturned a recommendation that had already been drafted and argued for.
+
+5. **Before acting on a process, establish what it is the parent of.** A
+   restart, a kill or a config reload reaches what descends from the thing acted
+   on, and nothing else. Worked example: a daemon restart was recommended here
+   to make a session pick up an approval change. It would have reached nothing,
+   because each relay MCP server is a child of a TUI process rather than of the
+   app-server. One process listing with parent PIDs settled in seconds what an
+   hour of reasoning about daemons had got backwards, and it answered the
+   question actually asked as a side effect - the TUIs survive an app-server
+   restart, one of them having outlived the running app-server by two days.
+
+   An intervention's reach is a structural fact about the system, cheap to look
+   up and not derivable from what the parts are called. "Daemon" implies a
+   parentage it did not have. Note that guard 4's worked example misreads the
+   same process table in the mirror direction: there a count of processes was
+   assumed to name threads, here a name was assumed to imply descent. Process
+   listings invite both, because they answer a question adjacent to the one
+   being asked.
+
+6. **Order evidence against the change it is supposed to test.** Four
+   `relay_send` refusals read as decisive evidence that the granular approval
+   policy did not work. Sorted against the `thread_settings_applied` event, all
+   four predate the moment that policy took effect; they are evidence about the
+   policy it replaced. The same four rows support "tested and failed" or "never
+   tested" depending on one comparison that nobody had made.
+
+   This is the sharpest form guard 4 takes, because the instrument is a clock
+   and the population is time: evidence gathered before a change cannot bear on
+   the change. Run it early against any record that seems to condemn a fix. The
+   failure mode it prevents is abandoning a fix that was never in the building,
+   which is expensive precisely because the evidence against it looks so direct.
+
+7. **Validate a scan's recall before believing a zero.** A search that returns
+   nothing is the same instrument failure as a green test that tested nothing,
+   and it reads even more like a result, because a count of zero looks
+   deliberate. Worked example: a scan of 155 rollout files reported no MCP tool
+   calls of any kind after a Codex update, and that was carried forward as a
+   fact about the record. It was a fact about the scan. The scan matched
+   `function_call` items whose namespace began `mcp__`, the shape those calls
+   had *before* the update; under code mode the same calls are recorded as
+   `custom_tool_call` items of type `exec` with the invocation inside the script
+   body. The scan could not have matched one however many existed.
+
+   The guard is a positive control, and it is guard 2 wearing another costume:
+   before trusting a zero, point the same scan at a case known to be present and
+   confirm it comes back. Guard 2 requires a mutation to prove it applied; this
+   requires a search to prove it can find. Both cost one run, and both exist
+   because an instrument that cannot fire is indistinguishable from a clean
+   result at the point where you read it.
+
+   Recorded without softening, because the detail is the useful part: this was
+   done by the author of guard 4 roughly ninety minutes after writing guard 4,
+   whose entire subject is naming the population an instrument ranges over.
+   Knowing a guard is not running it, and the guards most likely to go unrun are
+   the ones you have most recently congratulated yourself on.
+
+8. **Read another agent's "I cannot do X" as a possible technical claim rather
+   than a hedge.** Worked example: a Codex session reported that `relay_send`
+   was "not directly callable in this session's tool surface". That was exactly
+   true, and more precise than it appeared - under code mode MCP tools are not
+   directly callable, they are callable from generated declarations inside an
+   exec sandbox. The report was twice discounted as unreliable introspection,
+   while the distinction it drew between *directly callable* and *callable*
+   was the entire answer, sitting in the transcript the whole time.
+
+   An agent's report is weak evidence about **why** something failed and often
+   good evidence about **what** happened. Before discounting one, restate it in
+   its own terms and ask whether it is precise rather than evasive. The tell is
+   a qualifier that survives paraphrase: "directly" was load-bearing, and
+   dropping it in the retelling is what made the sentence read like an excuse.
+
+Guards 1-4 ask whether a claim survives its evidence. Guards 5 and 6 ask whether
+the evidence and the subject were ever in contact. Guards 7 and 8 ask whether
+the instrument could have registered the thing at all - a search that cannot
+match what it is looking for, a report read past rather than read. A conclusion
+that fails any of them is not weakly supported but unsupported, and it will feel
+well-founded right up until the check is run, because nothing about it looks
+uncertain from the inside.
+
 One last thing, learned by doing the opposite. Establishing that threshold took
 five exchanges of corrections-to-corrections between two authors. Every
 individual correction was right, and the chain was collectively wasteful anyway:
@@ -1193,4 +1276,7 @@ The behaviour that actually caught both near-misses is worth stating on its own,
 because it is not "reason carefully": **probe the thing even when you already
 believe you know the answer.** The race was caught by probing anyway after the
 first check looked conclusive; the unsound inference was caught by probing
-instead of shipping it. Neither was caught by thinking harder about it.
+instead of shipping it. Neither was caught by thinking harder about it. The
+misaimed restart in guard 5 is the same story a third time: the reasoning had
+been done, the recommendation written, and a thirty-second process listing
+reversed it.
