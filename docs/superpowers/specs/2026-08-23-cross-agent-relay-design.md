@@ -771,19 +771,36 @@ receiving agent's context. So the only place to tell the recipient is the
 message body, and relay stamps every outbound message with a header carrying
 origin, transport, a reply address, and a nonce-delimited body region.
 
-**Origin can be genuinely authenticated on every path in the matrix**, because
-each host publishes its own session identity into the environment of processes
-it spawns. Measured 2026-08-24, both sides:
+**Origin can be genuinely authenticated on every path in the matrix**, but not
+through a single channel. Hosts publish identity two different ways and the
+design must read both. Corrected 2026-08-26, after one row of this table was
+found to have been inferred rather than measured:
 
-| Source | Path | Identity variable |
-|---|---|---|
-| Claude session | CLI (Bash) | `CLAUDE_CODE_SESSION_ID` |
-| Claude session | MCP server | same, inherited on spawn |
-| Codex session | MCP server | `CODEX_THREAD_ID` / `CODEX_SESSION_ID` |
-| Codex session | shell → CLI | same, measured on a spawned shell command |
+| Source | Path | Channel | Identifier |
+|---|---|---|---|
+| Claude session | CLI (Bash) | environment | `CLAUDE_CODE_SESSION_ID` |
+| Claude session | MCP server | environment | same, inherited on spawn |
+| Codex session | shell → CLI | environment | `CODEX_THREAD_ID` / `CODEX_SESSION_ID` |
+| Codex session | MCP server | **request metadata** | `_meta["x-codex-turn-metadata"].thread_id` |
 
-So verification is not a Codex-only feature and the header must not imply it is.
-`detectVerifiedOrigin()` is shared by both faces.
+**The row that was wrong, and why it matters.** This table previously claimed
+the Codex MCP server reads `CODEX_THREAD_ID` from its environment, "same" as
+the shell case. The shell row was measured. The MCP row was inferred from it,
+never checked, and is false. Measured 2026-08-26 by reading the environment
+blocks of the running server processes: Codex spawns MCP servers with 18
+variables, every one a stock Windows variable, carrying no thread or session
+id, while servers spawned by Claude carry 74 including a live id. One Codex
+server had been spawned in the same second as its thread, so the identifier is
+absent rather than stale, and no per-call re-read of the environment would
+recover it.
+
+The cost of that one unmeasured row was two days spent diagnosing the Codex
+direction as blocked - by the sandbox, then approval policy, then tool
+deferral, in turn. Delivery worked throughout. Only the origin stamp was
+missing, and the table said it could not be.
+
+So verification is neither a Codex-only feature nor an environment-only
+mechanism, and the header must imply neither.
 
 **Only the identifier is read, never the credential.** `CLAUDE_CODE_MESSAGING_TOKEN`
 sits in the same environment and is peer-pipe secret material — the env-var twin
@@ -811,20 +828,62 @@ address would hand the recipient something unsendable. The verified id is
 resolved through discovery and the header carries the resolved `name`. Verified
 end to end: `2ed73e8c-…` → `ai-tools-dd`.
 
-Codex-side detail:
+**The Codex MCP channel: request metadata, per call.** Every tool call from
+Codex arrives with `_meta` carrying a namespaced turn description:
 
 ```
-CODEX_SESSION_ID=01a0355c-c86d-7c82-a767-669e1a06af2d
-CODEX_THREAD_ID=01a0355c-c86d-7c82-a767-669e1a06af2d
+"x-codex-turn-metadata": {
+  "session_id": "01a03ec6-68fb-70d0-b582-114e8e0c2440",
+  "thread_id":  "01a03ec6-68fb-70d0-b582-114e8e0c2440",
+  "turn_id":    "01a03ecb-b93a-7b12-9322-ce8955e516fd",
+  "thread_source": "user", "model": "gpt-5.6-terra", ...
+}
+"threadId": "01a03ec6-68fb-70d0-b582-114e8e0c2440"
 ```
 
-Codex sets both in the environment of processes it spawns, and the MCP server is
-spawned **per session** — confirmed independently by process ancestry, where the
-relay server's parent is `codex.exe resume <thread-id>`. An agent cannot set the
-environment of the server process it is talking to, so a value read there
-identifies the calling session in a way a `from` argument never can. The server
-reads it once at startup and passes it as `verifiedOrigin`; it is never accepted
-from a tool argument.
+The `session_id` matched the id the host reported for that session
+independently, so the field names the real thread rather than an internal
+handle.
+
+**It is unforgeable by the calling agent, and that was tested rather than
+assumed.** A probe call passed
+`_meta: {"x-codex-turn-metadata": {"session_id": "FORGED-BY-AGENT"}}` in its
+tool arguments. The server received the genuine ids unchanged and the forged
+string appeared nowhere: the Codex MCP client injects this metadata after the
+caller's arguments. That is the same property the environment read relies on,
+and it is stronger in one respect - arriving per call, it cannot go stale the
+way a value read once at startup can on a server that outlives its thread.
+Observed directly: across two calls in one session `turn_id` moved while
+`thread_id` held.
+
+**Identity is therefore resolved per call, not once at startup.**
+`resolveCallerIdentity()` returns one value or `null`:
+
+```js
+{ id, provider, channel: "environment" | "request-metadata", host: {...} }
+```
+
+It returns `null` rather than a null-filled object, matching
+`detectVerifiedOrigin()` and the optional-chaining idiom at both call sites.
+Two resolvers feed it: `detectVerifiedOrigin(env)` keeps its signature and
+serves the CLI and Claude's MCP face; `detectRequestOrigin(extra)` reads the
+request metadata. Request metadata wins when both are present, because both are
+host-injected and equally unforgeable, so freshness is the only tiebreaker that
+distinguishes them. Provider is taken from the **metadata key namespace**, not
+from the values inside it. Addressing uses `thread_id`, which is what
+`codex queue` accepts; `session_id` was equal to it when measured and is
+carried but never used to address. The top-level `threadId` is a fallback for
+`x-codex-turn-metadata.thread_id`.
+
+**One value, not three parallel parameters.** `verifiedOrigin` and
+`verifiedProvider` were threaded separately through the send path, and they
+drifted: `buildDelegateInvocation` accepts `verifiedOrigin` and never accepted
+`verifiedProvider`, so the delegate path renders a verified Codex sender as
+`(session)` rather than `(codex)` whenever discovery cannot resolve the target.
+The function's own comment says the two transports must not "drift apart in
+what they tell a recipient", which is exactly what happened in the field the
+comment protects. Three values that must always travel together are one value;
+collapsing them is what stops a call site silently dropping one.
 
 Precedence and honesty rules:
 
@@ -834,6 +893,16 @@ Precedence and honesty rules:
   both.
 - With no verified origin the header falls back to the claim, explicitly marked
   unauthenticated.
+- The **channel** is reported accurately. The header sentence names where the
+  value came from, and saying "environment" for a metadata read would be a true
+  statement about verification wrapped around a false one about provenance. One
+  substitution carries it: *the host's own session environment* or *metadata the
+  host attached to this call*.
+- The host metadata blob is authenticated about the **call**, never about the
+  **content**. `host.model` names the model the calling turn ran on; it says
+  nothing about who wrote the body. The richer fields invite that misreading
+  more strongly than a bare id does, which is why the limit below is restated
+  rather than assumed.
 
 **The limit that matters, and it survives perfect authentication.** Verifying
 the caller establishes *which session made the call*. It does not establish *who
@@ -843,11 +912,117 @@ call, never authorship of the content — and an authenticated-looking header
 invites exactly that over-reading, which is why the header says so in as many
 words.
 
-Process ancestry was the first route found and is the weaker one: the parent's
+Process ancestry was the first route found and is the weakest: the parent's
 command line carries the thread id only for `resume`-launched sessions, is stale
 if a TUI switches threads (the same trap that produced a retracted stale-lock
 inference earlier the same day), and is unavailable to the CLI path entirely.
-The environment variable supersedes it.
+Both host-published channels supersede it.
+
+An earlier draft of this section cited that same ancestry as *independent
+confirmation* that the MCP server had the environment variable — reading a
+thread id off a TUI command line two paragraphs above the sentence explaining
+why that cannot be done. The section contained both the trap and the warning
+about it. That is recorded here because a spec is where a stale assumption is
+most expensive: it was read and built on for two days without being questioned.
+
+### 4.4b Host metadata: what is carried, and the asymmetry in it
+
+`host` is a provider-namespaced container, not a set of promoted top-level
+fields. The schema commits to the container, so a host adding or renaming a
+field does not break the envelope format.
+
+| Channel | Rule | Reason |
+|---|---|---|
+| environment | explicit **allow-list** of three variable names | `CLAUDE_CODE_MESSAGING_TOKEN` lives in that same namespace; safety discipline 4 forbids reading credential material, and a prefix scan would eventually reach it |
+| request metadata | **pass through**, minus a credential deny-list | `x-codex-turn-metadata` is a named, host-authored object whose declared purpose is describing the turn, not a shared namespace where credentials happen to live |
+
+The asymmetric rules follow from asymmetric risk, not from convenience. The
+residual risk is stated rather than hidden: a credential field named something
+the deny-list does not anticipate would pass through. The alternative, an
+allow-list on both sides, is safer against that and worse overall — it drops
+unrecognised fields **silently**, so the blob would decay toward whatever was
+known on the day it was written with nothing anywhere reporting the loss.
+Relay therefore passes unknown keys through and records each new key once to
+the spool, which is human-readable and never agent-drained. Silent degradation
+is the failure mode this project has been bitten by repeatedly; a loud note to
+a human is the trade being made.
+
+**The blob is thinner on the Claude side, by host capability rather than by
+choice.** Claude-spawned MCP servers publish a session id, an entrypoint and a
+project directory. They do not publish model or effort: those variables exist
+in a Claude session's *shell* environment but not in the environment given to
+its MCP servers, measured on the running servers. An earlier draft claimed
+parity here on the strength of a shell reading — evidence from one population
+applied to another, which is the error section 9 guards 5 and 6 describe. The
+envelope must not imply the two providers supply equivalent detail.
+
+### 4.4c What the recipient sees, and how this is tested
+
+The prose stays short. The full blob goes to `RELAY-META`, the machine-readable
+line; a recipient that wants model or sandbox parses for it, and one that does
+not is not made to read it before reaching the body.
+
+```json
+{"v":1, "kind":"request", "conversation":"c-4b2c9f1a@...",
+ "from":{"id":"01a03ec6-...", "provider":"codex", "verified":true,
+         "channel":"request-metadata",
+         "host":{"turn_id":"01a03ecb-...", "thread_source":"user",
+                 "model":"gpt-5.6-terra", "reasoning_effort":"high"}}}
+```
+
+`channel` and `host` nest under `from` because both describe the sender. `v`
+stays at 1: rung 1 has never shipped, so there is no consumer to break and
+bumping would spend a version number on a schema nobody has seen. Parsing must
+tolerate `from.host` being absent, since Claude senders carry less. The
+body-boundary forgery guard is untouched — `host` rides inside the
+relay-written header region, so a header planted in the body still loses.
+
+The change a Codex sender's envelope shows, which is the point of the work:
+
+```
+before:  From: not stated by the sender. No reply address is available.
+after:   From: 01a03ec6-... (codex, D:\UnrealProjects\5.6\OperationPhoenix)
+         — VERIFIED. Relay read this from metadata the host attached to
+         this call, not from anything the sender supplied...
+         To reply: relay_send to "01a03ec6-...".
+```
+
+Codex targets are addressed by thread id, so the reply address needs no new
+machinery: a Codex target's `name` is already its id, and the existing
+`originTarget?.name || verifiedOrigin` resolves correctly. The path was never
+missing a reply mechanism, only an id to put in it.
+
+**Failure handling.** Every path degrades to unverified and none throws.
+Metadata absent falls back to the environment; malformed metadata is treated as
+absent, because a shape this design did not author must not be able to crash a
+send. An id discovery cannot resolve is still `VERIFIED`, with the provider
+taken from the channel and the raw id as the reply address — generalising the
+existing rule that provider is reported rather than inferred from a discovered
+target.
+
+**Testing, and the limit of it.** Security properties get mutation testing, and
+section 9 guard 3 applies: a **named** test must die, not a count.
+
+1. Arguments carrying a counterfeit `_meta` must not influence resolved
+   identity. Mutating the resolver to read from arguments instead of the
+   request kills a named test. This mirrors the live probe that passed a forged
+   session id in tool arguments and received the genuine ids back.
+2. Request metadata beats environment when both are present.
+3. Absent and malformed metadata both yield unverified and never throw.
+4. A denied key is dropped; removing the deny-list kills a named test.
+5. An unknown key passes through **and** is recorded — two assertions, not
+   one. A single test covering both stays green if the recording is deleted,
+   which is the failure guards 1-3 exist to catch.
+6. Swapping the two channel phrases kills a named test. Without it the envelope
+   can lie about provenance while every test passes.
+7. The existing assertion that the messaging-token variable is never accessed
+   extends to the new path.
+
+These run against fixtures recorded from the probe, so they **cannot** detect
+Codex changing `_meta` in the field. That is not a gap more fixtures would
+close; it is a property of fixtures. The unknown-key spool recording is the
+live-drift detector the fixture tests structurally cannot be, and the two are
+designed as a pair.
 
 ### 4.5 Conversational read layer
 
@@ -1035,6 +1210,26 @@ section 2 rejected it for.
   daemon caches sandbox state, and a config change did not take effect until
   restart. Never treat a sandbox result as evidence without first confirming
   the setting under test is actually live.
+  **Qualified 2026-08-26: caching is not uniform across settings.** An approval
+  policy change was observed applying to an already-running session, which
+  emitted `thread_settings_applied` carrying the new policy eleven minutes
+  after it started. Reading this risk as "config needs a restart" nearly cost a
+  daemon restart that would have been both unnecessary and aimed at the wrong
+  process, since MCP servers are children of the TUI rather than the
+  app-server. Confirm liveness per setting, which is what the original wording
+  actually says.
+- **Metadata deny-list is not an allow-list** (4.4b) - host turn metadata is
+  passed through minus a credential deny-list, so a credential field named
+  something the list does not anticipate would reach a recipient. Accepted
+  deliberately over an allow-list, which fails the other way by dropping
+  unrecognised fields silently. Unknown keys are recorded to the spool so the
+  set can be reviewed by a human as it grows.
+- **Fixture tests cannot see live metadata drift** (4.4c) - the request-metadata
+  tests run against a point-in-time capture and would keep passing if Codex
+  renamed or removed a field tomorrow. This is a property of fixtures, not a
+  shortfall to be fixed with more of them; the spool recording is the paired
+  detector. Anyone treating a green suite as evidence the live channel still
+  works has made the mistake section 9 guard 7 describes.
 
 ## 8. Sequencing
 
