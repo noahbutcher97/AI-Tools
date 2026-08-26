@@ -25,11 +25,30 @@ process.on("warning", (warning) => {
   console.error(`${warning.name}: ${warning.message}`);
 });
 
-// Authenticated caller identity. Codex sets CODEX_THREAD_ID / CODEX_SESSION_ID
-// in the environment of processes it spawns, and an agent cannot set the
-// environment of the server it is talking to — so this identifies the calling
-// session in a way a `from` tool argument never can. Read once at startup,
-// because the server is spawned per session.
+// Authenticated caller identity, where the host provides one. An agent cannot
+// set the environment of the server it is talking to, so a value read from here
+// identifies the calling session in a way a `from` tool argument never can.
+//
+// This works for Claude, which sets CLAUDE_CODE_SESSION_ID in the environment
+// of servers it spawns. It does NOT work for Codex, measured 2026-08-26 by
+// reading the environment blocks of the running servers: Codex spawns MCP
+// servers with a scrubbed environment of 18 variables carrying no thread or
+// session id, while servers spawned by Claude carry 74 including a live id. One
+// Codex server was spawned in the same second as its thread, so the id is
+// absent rather than stale, and no per-call re-read would recover it.
+//
+// Codex supplies the same information by another route, measured the same day:
+// every tool call carries `_meta["x-codex-turn-metadata"]` with `thread_id`,
+// `session_id` and `turn_id`, plus a top-level `_meta.threadId`. That channel is
+// injected by the Codex MCP client after the caller's arguments - an agent
+// passing a forged `_meta` in its tool arguments was measured and the real ids
+// arrived unchanged - so it carries the same non-forgeability this env read
+// relies on, and being per-call it cannot go stale the way a startup read can.
+//
+// Until the handlers read that metadata, messages relayed from Codex arrive with
+// no verified origin and no reply address. Do not "fix" that by trusting the
+// `from` argument, which is exactly what it cannot be.
+// Read once at startup, because the server is spawned per session.
 const HOST_IDENTITY = detectVerifiedOrigin();
 
 const server = new McpServer({ name: "relay-bridge", version: "0.1.0" });

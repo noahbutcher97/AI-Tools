@@ -324,3 +324,59 @@ arrives on every MCP connection; if it carries a thread id, origin on this path
 is solved outright and no corroboration scheme is needed. Settling it costs a
 logging line in the relay server plus one newly started Codex session, and it
 should be done **before** any design work on origin wording, not after.
+
+## Resolved 2026-08-26: Codex does supply a verifiable origin, by another channel
+
+The `initialize` handshake was a dead end, as the binary predicted: `ClientInfo`
+has three fields, `name`/`title`/`version`, and Codex fills them
+`codex-mcp-client`/`Codex`/`0.149.1`. Nothing per-thread.
+
+**Every tool call carries the thread identity in request metadata.** A temporary
+probe MCP server, registered for one session and since removed, recorded this
+`_meta` on an ordinary call:
+
+    "x-codex-turn-metadata": {
+      "session_id": "01a03ec6-68fb-70d0-b582-114e8e0c2440",
+      "thread_id":  "01a03ec6-68fb-70d0-b582-114e8e0c2440",
+      "turn_id":    "01a03ecb-b93a-7b12-9322-ce8955e516fd",
+      "thread_source": "user", "model": "gpt-5.6-terra", ...
+    }
+    "threadId": "01a03ec6-68fb-70d0-b582-114e8e0c2440"
+
+The `session_id` matches the id the host reported for that session
+independently, so the field is the real thread and not an internal handle.
+
+**It is not forgeable by the calling agent, and this was tested rather than
+assumed.** A second call passed
+`_meta: {"x-codex-turn-metadata": {"session_id": "FORGED-BY-AGENT", ...}}` in the
+tool arguments. The server received the genuine ids unchanged and the forged
+string appeared nowhere: the Codex MCP client injects this metadata after the
+caller's arguments. That is the same property the environment read depends on
+for Claude.
+
+**It is strictly better than the environment channel.** The env is read once at
+startup, so a server outliving its thread reports a stale id; `_meta` arrives per
+call. Observed directly: between two calls in one session `turn_id` moved from
+`01a03ecb` to `01a03eeb` while `thread_id` held, so freshness is per turn.
+
+The startup records also close the earlier prefix-filtered measurement honestly.
+The Codex-spawned servers carry exactly 18 variables, all stock Windows ones -
+`APPDATA` through `USERPROFILE`, nothing under any vendor prefix - so the earlier
+`CODEX|CLAUDE` filter had not hidden anything. Their `cwd` is the session's
+workspace rather than the script's directory, which is a second piece of
+OS-supplied, unforgeable context.
+
+### What this changes
+
+The origin design does not need a corroboration scheme, and the "workspace
+verified, thread claimed" wording drafted above is no longer the best available.
+A verified origin is obtainable on the Codex path, so the provider matrix can be
+symmetric. What it needs is a change to section 4.4a of the design: origin must
+be resolved **per call from request metadata**, with the startup environment read
+kept as the Claude path, rather than a single startup-time identity. That is a
+change to the authentication model and belongs behind a design pass.
+
+Note in passing: `[mcp_servers.relay.tools.relay_send]` now reads
+`approval_mode = "approve"` where this document earlier recorded `"auto"`.
+Unexplained, not investigated, and not load-bearing for anything above - but
+worth not being surprised by.
