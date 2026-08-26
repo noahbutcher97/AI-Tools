@@ -84,6 +84,18 @@ line is therefore emitted unwrapped however long it gets.
 The prose header stays. A human reading a Codex thread should not have to parse
 JSON, and an agent should not have to parse prose.
 
+**Both must be generated from one source.** The `from` object restates what the
+prose origin line already says, and two renderings of the same fact drift: a
+change to one is a silent contradiction in the other, and a reader has no way to
+tell which is stale. They are built from a single resolved value, not written
+twice.
+
+**Both transports carry the header.** It is added by the envelope builder, which
+already serves the direct queue and the delegate alike, so a message is typed
+regardless of which way it travelled. A header present on one path and absent on
+the other would make correlation depend on the recipient's provider, which is
+exactly the asymmetry the verified-origin work removed.
+
 ### Parsing contract
 
 The same rule the body markers already follow, stated for the header because
@@ -168,6 +180,25 @@ To reply: relay_send to "ai-tools-dd"
 The recipient sends that back; relay sees the conversation id encodes A's origin
 while the sender's is B's, and stamps *opened by ai-tools-dd, you are 01a034fa*.
 The round trip closes with nothing written down anywhere.
+
+### The reply flow depends on the recipient being able to send
+
+Stated because it is the difference between this design working and being
+write-only, and it is not currently true in both directions:
+
+| Recipient | Can it reply today? |
+|---|---|
+| Claude session | **Yes.** The relay MCP face is registered top-level as of 2026-08-25, so any newly started Claude session has `relay_send`. |
+| Codex session | **No.** `relay_send` is refused under the host's approval policy, unresolved as of this writing. A Codex session can *receive* a correlated request and cannot answer it through relay. |
+
+This does not change the design — the header is what a reply needs, whenever
+replying becomes possible — but it does mean **rung 1 delivers a half-duplex
+result on the Codex side until that is settled**. Building it is still worth
+doing: the correlation is useful on messages a Codex session receives even
+before it can answer them, and a Codex recipient can still answer out of band.
+But "request/reply works" should not be claimed for Codex recipients on the
+strength of this spec alone; it needs the approval question closed and then
+demonstrated.
 
 ### `in_reply_to` versus the existing `--re`
 
