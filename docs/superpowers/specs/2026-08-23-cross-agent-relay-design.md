@@ -201,6 +201,36 @@ network directly. The premise of 3.4 — that spawned commands are offline and a
 MCP server is therefore the clean crossing — does not hold in this
 configuration.
 
+**Correction, measured 2026-08-26: the mechanism is IPC, not filesystem scope
+either.** The entry below reached the right conclusion by the wrong route, and
+the route matters because it says what can and cannot be configured around.
+
+Three probes from inside a Codex sandbox, in order:
+
+```
+read  ~/.claude/sessions        -> OK, 3 session files
+write ~/.claude/sessions        -> EPERM
+write after adding the path to sandbox_workspace_write.writable_roots -> OK
+connect \.\pipe\LOCAL\cc-msg-...   -> EPERM
+```
+
+So reads always worked, writes were grantable and were granted, and the delegate
+*still* could not reach a single peer. **Claude peer messaging runs over Windows
+named pipes, and the sandbox refuses to connect to them.** No filesystem
+permission reaches that, which is why granting `~/.claude` changed nothing and
+was reverted.
+
+This makes the MCP face the only possible route for Codex -> Claude, not the
+preferable one: an MCP server is spawned by the Codex parent process and is not
+inside the command sandbox, so its pipe connections succeed. A relay invoked from
+a Codex shell command cannot deliver to a Claude session under any configuration
+short of disabling the sandbox.
+
+Two earlier explanations in this document were wrong and are superseded: that the
+sandbox blocks the network (it does not, `network_access` is true and `claude -p`
+runs fine), and that it blocks reading the peer registry (it does not, reads
+succeed).
+
 **The sandbox crossing is real after all — for filesystem scope, not network.**
 Measured 2026-08-25, and this restores the claim the entry above retired.
 
