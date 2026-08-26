@@ -66,6 +66,24 @@ cosmetic. A recipient parses by finding the line beginning `RELAY-META ` and
 JSON-parsing the remainder, so a header split across lines would not parse. The
 line is therefore emitted unwrapped however long it gets.
 
+- `v` — schema version. Present from the first release so a later change is
+  detectable rather than ambiguous.
+- `kind` — `request` | `reply` | `notice`. Default `notice`.
+- `conversation` — see section 5.
+- `message_id` — minted by relay per message, so a reply can name what it
+  answers. Caller-supplied values are ignored: a caller that could choose its
+  own message ids could make an unrelated message look like an answer.
+- `in_reply_to` — the `message_id` being answered, or null.
+- `from` — the existing verified-origin work, restated in machine form:
+  `verified: true` only when read from the host's own environment. When
+  `verified` is false, `id` carries whatever the caller **claimed**, or null if
+  it claimed nothing — never a fabricated value, and never silently promoted.
+  The field is only as good as the flag beside it, and a reader that ignores the
+  flag is reading a claim as a fact.
+
+The prose header stays. A human reading a Codex thread should not have to parse
+JSON, and an agent should not have to parse prose.
+
 ### Parsing contract
 
 The same rule the body markers already follow, stated for the header because
@@ -85,19 +103,6 @@ the message as an ordinary relayed note, not discard it. The prose header is
 always present precisely so an unrecognised schema degrades to something a human
 or an older agent can still act on.
 
-- `v` — schema version. Present from the first release so a later change is
-  detectable rather than ambiguous.
-- `kind` — `request` | `reply` | `notice`. Default `notice`.
-- `conversation` — see section 5.
-- `message_id` — minted by relay per message, so a reply can name what it
-  answers. Caller-supplied values are ignored: a caller that could choose its
-  own message ids could make an unrelated message look like an answer.
-- `in_reply_to` — the `message_id` being answered, or null.
-- `from` — the existing verified-origin work, restated in machine form:
-  `verified: true` only when read from the host's own environment.
-
-The prose header stays. A human reading a Codex thread should not have to parse
-JSON, and an agent should not have to parse prose.
 
 ## 5. Conversation identity, and what attestation actually proves
 
@@ -126,7 +131,7 @@ but not from the per-invocation CLI, so the same command would carry a different
 guarantee depending on which face ran it. Encoding costs nothing, behaves
 identically from both faces, and survives restarts.
 
-Any relay instance can then report one of three verdicts with **no stored
+Any relay instance can then report one of four verdicts with **no stored
 state**, by comparing the encoded origin against the sender's own verified
 origin:
 
@@ -174,7 +179,36 @@ Both exist and are different:
 - `in_reply_to <messageId>` — *this answers that message*. References a relay
   message, and is free because relay minted the id.
 
-## 7. Behaviour at the edges
+## 7. API surface
+
+Stated explicitly, because the reply recipe above shows flags without ever
+defining them and an implementer would otherwise be inferring the contract from
+an example.
+
+**`relay_send` gains three optional parameters**, on both faces:
+
+| MCP | CLI | Meaning |
+|---|---|---|
+| `conversation` | `--conversation` | continue this conversation; minted if absent |
+| `kind` | `--kind` | `request` \| `reply` \| `notice`; defaults to `notice` |
+| `in_reply_to` | `--in-reply-to` | the `message_id` this answers |
+
+`message_id` is **not** a parameter — relay mints it, for the reason in section 4.
+
+**Nothing is added to the receive side.** With no stored state, relay does not
+track, index, or act on an incoming conversation: it computes the attestation
+verdict, writes it into the header, and delivers. A recipient that wants to
+follow a conversation reads the header. This is worth saying plainly because
+"conversation" normally implies a server keeping track, and here nothing does.
+
+**Why `conversation` earns a place in rung 1**, given `in_reply_to` alone
+correlates a single answer with a single question: multi-turn exchanges. Two
+questions and two answers chain pairwise through `in_reply_to`, but a recipient
+asking "am I already engaged with this session on this topic?" would have to walk
+the chain. One field answers it. It is also what rungs 2–3 attach to, but it
+would earn its place here regardless.
+
+## 8. Behaviour at the edges
 
 Each has a defined answer, so none of them is discovered in production:
 
@@ -198,23 +232,30 @@ Each has a defined answer, so none of them is discovered in production:
 - **An unknown `kind`** — rejected at the CLI and MCP boundary, where the caller
   can still fix it, rather than being stamped into a message.
 
-## 8. Testing
+## 9. Testing
 
 Following what has worked in this bridge:
 
 - Unit tests on the header builder: field presence, defaults, versioning.
-- Unit tests on each of the three attestation verdicts, including the
-  reply-case verdict that must *not* read as an error.
+- Unit tests on each of the **four** attestation verdicts, including the
+  reply-case verdict that must *not* read as an error, and the two absences that
+  must not be collapsed into each other.
 - A **mutation test** that moving the meta block inside the body markers fails —
   the positional-forgery property is what keeps a sender from forging a header,
   and a green test around it is not evidence until it has been watched going
   red.
+- A **forged-header test**, which is a different thing from the mutation test
+  above and is the one that covers the actual attack: a message whose *body*
+  contains a well-formed `RELAY-META` line claiming another conversation and a
+  different sender. The parser must read the relay-written header and ignore the
+  planted one. Emitting in the right place and refusing to read the wrong place
+  are two properties, and only the second stops a forgery.
 - Round-trip: mint, reply, and confirm the conversation and `in_reply_to`
   correlate.
 - One live exchange between two real sessions, output read rather than merely
   confirmed to have run.
 
-## 9. One integration requirement, found by checking
+## 10. One integration requirement, found by checking
 
 The Claude delegate relays text through a **model**, instructed to keep
 "everything else byte for byte — including the BODY marker lines". The meta line
@@ -229,7 +270,7 @@ queue. This is the one place where a header that works everywhere else can be
 lost, because it is the one path with a model between the sender and the
 recipient.
 
-## 10. Compatibility
+## 11. Compatibility
 
 An unadorned send still works exactly as today and carries `kind: notice`. No
 existing caller changes. Recipients that ignore `RELAY-META` see the prose header
