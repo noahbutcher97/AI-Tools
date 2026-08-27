@@ -19,14 +19,18 @@ export const HOURLY_CAP = 200;
 export const RETENTION_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-// ALWAYS the temp directory, never the user profile, and this is load-bearing
-// rather than incidental. The spool learned that a Codex-sandboxed server
-// cannot write under the home directory and falls back to temp; if this
-// inherited that fallback, the Codex side of a loop would count in one file and
-// the Claude side in another, and a shared counter that is not shared is worse
-// than no counter, because it reports a bound it is not enforcing. TEMP and TMP
-// are among the eighteen variables Codex does pass to its MCP servers, so both
-// providers resolve the same path.
+// ALWAYS the temp directory, never the user profile.
+//
+// Measured 2026-08-27, and narrower than it first looks: a Codex-spawned relay
+// MCP SERVER writes under the user profile fine. It is the CLI face that is
+// sandboxed, running in the session shell under workspace-write. This file is
+// written by BOTH faces, so it has to live where the more restricted one can
+// write.
+//
+// TEMP and TMP are among the eighteen variables Codex passes to its MCP
+// servers, so both providers resolve the same path. A counter split across two
+// files by provider is worse than no counter, because it reports a bound it is
+// not enforcing.
 export function ledgerPath() {
   return path.join(os.tmpdir(), "cross-agent-relay-ledger.log");
 }

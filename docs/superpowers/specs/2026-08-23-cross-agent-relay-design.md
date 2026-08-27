@@ -1296,12 +1296,23 @@ without a daemon, and adding a daemon to prevent runaway cost would be its own
 joke.
 
 It lives in the **temp directory**, not under the user profile, and this is
-load-bearing rather than incidental. The spool learned that a Codex-sandboxed
-server cannot write under the home directory; if the ledger inherited that
-fallback, the Codex side would count in one file and the Claude side in
-another, and a shared counter that is not shared is worse than none. `TEMP` and
-`TMP` are among the eighteen variables Codex does pass (4.4a), so both
-providers resolve the same path.
+load-bearing rather than incidental — but the reason is narrower than an earlier
+draft of this section claimed, and the difference matters to anyone choosing a
+path for something else.
+
+**Measured 2026-08-27.** A Codex-spawned relay **MCP server** writes under the
+user profile without difficulty: a failing send from a Codex session spooled to
+`~/.cross-agent-relay/spool.log` with no error, confirmed by the file growing on
+the other side. It is the **CLI** face that is sandboxed, running in the session
+shell under `workspace-write`, and that is why a temp fallback exists at all.
+The earlier wording generalised the CLI's limit to the server, which is the
+population swap guards 5 and 6 describe.
+
+The ledger is written by **both** faces, so it must live where the more
+restricted one can write. `TEMP` and `TMP` are among the eighteen variables
+Codex passes (4.4a), so both providers resolve the same path. A counter split
+across two files by provider would be worse than none, reporting a bound it was
+not enforcing.
 
 Appends are atomic at this size, counting is a read, and no lock protocol is
 needed. A race over-counts rather than under-counts, which errs toward
