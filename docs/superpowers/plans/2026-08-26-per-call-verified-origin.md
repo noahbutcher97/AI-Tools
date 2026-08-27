@@ -1280,6 +1280,8 @@ git commit -m "relay: report host metadata keys not seen before"
 Not a task, because it cannot be run from a test suite. After Task 8:
 
 1. From a **live Codex session**, call `relay_list` then `relay_send` to a Claude target. The delivered envelope must read `(codex, <workspace>)`, must say "metadata the host attached to this call", and must carry a `To reply:` line naming the Codex thread id.
+
+   **Word the request as "call the MCP tool", never "run this in exec".** `exec` is overloaded in Codex: there is a shell exec and there is the code-mode JavaScript sandbox where the `tools` object lives. Asking for exec gets a shell, where `tools` is undefined and the attempt fails with `ReferenceError: tools is not defined` — which looks like a bridge failure and is not one. Observed 2026-08-27.
 2. **Reply to that address** from the Claude session. It must arrive in the Codex session.
 3. Confirm `%TEMP%\cross-agent-relay-ledger.log` gained one line per delivered message.
 
