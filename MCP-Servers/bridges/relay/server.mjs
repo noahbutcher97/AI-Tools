@@ -87,12 +87,26 @@ server.tool(
       .describe(
         "Who to say this is from. Relay cannot authenticate it, so it is delivered marked as an unverified claim. The delegate's own session name is ephemeral and cannot be replied to.",
       ),
+    conversation: z
+      .string()
+      .optional()
+      .describe("Continue this conversation, quoted from a relay header. Minted if omitted."),
+    kind: z
+      .enum(["request", "reply", "notice"])
+      .optional()
+      .describe(
+        "request expects an answer; reply answers one; notice expects nothing. Informational: relay records it and does not enforce it.",
+      ),
+    in_reply_to: z
+      .string()
+      .optional()
+      .describe("The message id being answered, quoted from a relay header."),
   },
   // NOT read-only: it queues a message into another agent's session. Claiming
   // otherwise to dodge an approval prompt would be a lie told to the host's
   // safety layer. It is non-destructive — it adds a message, removes nothing.
   { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  async ({ to, message, dry_run = false, from }, extra) => {
+  async ({ to, message, dry_run = false, from, conversation, kind, in_reply_to }, extra) => {
     const result = await sendMessage({
       to,
       message,
@@ -105,6 +119,9 @@ server.tool(
       // carries the metadata the host attached; the arguments object is never
       // consulted, and a caller passing a counterfeit `_meta` there is ignored.
       identity: resolveCallerIdentity({ extra }),
+      conversation,
+      kind,
+      inReplyTo: in_reply_to,
       // RELAY_SPOOL relocates the failure spool. The registration tests set it
       // so a test run cannot append to the operator's real spool.
       ...(process.env.RELAY_SPOOL ? { spoolPath: process.env.RELAY_SPOOL } : {}),

@@ -91,6 +91,9 @@ async function runSend(options) {
     // shelling out to relay identifies itself the same way a Codex MCP call
     // does. Same guarantee, different host.
     identity: hostIdentity,
+    conversation: options.conversation,
+    kind: options.kind,
+    inReplyTo: options.inReplyTo,
   });
 
   if (options.json) {

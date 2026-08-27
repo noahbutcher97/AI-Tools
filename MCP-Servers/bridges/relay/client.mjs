@@ -1781,7 +1781,7 @@ export async function resolveReference(options = {}) {
 // ignored: a mistyped --scope that silently fell back to the caller's own
 // workspace would report an empty machine and look like a broken relay.
 const COMMANDS = new Set(["list", "send"]);
-const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re"]);
+const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
 
 export function parseArgs(argv = []) {
@@ -1794,7 +1794,7 @@ export function parseArgs(argv = []) {
     }
   }
 
-  const options = { command, scope: "cwd", cwd: undefined, json: false, dryRun: false, viaDelegate: false };
+  const options = { command, scope: "cwd", cwd: undefined, json: false, dryRun: false, viaDelegate: false, kind: "notice" };
 
   if (command === "send") {
     if (!args.length || args[0].startsWith("--")) {
@@ -1821,6 +1821,17 @@ export function parseArgs(argv = []) {
       options.message = value;
     } else if (flag === "--re") {
       options.re = value;
+    } else if (flag === "--conversation") {
+      options.conversation = value;
+    } else if (flag === "--in-reply-to") {
+      options.inReplyTo = value;
+    } else if (flag === "--kind") {
+      // Refused here, where the caller can still fix it. A recipient handed a
+      // kind it does not recognise can neither act on it nor ask about it.
+      if (!["request", "reply", "notice"].includes(value)) {
+        throw new Error(`kind must be "request", "reply" or "notice", got "${value}"`);
+      }
+      options.kind = value;
     } else if (flag === "--from") {
       // A claim, not a fact: relay cannot authenticate its caller, and the
       // delegate destroys transport identity anyway. Stamped as unverified.

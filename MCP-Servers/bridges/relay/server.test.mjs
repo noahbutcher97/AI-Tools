@@ -165,3 +165,34 @@ test("the send handler resolves identity from the request, not from its argument
   assert.equal(source.includes("resolveCallerIdentity({ extra })"), true, "the handler must resolve from the request");
   assert.equal(source.includes("args._meta"), false, "identity must never be read from tool arguments");
 });
+
+test("relay_send exposes conversation, kind and in_reply_to to an MCP caller", async () => {
+  // Registration, not plumbing: an agent can only continue a conversation if
+  // the parameter is on the published schema, and the CLI having the flag says
+  // nothing about the tool surface.
+  const tool = await withClient("relay-typed-params", async (c) => {
+    const { tools } = await c.listTools();
+    return tools.find((t) => t.name === "relay_send");
+  });
+
+  const props = tool.inputSchema.properties;
+
+  assert.equal("conversation" in props, true);
+  assert.equal("in_reply_to" in props, true);
+  assert.deepEqual(props.kind.enum, ["request", "reply", "notice"]);
+});
+
+test("identity is not among the parameters an MCP caller can set", async () => {
+  // The property the whole origin design rests on, asserted at the surface a
+  // caller actually sees rather than inferred from the handler.
+  const tool = await withClient("relay-no-identity-param", async (c) => {
+    const { tools } = await c.listTools();
+    return tools.find((t) => t.name === "relay_send");
+  });
+
+  const names = Object.keys(tool.inputSchema.properties);
+
+  assert.equal(names.includes("identity"), false);
+  assert.equal(names.includes("verifiedOrigin"), false);
+  assert.equal(names.includes("_meta"), false);
+});

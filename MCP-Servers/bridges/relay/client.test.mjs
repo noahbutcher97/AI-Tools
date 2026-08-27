@@ -744,3 +744,38 @@ test("--from declares a claimed origin for the delegate to stamp", () => {
 test("list does not accept a positional target", () => {
   assert.throws(() => parseArgs(["list", "some-target"]), /unknown|list/i);
 });
+
+// -- Typed-message flags (typed-messages Task 7) --
+
+test("--conversation continues an existing conversation", () => {
+  assert.equal(
+    parseArgs(["send", "peer", "--message", "hi", "--conversation", "c-1111aaaa@x"]).conversation,
+    "c-1111aaaa@x",
+  );
+});
+
+test("--kind sets the message intent", () => {
+  assert.equal(parseArgs(["send", "peer", "--message", "hi", "--kind", "request"]).kind, "request");
+});
+
+test("kind defaults to notice", () => {
+  // Every existing caller keeps working: a send with none of these flags is a
+  // notice and still carries a parseable header.
+  assert.equal(parseArgs(["send", "peer", "--message", "hi"]).kind, "notice");
+});
+
+test("--in-reply-to names the message being answered", () => {
+  assert.equal(parseArgs(["send", "peer", "--message", "hi", "--in-reply-to", "m-6f21a0"]).inReplyTo, "m-6f21a0");
+});
+
+test("an unknown kind is refused where the caller can still fix it", () => {
+  // Rejected at the boundary rather than stamped into a message. A recipient
+  // reading kind "shout" has no way to act on it and no way to ask.
+  // Matched against the enum message, not /kind/i: before --kind existed at all
+  // this threw `unknown flag "--kind"`, which satisfies a loose pattern and
+  // says nothing about validation.
+  assert.throws(
+    () => parseArgs(["send", "peer", "--message", "hi", "--kind", "shout"]),
+    /must be "request", "reply" or "notice"/,
+  );
+});
