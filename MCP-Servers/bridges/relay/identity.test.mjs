@@ -6,6 +6,7 @@ import {
   HOST_META_MAX_BYTES,
   buildHostMetadata,
   detectRequestOrigin,
+  newHostKeys,
   resolveCallerIdentity,
 } from "./identity.mjs";
 
@@ -196,4 +197,34 @@ test("the messaging token is never read, on any path", () => {
   resolveCallerIdentity({ env, extra: null });
 
   assert.equal(seen.includes("CLAUDE_CODE_MESSAGING_TOKEN"), false, "relay touched the messaging token");
+});
+
+// -- The drift detector the fixture tests structurally cannot be (spec 4.4b) --
+
+test("a key is reported the first time it is seen and not after", () => {
+  // Two assertions on purpose. A test that only checks the first call passes
+  // when deduplication is absent, and one that only checks the second passes
+  // when reporting is absent entirely.
+  const first = newHostKeys({ turn_id: "t", brand_new_field: 1 });
+  const second = newHostKeys({ turn_id: "t", brand_new_field: 1 });
+
+  assert.equal(first.includes("brand_new_field"), true);
+  assert.equal(second.includes("brand_new_field"), false);
+});
+
+test("keys measured on 2026-08-26 are known and never reported", () => {
+  // The point of the detector is drift. Reporting the fields that were present
+  // when this was written would make every send noisy and train whoever reads
+  // the spool to ignore it, which is worse than not reporting at all.
+  const observed = {
+    thread_id: "t", turn_id: "u", thread_source: "user",
+    model: "m", reasoning_effort: "high", sandbox: "windows_elevated",
+  };
+
+  assert.deepEqual(newHostKeys(observed), []);
+});
+
+test("a null or empty blob reports nothing rather than throwing", () => {
+  assert.deepEqual(newHostKeys(null), []);
+  assert.deepEqual(newHostKeys({}), []);
 });

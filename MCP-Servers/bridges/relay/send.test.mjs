@@ -479,3 +479,30 @@ test("an unreadable ledger lets the send through and spools that the guard is of
   assert.equal(result.ok, true);
   assert.match(fs.readFileSync(spoolFile, "utf8"), /ledger_inoperative/);
 });
+
+test("an unfamiliar host metadata key is recorded to the spool and does not block the send", needsStore, async () => {
+  // A wiring test, not a unit test: newHostKeys is covered in isolation, and
+  // that coverage stays green however the send path is wired. Two assertions,
+  // because drift that blocks delivery and drift that goes unrecorded are
+  // opposite failures and a test for one passes under the other.
+  const home = codexHome();
+  liveThread(home);
+  const spoolFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-drift-")), "spool.log");
+  const h = harness(home, { spoolPath: spoolFile });
+
+  const result = await sendMessage({
+    to: THREAD,
+    message: MESSAGE,
+    ledgerPath: tempLedgerPath(),
+    identity: {
+      id: "codex-1",
+      provider: "codex",
+      channel: "request-metadata",
+      host: { model: "m", codex_invented_this_yesterday: "surprise" },
+    },
+    ...h.options,
+  });
+
+  assert.equal(result.ok, true, "drift is a thing to look at, never a reason to refuse");
+  assert.match(fs.readFileSync(spoolFile, "utf8"), /codex_invented_this_yesterday/);
+});

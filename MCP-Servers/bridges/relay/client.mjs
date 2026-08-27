@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { buildHostMetadata } from "./identity.mjs";
+import { buildHostMetadata, newHostKeys } from "./identity.mjs";
 import { checkCaps, ledgerPath as defaultLedgerPath, recordSend } from "./ledger.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
@@ -1024,6 +1024,24 @@ export async function sendMessage(options = {}) {
       );
     }
     return fail(SEND_CAUSES.NOT_FOUND, `no live agent session is named "${to}"`);
+  }
+
+  // Host metadata is passed through by name, so drift is invisible without
+  // something watching for it. Recorded once per new key to the spool, which is
+  // human-readable and never agent-drained. Never blocks a send: an unfamiliar
+  // field is a thing to look at, not a reason to refuse.
+  const freshKeys = newHostKeys(buildHostMetadata(identity?.host).kept);
+  if (freshKeys.length > 0) {
+    spool(spoolPath, spoolFallbackPath, {
+      now,
+      to,
+      kind: target.kind,
+      cause: "host_metadata_drift",
+      detail:
+        `host turn metadata carried keys not seen before: ${freshKeys.join(", ")}. ` +
+        "Passed through as usual; review whether any should be on the deny-list.",
+      message: "",
+    });
   }
 
   // Checked before the transport dispatch so both paths are bounded, and after

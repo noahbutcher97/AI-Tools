@@ -117,3 +117,31 @@ export function resolveCallerIdentity({ env = process.env, extra = null } = {}) 
   if (fromRequest && fromEnv && fromRequest.id !== fromEnv.id) return null;
   return fromRequest || fromEnv;
 }
+
+// The fields observed on 2026-08-26. Anything outside this set is drift worth a
+// human's attention.
+//
+// This is the half of the pass-through design that fixture tests CANNOT supply.
+// Those run against a point-in-time capture and would keep passing if Codex
+// renamed every field tomorrow; that is a property of fixtures, not a shortfall
+// more fixtures would close. The two are designed as a pair (spec 4.4b, 4.4c).
+const KNOWN_HOST_KEYS = new Set([
+  "thread_id", "turn_id", "turn_started_at_unix_ms", "thread_source",
+  "model", "reasoning_effort", "sandbox", "sandbox_mode",
+  "node_repl_disabled", "auto_review_enabled", "node_repl_auto_review_required",
+]);
+
+// Deduplicated in memory, which is coherent because only the long-lived MCP
+// face sees this channel; the per-invocation CLI never does, having no request
+// to read (spec 4.4b).
+const reported = new Set();
+
+export function newHostKeys(kept) {
+  const fresh = [];
+  for (const name of Object.keys(kept || {})) {
+    if (KNOWN_HOST_KEYS.has(name) || reported.has(name)) continue;
+    reported.add(name);
+    fresh.push(name);
+  }
+  return fresh.sort();
+}
