@@ -941,6 +941,12 @@ what they tell a recipient", which is exactly what happened in the field the
 comment protects. Three values that must always travel together are one value;
 collapsing them is what stops a call site silently dropping one.
 
+**The header also carries machine-readable correlation.** Origin stamping is no
+longer the only structured thing in an envelope: a `RELAY-META` line carries the
+conversation, message id, kind and the sender block described here, so a
+recipient can answer without a human transcribing addresses. See
+`2026-08-25-typed-messages-design.md`, delivered 2026-08-27.
+
 Precedence and honesty rules:
 
 - A verified origin **wins** over any claim.

@@ -1,7 +1,9 @@
 # Typed Messages and Conversation Correlation — Design
 
 Date: 2026-08-25
-Status: Design approved in conversation; spec pending Noah review
+Status: Delivered 2026-08-27. Measured outcomes in section 12; two
+predictions in this document were overturned by measurement and are corrected
+there rather than edited away.
 Depends on: `2026-08-23-cross-agent-relay-design.md` (Units 1–5, delivered)
 
 ## 1. Purpose
@@ -189,7 +191,7 @@ write-only, and it is not currently true in both directions:
 | Recipient | Can it reply today? |
 |---|---|
 | Claude session | **Yes.** The relay MCP face is registered top-level as of 2026-08-25, so any newly started Claude session has `relay_send`. |
-| Codex session | **No.** `relay_send` is refused under the host's approval policy, unresolved as of this writing. A Codex session can *receive* a correlated request and cannot answer it through relay. |
+| Codex session | **Yes, as of 2026-08-26.** This row read "No, refused under the host's approval policy" until the policy question was settled. See section 12. |
 
 This does not change the design — the header is what a reply needs, whenever
 replying becomes possible — but it does mean **rung 1 delivers a half-duplex
@@ -306,3 +308,47 @@ recipient.
 An unadorned send still works exactly as today and carries `kind: notice`. No
 existing caller changes. Recipients that ignore `RELAY-META` see the prose header
 they already saw.
+
+## 12. Measured outcomes, 2026-08-27
+
+Recorded after implementation, and kept separate from the design above so a
+reader can see which claims were predictions and which were measured.
+
+**A Codex session can reply, overturning section 6.** That table said no,
+because `relay_send` was refused under the host's approval policy. The refusal
+was real and its text was `MCP tool call requires approval, but approval policy
+is never`. Under the granular policy since configured, a Codex session called
+`relay_list` and `relay_send` successfully and the message arrived. No daemon
+restart was needed; the policy applied to an already-running session.
+
+**Origin is verified on the Codex path, which section 4 assumed it could not
+be.** The relay design's 4.4a carried a table row claiming Codex publishes a
+thread id into the environment of the servers it spawns. It does not. It
+publishes one in the metadata of every tool call, which is better — per call
+rather than read once, so it cannot go stale. Measured live: a Codex session
+received `{"verified":true,"id":"01a04376-...","provider":"codex","source":
+"metadata the host attached to this call"}`. The correction is in 4.4a of the
+relay design; identity now resolves per call at both faces.
+
+**The reply recipe renders per face.** Section 6 shows one form using command
+line flags for both. The implementation renders the tool form with named
+parameters and the command line form with flags, because that line exists to be
+pasted and one rendering would be wrong for one of them:
+
+```
+To reply: relay_send with to="ai-tools-dd", conversation="c-4b2c9f1a@...", in_reply_to="m-6f21a0", kind="reply"
+          (CLI: relay send ai-tools-dd --message "..." --conversation c-4b2c9f1a@... --in-reply-to m-6f21a0 --kind reply).
+```
+
+**The delegate carries the header, verified by construction and not yet by a
+live round trip.** The delegate instruction now names the header alongside the
+body markers, and a test drives the whole send path to assert the ids reach the
+delivered text. What has NOT been observed is a message travelling out through a
+live `claude -p` delegate and a reply coming back into the originating Codex
+thread. Both halves are verified separately; the loop has not been closed
+end to end, and anyone citing this work as proven bidirectional should close it
+first.
+
+**Volume caps were built and removed the same day.** They are recorded as a
+non-goal in section 2 of the relay design, with the reasoning, so they are not
+rebuilt from the argument that was already wrong once.
