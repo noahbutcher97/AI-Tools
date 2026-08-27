@@ -54,8 +54,10 @@ export function recordSend(ledger, { now, conversation }) {
 function readEntries(ledger, now) {
   const raw = fs.readFileSync(ledger, "utf8");
   const entries = [];
+  let seen = 0;
   for (const line of raw.split("\n")) {
     if (!line) continue;
+    seen += 1;
     try {
       const entry = JSON.parse(line);
       if (typeof entry.t === "number" && now - entry.t <= RETENTION_MS) entries.push(entry);
@@ -63,13 +65,33 @@ function readEntries(ledger, now) {
       // One corrupt line must not blind the counter to every other line.
     }
   }
-  return entries;
+  return { entries, seen };
+}
+
+// Nothing else prunes: recordSend only appends. Without this the file grows
+// without bound and every cap check parses all of it, so the check gets slower
+// forever - a cost paid on every send, which is the shape of problem that goes
+// unnoticed until it is large.
+//
+// Compaction runs on the read path because the entries are already parsed
+// there. Best effort: failing to compact must never fail a send, since the
+// count just read is still correct.
+function compact(ledger, entries, seen) {
+  if (seen <= entries.length) return;
+  try {
+    const body = entries.map((entry) => JSON.stringify(entry)).join("\n");
+    fs.writeFileSync(ledger, entries.length ? body + "\n" : "");
+  } catch {
+    // The counts stand; only the tidying failed.
+  }
 }
 
 export function checkCaps(ledger, { now, conversation }) {
   let entries;
   try {
-    entries = readEntries(ledger, now);
+    const read = readEntries(ledger, now);
+    entries = read.entries;
+    compact(ledger, read.entries, read.seen);
   } catch {
     // Fails open, LOUDLY: the caller reports the guard inoperative rather than
     // refusing every send over a broken counter file, which would cause the

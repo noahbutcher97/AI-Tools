@@ -1320,8 +1320,18 @@ refusing — the safe direction for a cost guard.
 
 **Retention is 24 hours; the global window is one hour.** The conversation cap
 counts every retained entry for that conversation, so a slow loop cannot reset
-itself by falling below an hourly window. At the global ceiling the file holds
-under five thousand lines.
+itself by falling below an hourly window. Neither cap resets at a boundary: both
+are rolling, so an entry stops counting when it ages past its window and
+capacity returns message by message rather than in a lump.
+
+**Expired entries are compacted away on the read path.** Recording only appends,
+so without this the file would grow without bound and every cap check would
+parse all of it, making the check slower forever at a cost paid on every send.
+Compaction happens where the entries are already parsed, and is best effort: a
+failure to tidy must never fail a send, because the count just read is still
+correct. With it the file holds at most a day of entries, under five thousand
+lines at the ceiling. An earlier draft asserted that bound while nothing
+implemented it.
 
 **Refusal must be actionable, because this is the first thing in the design
 that can refuse a legitimate send.** A twenty-message working exchange between

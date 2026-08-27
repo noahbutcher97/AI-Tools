@@ -128,3 +128,34 @@ test("RELAY_LEDGER relocates the ledger, so a test run cannot spend real quota",
     else process.env.RELAY_LEDGER = before;
   }
 });
+
+test("expired entries are compacted out rather than accumulating forever", () => {
+  // recordSend only appends, so without compaction the file grows without bound
+  // AND every cap check parses all of it - the check gets slower forever. The
+  // spec claimed the file stays under five thousand lines at the ceiling, which
+  // describes a file that prunes.
+  const p = tempLedger();
+  const day = 86_400_000;
+  const now = 10 * day;
+  for (let i = 0; i < 50; i++) recordSend(p, { now: 1000 + i, conversation: "old" });
+  recordSend(p, { now, conversation: "current" });
+
+  checkCaps(p, { now, conversation: "current" });
+
+  const lines = fs.readFileSync(p, "utf8").split("\n").filter(Boolean);
+
+  assert.equal(lines.length, 1, "only entries inside the retention window survive");
+  assert.equal(lines[0].includes("current"), true);
+});
+
+test("compaction keeps entries that are still inside the window", () => {
+  // The mirror failure: a compactor that drops live entries would silently
+  // reset the caps it exists to keep.
+  const p = tempLedger();
+  const now = 86_400_000;
+  for (let i = 0; i < 5; i++) recordSend(p, { now: now - 1000 * i, conversation: "live" });
+
+  checkCaps(p, { now, conversation: "live" });
+
+  assert.equal(fs.readFileSync(p, "utf8").split("\n").filter(Boolean).length, 5);
+});
