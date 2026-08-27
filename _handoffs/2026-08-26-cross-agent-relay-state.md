@@ -380,3 +380,32 @@ Note in passing: `[mcp_servers.relay.tools.relay_send]` now reads
 `approval_mode = "approve"` where this document earlier recorded `"auto"`.
 Unexplained, not investigated, and not load-bearing for anything above - but
 worth not being surprised by.
+
+## Acceptance 2026-08-27: a Codex caller is verified, live
+
+A Codex session started after the per-call resolution landed called `relay_list`
+through the MCP face and received:
+
+    {"verified":true,
+     "id":"01a04376-425e-7f61-bd0a-11940ee61eac",
+     "provider":"codex",
+     "source":"metadata the host attached to this call"}
+
+First verified Codex sender this bridge has produced. The id matches the session
+the host reported, the provider comes from the metadata namespace rather than
+any value inside it, and the source names the channel rather than asserting the
+environment.
+
+**Two earlier attempts failed for reasons worth not repeating.** The first was
+worded "run this in exec" and the session ran a shell command, where the `tools`
+object does not exist: `exec` names both a shell and the code-mode JavaScript
+sandbox, and only the second has the MCP tool surface. The failure reads like a
+bridge fault and is not one.
+
+The second used the correct wording in an older session and returned
+`verified:false`. That session's relay server had been spawned at 09:29 while
+per-call resolution landed at 09:35, so it was running the previous build. **An
+MCP server is a child of its TUI and holds whatever code existed when the
+session started**, which is the same process-parentage fact that earlier saved a
+pointless daemon restart, cutting the other way. Testing a relay change requires
+a session started after it, and no amount of correct prompting substitutes.
