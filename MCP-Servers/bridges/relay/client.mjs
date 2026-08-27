@@ -470,35 +470,19 @@ function resolveClaudeCommand() {
 // can do is resolve that claim against live discovery: whether a session by that
 // name exists right now, what kind it is, and how to reach it. That is what
 // makes a reply — and therefore a workflow between two agents — possible at all.
-// Every host in the matrix publishes its own session identity in the
-// environment of processes it spawns, so verification is not Codex-specific:
+// Hosts publish session identity two different ways, so verification is not
+// Codex-specific and is also not environment-only. Resolving it lives in
+// identity.mjs; this file only carries what that resolver returns.
 //
-//   Claude -> CLI          CLAUDE_CODE_SESSION_ID   (measured)
-//   Claude -> MCP server   same, inherited on spawn
-//   Codex  -> MCP server   CODEX_THREAD_ID / CODEX_SESSION_ID (measured)
-//   Codex  -> shell -> CLI same, measured on a spawned shell command
+//   Claude -> CLI           environment       CLAUDE_CODE_SESSION_ID
+//   Claude -> MCP server    environment       same, inherited on spawn
+//   Codex  -> shell -> CLI  environment       CODEX_THREAD_ID / CODEX_SESSION_ID
+//   Codex  -> MCP server    request metadata  x-codex-turn-metadata.thread_id
 //
-// Only the identifier is read. CLAUDE_CODE_MESSAGING_TOKEN sits in the same
-// environment and is peer-pipe secret material; safety discipline 4 keeps relay
-// out of it, and an environment read is the easiest place to breach that by
-// accident, so the lookup is an explicit allow-list rather than a scan.
-// Which variable is set also tells relay which provider the sender runs on, and
-// that fact survives even when the sender's session does not resolve in
-// discovery — so the provider is reported from here, not inferred from a
-// discovered target.
-const IDENTITY_VARS = [
-  ["CODEX_THREAD_ID", "codex"],
-  ["CODEX_SESSION_ID", "codex"],
-  ["CLAUDE_CODE_SESSION_ID", "claude"],
-];
-
-export function detectVerifiedOrigin(env = process.env) {
-  for (const [name, provider] of IDENTITY_VARS) {
-    const value = env[name];
-    if (value) return { id: value, provider };
-  }
-  return null;
-}
+// The last row read "CODEX_THREAD_ID, measured" until 2026-08-26. It had been
+// inferred from the row above it and was false: Codex spawns MCP servers with
+// a scrubbed environment of eighteen stock variables carrying no thread id.
+//
 
 // A conversation id encodes the verified origin that opened it, so any relay
 // instance can attest continuity of the minting party with no stored state.

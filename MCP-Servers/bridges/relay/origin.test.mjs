@@ -5,10 +5,17 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildDelegateInvocation, buildRelayEnvelope, sendMessage } from "./client.mjs";
+import { resolveCallerIdentity } from "./identity.mjs";
 
 // Identity is one object resolved per call (spec 4.4a). These tests predate
 // that collapse and passed the id and provider as separate parameters, which is
 // the shape that let the delegate path drop one of them.
+// The environment channel, reached through the one resolver that owns it. This
+// used to be a second implementation living in client.mjs with its own copy of
+// the variable allow-list - two copies of "which variables are identity", which
+// could drift apart exactly as the origin and provider parameters did.
+const detectVerifiedOrigin = (env) => resolveCallerIdentity({ env, extra: null });
+
 function verified(id, provider = "codex", channel = "environment") {
   return { id, provider, channel, host: {} };
 }
@@ -158,8 +165,6 @@ test("without a verified origin the header still falls back to the claim", () =>
 // So verification is not a Codex-only feature, and the header must not imply it.
 
 test("a claude host's session id is detected as the verified origin", async () => {
-  const { detectVerifiedOrigin } = await import("./client.mjs");
-
   assert.equal(
     detectVerifiedOrigin({ CLAUDE_CODE_SESSION_ID: "2ed73e8c-517a-4786-b8fb-9f80f35c90fc" }).id,
     "2ed73e8c-517a-4786-b8fb-9f80f35c90fc",
@@ -167,22 +172,16 @@ test("a claude host's session id is detected as the verified origin", async () =
 });
 
 test("a codex host's thread id is detected as the verified origin", async () => {
-  const { detectVerifiedOrigin } = await import("./client.mjs");
-
   assert.equal(detectVerifiedOrigin({ CODEX_THREAD_ID: "01a034fa-7e07-7e40-b790-1e67154440a1" }).id, "01a034fa-7e07-7e40-b790-1e67154440a1");
 });
 
 test("codex thread id wins over session id when both are present", async () => {
   // Measured: Codex sets both, equal for a root thread. THREAD_ID is the one
   // that stays correct for a forked or resumed thread.
-  const { detectVerifiedOrigin } = await import("./client.mjs");
-
   assert.equal(detectVerifiedOrigin({ CODEX_THREAD_ID: "thread-1", CODEX_SESSION_ID: "session-1" }).id, "thread-1");
 });
 
 test("no host identity yields null rather than a guess", async () => {
-  const { detectVerifiedOrigin } = await import("./client.mjs");
-
   assert.equal(detectVerifiedOrigin({}), null);
 });
 
@@ -190,7 +189,6 @@ test("never reads the messaging token, only the identifier", async () => {
   // CLAUDE_CODE_MESSAGING_TOKEN sits in the same environment and is the
   // peer-pipe secret. Safety discipline 4 keeps relay out of key material, and
   // an environment read is the easiest place to violate it by accident.
-  const { detectVerifiedOrigin } = await import("./client.mjs");
   const seen = [];
   const env = new Proxy(
     { CLAUDE_CODE_SESSION_ID: "s1", CLAUDE_CODE_MESSAGING_TOKEN: "SECRET" },
@@ -226,8 +224,6 @@ test("a verified codex thread with no name replies to its id", () => {
 test("the detected identity names which provider the sender is running on", async () => {
   // Relay knows this from WHICH variable was set, so it holds even when the
   // sender's session does not resolve in discovery.
-  const { detectVerifiedOrigin } = await import("./client.mjs");
-
   assert.equal(detectVerifiedOrigin({ CLAUDE_CODE_SESSION_ID: "s1" }).provider, "claude");
   assert.equal(detectVerifiedOrigin({ CODEX_THREAD_ID: "t1" }).provider, "codex");
 });

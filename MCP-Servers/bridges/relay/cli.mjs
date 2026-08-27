@@ -17,7 +17,8 @@
 // reason: SendMessage is an in-session tool, so a shell-invocable path to a
 // Claude session needs the delegate that Unit 3 adds.
 
-import { detectVerifiedOrigin, discoverTargets, formatTargets, parseArgs, sendMessage } from "./client.mjs";
+import { discoverTargets, formatTargets, parseArgs, sendMessage } from "./client.mjs";
+import { resolveCallerIdentity } from "./identity.mjs";
 
 // node:sqlite is experimental and announces itself on every load. The warning
 // is noise here and would be noise in a bridge log, so it is filtered while
@@ -61,7 +62,9 @@ async function readStdin() {
 async function runSend(options) {
   // The CLI inherits its host session's environment, so a Claude session
   // shelling out identifies itself exactly as a Codex MCP call does.
-  const hostIdentity = detectVerifiedOrigin();
+  // The CLI inherits its host session's environment, so this face reads the
+  // environment channel. It never sees request metadata, having no request.
+  const hostIdentity = resolveCallerIdentity();
   let message = options.message;
   if (message === undefined) {
     if (process.stdin.isTTY) {
@@ -87,8 +90,7 @@ async function runSend(options) {
     // The CLI inherits its host session's environment, so a Claude session
     // shelling out to relay identifies itself the same way a Codex MCP call
     // does. Same guarantee, different host.
-    verifiedOrigin: hostIdentity?.id ?? null,
-    verifiedProvider: hostIdentity?.provider ?? null,
+    identity: hostIdentity,
   });
 
   if (options.json) {
