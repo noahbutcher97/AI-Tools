@@ -4,7 +4,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { buildRelayEnvelope, sendMessage } from "./client.mjs";
+import { buildDelegateInvocation, buildRelayEnvelope, sendMessage } from "./client.mjs";
+
+// Identity is one object resolved per call (spec 4.4a). These tests predate
+// that collapse and passed the id and provider as separate parameters, which is
+// the shape that let the delegate path drop one of them.
+function verified(id, provider = "codex", channel = "environment") {
+  return { id, provider, channel, host: {} };
+}
 
 // Origin stamping (spec 4.4a).
 //
@@ -98,7 +105,7 @@ test("the origin is always marked unauthenticated, even when it resolves", () =>
 
 test("a verified origin is labelled as verified rather than claimed", () => {
   const text = envelope({
-    verifiedOrigin: "01a034fa-7e07-7e40-b790-1e67154440a1",
+    identity: verified("01a034fa-7e07-7e40-b790-1e67154440a1"),
     originTarget: { id: "01a034fa-7e07-7e40-b790-1e67154440a1", kind: "codex", addressable: true },
   }).text;
 
@@ -109,7 +116,7 @@ test("a verified origin is labelled as verified rather than claimed", () => {
 test("a verified origin overrides a conflicting claim instead of trusting the sender", () => {
   const text = envelope({
     origin: "i-am-someone-else",
-    verifiedOrigin: "01a034fa-7e07-7e40-b790-1e67154440a1",
+    identity: verified("01a034fa-7e07-7e40-b790-1e67154440a1"),
   }).text;
 
   assert.match(text, /01a034fa-7e07-7e40-b790-1e67154440a1/);
@@ -120,7 +127,7 @@ test("a claim that disagrees with the verified origin is surfaced, not silently 
   // attempted spoof. Quietly discarding it would hide both.
   const text = envelope({
     origin: "i-am-someone-else",
-    verifiedOrigin: "01a034fa-7e07-7e40-b790-1e67154440a1",
+    identity: verified("01a034fa-7e07-7e40-b790-1e67154440a1"),
   }).text;
 
   assert.match(text, /i-am-someone-else/);
@@ -129,13 +136,13 @@ test("a claim that disagrees with the verified origin is surfaced, not silently 
 
 test("a claim matching the verified origin produces no mismatch warning", () => {
   const id = "01a034fa-7e07-7e40-b790-1e67154440a1";
-  const text = envelope({ origin: id, verifiedOrigin: id }).text;
+  const text = envelope({ origin: id, identity: verified(id) }).text;
 
   assert.doesNotMatch(text, /disagree|mismatch/i);
 });
 
 test("without a verified origin the header still falls back to the claim", () => {
-  const text = envelope({ origin: "ai-tools-dd", verifiedOrigin: null }).text;
+  const text = envelope({ origin: "ai-tools-dd", identity: null }).text;
 
   assert.match(text, /ai-tools-dd/);
   assert.match(text, /not authenticated|unverified|cannot verify/i);
@@ -199,7 +206,7 @@ test("a verified claude session id is reported as its addressable name, not the 
   // SendMessage takes the session NAME. Echoing the verified id back as a reply
   // address would hand the recipient something they cannot send to.
   const text = envelope({
-    verifiedOrigin: "2ed73e8c-517a-4786-b8fb-9f80f35c90fc",
+    identity: verified("2ed73e8c-517a-4786-b8fb-9f80f35c90fc", "claude"),
     originTarget: { id: "2ed73e8c-517a-4786-b8fb-9f80f35c90fc", name: "ai-tools-dd", kind: "claude", addressable: true },
   }).text;
 
@@ -209,7 +216,7 @@ test("a verified claude session id is reported as its addressable name, not the 
 test("a verified codex thread with no name replies to its id", () => {
   const id = "01a034fa-7e07-7e40-b790-1e67154440a1";
   const text = envelope({
-    verifiedOrigin: id,
+    identity: verified(id),
     originTarget: { id, name: id, kind: "codex", addressable: true },
   }).text;
 
@@ -229,7 +236,7 @@ test("a verified sender whose session does not resolve still names its provider"
   // Otherwise the header reads "(session)" and the only provider word in sight
   // is the TRANSPORT line, which describes how the message arrived rather than
   // who sent it — a Claude sender delivered by codex queue reads as Codex.
-  const text = envelope({ verifiedOrigin: "2ed73e8c", verifiedProvider: "claude", originTarget: null }).text;
+  const text = envelope({ identity: verified("2ed73e8c", "claude"), originTarget: null }).text;
 
   assert.match(text, /claude/i);
   assert.doesNotMatch(text, /From: 2ed73e8c \(session\)/);
@@ -239,8 +246,7 @@ test("provider and transport are stated as separate facts", () => {
   // A claude session sending through codex queue: both words appear, and the
   // header must not let one be read as the other.
   const text = envelope({
-    verifiedOrigin: "2ed73e8c",
-    verifiedProvider: "claude",
+    identity: verified("2ed73e8c", "claude"),
     transport: "codex-queue",
     originTarget: { id: "2ed73e8c", name: "ai-tools-dd", kind: "claude", addressable: true },
   }).text;
@@ -360,4 +366,53 @@ test("a claimed origin that matches a live session is resolved for the recipient
 
   assert.match(sent[0], /claude/);
   assert.match(sent[0], /D:\\DevTools\\AI-Tools/);
+});
+
+// -- One identity object through both transports (spec 4.4a) --
+
+const CODEX_IDENTITY = { id: "codex-1", provider: "codex", channel: "request-metadata", host: { model: "m" } };
+const CLAUDE_IDENTITY = { id: "claude-1", provider: "claude", channel: "environment", host: {} };
+
+test("the delegate path reports the sender's provider", () => {
+  // The bug this closes: buildDelegateInvocation accepted verifiedOrigin and
+  // never accepted verifiedProvider, so a verified Codex sender rendered as
+  // "(session)" on the one path Codex actually uses - in a function whose own
+  // comment promises the two transports cannot drift apart.
+  const invocation = buildDelegateInvocation({
+    targetName: "some-target",
+    message: "hello",
+    identity: CODEX_IDENTITY,
+  });
+
+  assert.equal(invocation.stdin.includes("(codex)"), true);
+  assert.equal(invocation.stdin.includes("(session)"), false);
+});
+
+test("the envelope names the environment channel for a Claude sender", () => {
+  const { text } = buildRelayEnvelope({ message: "hi", identity: CLAUDE_IDENTITY });
+
+  assert.match(text, /the host's own session environment/);
+});
+
+test("the envelope names the request channel for a Codex sender", () => {
+  // Reporting "environment" for a metadata read would be a true statement about
+  // verification wrapped around a false one about provenance (spec 4.4a).
+  const { text } = buildRelayEnvelope({ message: "hi", identity: CODEX_IDENTITY });
+
+  assert.match(text, /metadata the host attached to this call/);
+  assert.doesNotMatch(text, /session environment/);
+});
+
+test("a Codex sender gets a usable reply address", () => {
+  // A Codex target's name is its thread id, so the existing resolution works
+  // once an id exists to resolve (spec 4.4c).
+  const { text } = buildRelayEnvelope({ message: "hi", identity: CODEX_IDENTITY });
+
+  assert.equal(text.includes('To reply: relay_send to "codex-1"'), true);
+});
+
+test("no identity still renders the unverified wording", () => {
+  const { text } = buildRelayEnvelope({ message: "hi", identity: null, origin: "i-say-im-bob" });
+
+  assert.match(text, /NOT authenticated by relay/);
 });

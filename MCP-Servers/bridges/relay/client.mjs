@@ -600,16 +600,11 @@ export function buildRelayEnvelope({
   message,
   origin = null,
   originTarget = null,
-  // Read from the host's own environment (CODEX_THREAD_ID / CODEX_SESSION_ID),
-  // not from anything the caller supplied. An agent cannot set the environment
-  // of the server process it is talking to, so this is authenticated in a way
-  // a `from` argument never is. When present it wins.
-  verifiedOrigin = null,
-  // Which provider the sender runs on, known from WHICH identity variable was
-  // set. Reported separately from the transport, because a Claude session can
-  // send through codex queue and "Transport: codex queue" would otherwise be
-  // the only provider word in the header.
-  verifiedProvider = null,
+  // Resolved per call by the calling face from a host channel the caller cannot
+  // write (spec 4.4a). ONE object rather than three parallel parameters: three
+  // values that must always travel together are one value, and threading them
+  // separately is exactly what let the delegate path drop the provider.
+  identity = null,
   // A resolved { turnId, excerpt, truncated } from resolveReference().
   reference = null,
   transport = "codex-queue",
@@ -627,17 +622,24 @@ export function buildRelayEnvelope({
     `Transport: ${via}.`,
   ];
 
-  if (verifiedOrigin) {
+  if (identity?.id) {
     const where = originTarget?.cwd ? `, ${originTarget.cwd}` : "";
-    const kind = originTarget?.kind ? `${originTarget.kind}${where}` : verifiedProvider || "session";
+    const kind = originTarget?.kind ? `${originTarget.kind}${where}` : identity.provider || "session";
     // The verified value is a session/thread id, but the address a reply has to
     // use is the target's NAME — SendMessage takes a name, not a session id.
     // Echoing the id back would hand the recipient something unsendable.
-    const replyTo = originTarget?.name || verifiedOrigin;
+    const replyTo = originTarget?.name || identity.id;
+    // The channel is named accurately or not at all: reporting "environment"
+    // for a metadata read would be a true statement about verification wrapped
+    // around a false one about provenance (spec 4.4a).
+    const source =
+      identity.channel === "request-metadata"
+        ? "metadata the host attached to this call"
+        : "the host's own session environment";
     lines.push(
-      `From: ${verifiedOrigin} (${kind}) — VERIFIED. Relay read this from the host's own session environment, not from anything the sender supplied, so it identifies the calling session rather than asserting who wrote the text.`,
+      `From: ${identity.id} (${kind}) — VERIFIED. Relay read this from ${source}, not from anything the sender supplied, so it identifies the calling session rather than asserting who wrote the text.`,
     );
-    if (origin && origin !== verifiedOrigin) {
+    if (origin && origin !== identity.id) {
       // Disagreement is the interesting signal — a confused caller, or a spoof.
       // Discarding it quietly would hide both.
       lines.push(
@@ -701,7 +703,7 @@ function resolveOrigin(origin, targets) {
   return targets.find((t) => t.id === origin || (t.name && t.name === origin)) || null;
 }
 
-export function buildDelegateInvocation({ targetName, message, origin, originTarget = null, verifiedOrigin = null, nonce = randomUUID(), command } = {}) {
+export function buildDelegateInvocation({ targetName, message, origin, originTarget = null, identity = null, nonce = randomUUID(), command } = {}) {
   // Two nested regions, both keyed to the same per-invocation nonce.
   //
   // The OUTER region tells the delegate what to deliver; nothing outside it
@@ -724,7 +726,7 @@ export function buildDelegateInvocation({ targetName, message, origin, originTar
     message,
     origin,
     originTarget,
-    verifiedOrigin,
+    identity,
     transport: "claude-delegate",
     nonce,
   }).text;
@@ -883,10 +885,10 @@ async function threadIsInStore(codexHome, id, openDb) {
 // Relay to a Claude session through the confined delegate. Success is reported
 // only against the confirmation token, never against exit status: the path
 // contains a model call and could in principle do something other than relay.
-async function relayViaDelegate({ target, message, origin, originTarget, verifiedOrigin, runDelegate, fail, dryRun }) {
+async function relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun }) {
   let invocation;
   try {
-    invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, verifiedOrigin });
+    invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, identity });
   } catch (err) {
     return fail(SEND_CAUSES.DELEGATE_FAILED, err.message, target.kind);
   }
@@ -979,10 +981,9 @@ export async function sendMessage(options = {}) {
     // How long an undelivered message may sit before the target counts as
     // stalled. Three times the largest measured wake latency.
     backlogThresholdMs = 30_000,
-    // Authenticated caller identity, supplied by the calling face from its own
-    // process environment. Never accepted from a tool argument.
-    verifiedOrigin = null,
-    verifiedProvider = null,
+    // Authenticated caller identity, resolved per call by the calling face from
+    // whichever host channel is available. Never accepted from a tool argument.
+    identity = null,
     openDb = defaultOpenDb,
     codexHome = defaultCodexHome(),
     ...discovery
@@ -999,7 +1000,7 @@ export async function sendMessage(options = {}) {
   const target = targets.find((t) => t.id === to || (t.name && t.name === to));
   // Resolved against the same live listing, so the header can tell the
   // recipient whether the claimed sender corresponds to anything reachable.
-  const originTarget = resolveOrigin(verifiedOrigin || origin, targets);
+  const originTarget = resolveOrigin(identity?.id || origin, targets);
 
   if (!target) {
     if (isThreadId(to) && (await threadIsInStore(codexHome, to, openDb))) {
@@ -1020,7 +1021,7 @@ export async function sendMessage(options = {}) {
         target.kind,
       );
     }
-    return relayViaDelegate({ target, message, origin, originTarget, verifiedOrigin, runDelegate, fail, dryRun });
+    return relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun });
   }
 
   if (target.kind !== "codex") {
@@ -1086,8 +1087,7 @@ export async function sendMessage(options = {}) {
     message,
     origin,
     originTarget,
-    verifiedOrigin,
-    verifiedProvider,
+    identity,
     reference,
     transport: "codex-queue",
   }).text;
