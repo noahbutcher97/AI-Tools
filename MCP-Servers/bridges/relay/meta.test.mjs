@@ -266,10 +266,14 @@ test("an unadorned envelope still carries a notice header", () => {
 });
 
 test("the conversation verdict appears in the prose for a human reader", () => {
+  // The reader is the RECIPIENT, so the verdict needs to know who that is.
+  // Written originally without one, which is how the sender-perspective bug
+  // survived until a live round trip exposed it.
   const { text } = buildRelayEnvelope({
     message: "hello",
     conversation: "c-1111aaaa@someone-else",
-    identity: { id: "me", provider: "claude", channel: "environment", host: {} },
+    identity: { id: "someone-else", provider: "claude", channel: "environment", host: {} },
+    recipient: "me",
     nonce: "EX",
   });
 
@@ -352,4 +356,50 @@ test("an envelope with no conversation carries no dangling correlation flags", (
 
   assert.doesNotMatch(text, /--conversation/);
   assert.doesNotMatch(text, /in_reply_to=/);
+});
+
+// -- The verdict is for the reader (found by a live round trip, 2026-08-27) --
+
+test("the conversation verdict is rendered for the recipient, not the sender", () => {
+  // The envelope is built in the SENDER's process and read by the RECIPIENT. A
+  // verdict computed from the sender's identity tells someone "opened by you"
+  // about a conversation they did not open. Observed live: a Codex session
+  // opened a conversation and the Claude recipient was told it had.
+  const { text } = buildRelayEnvelope({
+    message: "hi",
+    conversation: "c-1111aaaa@sender-1",
+    identity: { id: "sender-1", provider: "codex", channel: "request-metadata", host: {} },
+    recipient: "recipient-2",
+    nonce: "EX",
+  });
+
+  assert.doesNotMatch(text, /opened by you/);
+  assert.match(text, /opened by sender-1/);
+});
+
+test("a recipient who did open the conversation is told so", () => {
+  // The ordinary continuation case, and the reason this is not simply inverted.
+  const { text } = buildRelayEnvelope({
+    message: "hi",
+    conversation: "c-1111aaaa@recipient-2",
+    identity: { id: "sender-1", provider: "codex", channel: "request-metadata", host: {} },
+    recipient: "recipient-2",
+    nonce: "EX",
+  });
+
+  assert.match(text, /opened by you/);
+});
+
+test("with no known recipient the conversation is named without a verdict", () => {
+  // Better to state the id and say nothing about whose it is than to guess and
+  // be wrong at the reader.
+  const { text } = buildRelayEnvelope({
+    message: "hi",
+    conversation: "c-1111aaaa@sender-1",
+    identity: { id: "sender-1", provider: "codex", channel: "request-metadata", host: {} },
+    nonce: "EX",
+  });
+
+  assert.match(text, /c-1111aaaa@sender-1/);
+  assert.doesNotMatch(text, /opened by/);
 });

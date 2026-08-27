@@ -621,6 +621,12 @@ export function buildRelayEnvelope({
   messageId = null,
   inReplyTo = null,
   openedNew = false,
+  // WHO WILL READ THIS. The envelope is built in the sender's process and read
+  // by the recipient, so a verdict computed from the sender's identity tells
+  // the reader "opened by you" about a conversation they did not open. Observed
+  // in a live round trip on 2026-08-27 - the kind of inversion no unit test
+  // written from the sender's side would have caught.
+  recipient = null,
 } = {}) {
   const bodyBegin = `RELAY-${nonce}-BODY-BEGIN`;
   const bodyEnd = `RELAY-${nonce}-BODY-END`;
@@ -714,11 +720,13 @@ export function buildRelayEnvelope({
   // on it is a reader. Rendered for BOTH parties: a reply from the other side is
   // the ordinary case and must not read as a warning.
   if (conversation) {
-    const verdict = conversationVerdict(conversation, identity?.id ?? null).text;
     const note = openedNew
       ? " This reply named no conversation, so relay opened a new conversation for it."
       : "";
-    lines.push(`Conversation ${conversation} — ${verdict}.${note}`);
+    // With no known reader there is nothing to compare against, and naming the
+    // conversation without a verdict beats guessing and being wrong at them.
+    const verdict = recipient ? ` ${EM_DASH} ${conversationVerdict(conversation, recipient).text}` : "";
+    lines.push(`Conversation ${conversation}${verdict}.${note}`);
   }
 
   if (transport === "claude-delegate") {
@@ -760,7 +768,7 @@ function resolveOrigin(origin, targets) {
   return targets.find((t) => t.id === origin || (t.name && t.name === origin)) || null;
 }
 
-export function buildDelegateInvocation({ targetName, message, origin, originTarget = null, identity = null, nonce = randomUUID(), command, kind = "notice", conversation = null, messageId = null, inReplyTo = null, openedNew = false } = {}) {
+export function buildDelegateInvocation({ targetName, message, origin, originTarget = null, identity = null, nonce = randomUUID(), command, kind = "notice", conversation = null, messageId = null, inReplyTo = null, openedNew = false, recipient = null } = {}) {
   // Two nested regions, both keyed to the same per-invocation nonce.
   //
   // The OUTER region tells the delegate what to deliver; nothing outside it
@@ -791,6 +799,7 @@ export function buildDelegateInvocation({ targetName, message, origin, originTar
     messageId,
     inReplyTo,
     openedNew,
+    recipient,
   }).text;
 
   const stdin = [
@@ -849,6 +858,8 @@ export function defaultSpoolPath() {
 // The confirmation `codex queue` prints on success. Parsed for the message id,
 // and its absence is treated as a failure even on exit 0 — see below for why
 // that is necessary but nowhere near sufficient.
+const EM_DASH = "—";
+
 const QUEUE_CONFIRMATION = /Queued message ([0-9a-fA-F-]{36}) for thread/;
 
 // npm's Windows shim is codex.cmd, which Node will not spawn without shell:true
@@ -953,7 +964,7 @@ async function threadIsInStore(codexHome, id, openDb) {
 async function relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew }) {
   let invocation;
   try {
-    invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, identity, kind, conversation, messageId, inReplyTo, openedNew });
+    invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, identity, kind, conversation, messageId, inReplyTo, openedNew, recipient: target.id });
   } catch (err) {
     return fail(SEND_CAUSES.DELEGATE_FAILED, err.message, target.kind);
   }
@@ -1194,6 +1205,7 @@ export async function sendMessage(options = {}) {
     messageId,
     inReplyTo,
     openedNew,
+    recipient: target.id,
   }).text;
 
   let outcome;
