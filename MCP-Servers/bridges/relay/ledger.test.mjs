@@ -11,11 +11,13 @@ function tempLedger() {
 }
 
 test("the ledger lives in the temp directory, not under the user profile", () => {
-  // Load-bearing (spec 4.7). A sandboxed Codex server cannot write under the
-  // home directory, and if this inherited the spool's fallback the Codex side
-  // would count in one file and the Claude side in another - a shared counter
-  // that is not shared is worse than none. TEMP and TMP are among the eighteen
-  // variables Codex does pass, so both providers resolve the same path.
+  // Load-bearing (spec 4.7), for a narrower reason than an earlier version of
+  // this comment gave. Measured 2026-08-27: a Codex-spawned relay SERVER writes
+  // under the home directory fine; it is the command line face, running in the
+  // session shell, that is sandboxed. This file is written by BOTH faces, so it
+  // has to live where the more restricted one can write. TEMP and TMP are among
+  // the eighteen variables Codex passes, so both providers resolve one path,
+  // and a counter split by provider would report a bound it was not enforcing.
   assert.equal(ledgerPath().startsWith(os.tmpdir()), true);
 });
 
