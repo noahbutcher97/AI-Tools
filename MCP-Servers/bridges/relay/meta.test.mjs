@@ -37,7 +37,7 @@ test("every field round-trips through JSON", () => {
       conversation: "c-4b2c9f1a@origin",
       messageId: "m-abc123",
       inReplyTo: "m-6f21a0",
-      from: { id: "2ed73e8c", provider: "claude", verified: true },
+      from: { id: "2ed73e8c", provider: "claude", verified: true, channel: "environment" },
     }),
   );
 
@@ -45,7 +45,16 @@ test("every field round-trips through JSON", () => {
   assert.equal(meta.conversation, "c-4b2c9f1a@origin");
   assert.equal(meta.message_id, "m-abc123");
   assert.equal(meta.in_reply_to, "m-6f21a0");
-  assert.deepEqual(meta.from, { id: "2ed73e8c", provider: "claude", verified: true });
+  // Deliberately a deep equality, not a subset check. This is the assertion that
+  // makes an unintended field addition to a security-relevant structure visible,
+  // and loosening it when it fails would disable exactly that (spec 4.4c).
+  assert.deepEqual(meta.from, {
+    id: "2ed73e8c",
+    provider: "claude",
+    verified: true,
+    submitted_by: "agent",
+    channel: "environment",
+  });
 });
 
 test("an unverified sender carries the claim, never a fabricated id", () => {
@@ -111,4 +120,57 @@ test("a message with no header at all yields null", () => {
 
 test("a malformed header yields null rather than throwing", () => {
   assert.equal(parseMetaFromMessage("RELAY-META {not json"), null);
+});
+
+// -- What the header says about the sender (spec 4.4b, 4.4c) --
+
+test("the sender object carries the channel it was verified through", () => {
+  const meta = parse(
+    buildMetaLine({
+      from: { id: "c1", provider: "codex", verified: true, channel: "request-metadata", host: { model: "m" } },
+    }),
+  );
+
+  assert.equal(meta.from.channel, "request-metadata");
+  assert.deepEqual(meta.from.host, { model: "m" });
+});
+
+test("submitted_by is always agent, because relay only writes headers for tool calls", () => {
+  // Resolves a contradiction the richer metadata introduced: the prose says the
+  // message was not typed by a human, while host.thread_source can read "user"
+  // - which describes how the calling THREAD began, not who wrote this message.
+  // A recipient parsing the header could otherwise reach the opposite
+  // conclusion from the one the prose states, in the same envelope (spec 4.4b).
+  const meta = parse(
+    buildMetaLine({ from: { id: "c1", provider: "codex", verified: true, host: { thread_source: "user" } } }),
+  );
+
+  assert.equal(meta.from.submitted_by, "agent");
+  assert.equal(meta.from.host.thread_source, "user");
+});
+
+test("submitted_by does not claim the text was composed by an agent", () => {
+  // It says who made the CALL, which is the only part relay observes. An agent
+  // may be relaying words a human gave it.
+  const meta = parse(buildMetaLine({ from: { id: "c1", verified: true } }));
+
+  assert.equal(meta.from.submitted_by, "agent");
+  assert.equal("composed_by" in meta.from, false);
+});
+
+test("a sender with no host metadata omits the field rather than sending an empty object", () => {
+  const meta = parse(buildMetaLine({ from: { id: "s1", provider: "claude", verified: true } }));
+
+  assert.equal("host" in meta.from, false);
+});
+
+test("a credential smuggled into host metadata does not reach the header", () => {
+  // The container is filtered on the way in, so the deny-list applies wherever
+  // the blob came from rather than only at the resolver.
+  const meta = parse(
+    buildMetaLine({ from: { id: "c1", verified: true, host: { model: "m", access_token: "SECRET" } } }),
+  );
+
+  assert.equal(JSON.stringify(meta).includes("SECRET"), false);
+  assert.equal(meta.from.host.model, "m");
 });

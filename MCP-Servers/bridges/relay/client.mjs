@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { buildHostMetadata } from "./identity.mjs";
+
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
 // Reads the two machine-global session registries directly rather than going
@@ -549,6 +551,24 @@ export function buildMetaLine({
   inReplyTo = null,
   from = { id: null, provider: null, verified: false },
 } = {}) {
+  // Filtered here as well as at the resolver, so the deny-list applies wherever
+  // the blob came from rather than only on the path that happened to build it.
+  const host = buildHostMetadata(from.host).kept;
+  const sender = {
+    id: from.id ?? null,
+    provider: from.provider ?? null,
+    verified: Boolean(from.verified),
+    // Always "agent": relay only ever writes a header for a message submitted
+    // through a tool call. This says who made the CALL, not who composed the
+    // text - an agent may be relaying words a human gave it. It exists because
+    // host.thread_source can read "user" while the prose one line above says
+    // the message was not typed by a human, and a parser must not be left to
+    // reconcile those two on its own (spec 4.4b).
+    submitted_by: "agent",
+    channel: from.channel ?? null,
+  };
+  if (Object.keys(host).length > 0) sender.host = host;
+
   return (
     RELAY_META_PREFIX +
     JSON.stringify({
@@ -557,7 +577,7 @@ export function buildMetaLine({
       conversation,
       message_id: messageId,
       in_reply_to: inReplyTo,
-      from: { id: from.id ?? null, provider: from.provider ?? null, verified: Boolean(from.verified) },
+      from: sender,
     })
   );
 }
