@@ -6,6 +6,11 @@ import path from "node:path";
 
 import { defaultSpoolPath, fallbackSpoolPath, sendMessage } from "./client.mjs";
 
+// Never append to the operator's real ledger: a test run would consume real
+// quota, and later runs would fail on caps filled by earlier ones.
+process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
+
+
 // The spool is deliberately outside the repository so message bodies never land
 // in git. Measured 2026-08-24: that also puts it outside Codex's workspace-write
 // sandbox, so a relay invoked from a Codex shell command cannot write it —

@@ -7,6 +7,11 @@ import path from "node:path";
 import { SEND_CAUSES, defaultSpoolPath, parseMetaFromMessage, sendMessage } from "./client.mjs";
 import { CONVERSATION_CAP, recordSend } from "./ledger.mjs";
 
+// Never append to the operator's real ledger: a test run would consume real
+// quota, and later runs would fail on caps filled by earlier ones.
+process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
+
+
 const NOW = 1787507400000;
 const NOW_S = Math.floor(NOW / 1000);
 const THREAD = "01a02f2a-5dca-7a23-a7f2-e45b985059f3";

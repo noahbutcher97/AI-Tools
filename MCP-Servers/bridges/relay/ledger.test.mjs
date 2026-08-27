@@ -108,3 +108,21 @@ test("a send with no conversation is still counted against the hourly cap", () =
 
   assert.equal(checkCaps(p, { now: 2000, conversation: null }).allowed, false);
 });
+
+test("RELAY_LEDGER relocates the ledger, so a test run cannot spend real quota", () => {
+  // Found the hard way: without this the suite appended to the machine-wide
+  // ledger, and after two hundred test sends every further test failed on the
+  // hourly cap. Tests that consume the operator's real quota are a defect in
+  // the tests AND in the code that gave them no way out.
+  const before = process.env.RELAY_LEDGER;
+  try {
+    process.env.RELAY_LEDGER = path.join(os.tmpdir(), "relay-override-probe.log");
+    assert.equal(ledgerPath(), path.join(os.tmpdir(), "relay-override-probe.log"));
+
+    delete process.env.RELAY_LEDGER;
+    assert.equal(ledgerPath().endsWith("cross-agent-relay-ledger.log"), true);
+  } finally {
+    if (before === undefined) delete process.env.RELAY_LEDGER;
+    else process.env.RELAY_LEDGER = before;
+  }
+});

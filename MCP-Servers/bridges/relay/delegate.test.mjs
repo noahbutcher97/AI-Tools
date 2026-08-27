@@ -6,6 +6,11 @@ import path from "node:path";
 
 import { SEND_CAUSES, buildDelegateInvocation, sendMessage } from "./client.mjs";
 
+// Never append to the operator's real ledger: a test run would consume real
+// quota, and later runs would fail on caps filled by earlier ones.
+process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
+
+
 // The delegate is the only path from a Codex agent to a Claude session, and it
 // contains a model call. That makes its confinement a security boundary rather
 // than a convenience: without it, a Codex agent denied an action could emit a

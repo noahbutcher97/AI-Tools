@@ -275,3 +275,81 @@ test("the conversation verdict appears in the prose for a human reader", () => {
 
   assert.match(text, /opened by someone-else/);
 });
+
+// -- The reply recipe (typed-messages Task 8) --
+
+test("the reply recipe carries the conversation and the message id", () => {
+  // Without these a recipient cannot answer into the same conversation and the
+  // whole design is write-only.
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-6f21a0",
+    identity: { id: "real", provider: "claude", channel: "environment", host: {} },
+    originTarget: { id: "real", name: "ai-tools-dd", kind: "claude", addressable: true },
+    nonce: "EX",
+  });
+
+  assert.match(text, /conversation="c-1111aaaa@real"/);
+  assert.match(text, /in_reply_to="m-6f21a0"/);
+  assert.match(text, /--conversation c-1111aaaa@real/);
+  assert.match(text, /--in-reply-to m-6f21a0/);
+});
+
+test("each face gets its own syntax, because the line exists to be pasted", () => {
+  // The MCP tool takes named parameters and the command line takes flags. One
+  // rendering serving both would be wrong for at least one of them.
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    identity: { id: "real", provider: "claude", channel: "environment", host: {} },
+    originTarget: { id: "real", name: "ai-tools-dd", kind: "claude", addressable: true },
+    nonce: "EX",
+  });
+
+  assert.match(text, /relay_send with to="ai-tools-dd"/);
+  assert.match(text, /CLI: relay send ai-tools-dd/);
+  assert.doesNotMatch(text, /relay_send to "ai-tools-dd" --conversation/);
+});
+
+test("the recipe suggests replying as a reply", () => {
+  // A reply that arrives typed as a notice loses the correlation the recipient
+  // was just handed.
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    identity: { id: "real", provider: "claude", channel: "environment", host: {} },
+    originTarget: { id: "real", name: "ai-tools-dd", kind: "claude", addressable: true },
+    nonce: "EX",
+  });
+
+  assert.match(text, /kind="reply"/);
+});
+
+test("the recipe names the addressable name, not the raw id", () => {
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    conversation: "c-1111aaaa@2ed73e8c",
+    messageId: "m-1",
+    identity: { id: "2ed73e8c", provider: "claude", channel: "environment", host: {} },
+    originTarget: { id: "2ed73e8c", name: "ai-tools-dd", kind: "claude", addressable: true },
+    nonce: "EX",
+  });
+
+  assert.match(text, /to="ai-tools-dd"/);
+  assert.doesNotMatch(text, /to="2ed73e8c"/);
+});
+
+test("an envelope with no conversation carries no dangling correlation flags", () => {
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    identity: { id: "real", provider: "claude", channel: "environment", host: {} },
+    originTarget: { id: "real", name: "ai-tools-dd", kind: "claude", addressable: true },
+    nonce: "EX",
+  });
+
+  assert.doesNotMatch(text, /--conversation/);
+  assert.doesNotMatch(text, /in_reply_to=/);
+});

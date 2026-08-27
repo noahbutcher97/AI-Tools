@@ -7,6 +7,11 @@ import path from "node:path";
 import { buildDelegateInvocation, buildRelayEnvelope, sendMessage } from "./client.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 
+// Never append to the operator's real ledger: a test run would consume real
+// quota, and later runs would fail on caps filled by earlier ones.
+process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
+
+
 // Identity is one object resolved per call (spec 4.4a). These tests predate
 // that collapse and passed the id and provider as separate parameters, which is
 // the shape that let the delegate path drop one of them.
@@ -208,7 +213,7 @@ test("a verified claude session id is reported as its addressable name, not the 
     originTarget: { id: "2ed73e8c-517a-4786-b8fb-9f80f35c90fc", name: "ai-tools-dd", kind: "claude", addressable: true },
   }).text;
 
-  assert.match(text, /To reply: relay_send to "ai-tools-dd"/);
+  assert.match(text, /To reply: relay_send with to="ai-tools-dd"/);
 });
 
 test("a verified codex thread with no name replies to its id", () => {
@@ -218,7 +223,7 @@ test("a verified codex thread with no name replies to its id", () => {
     originTarget: { id, name: id, kind: "codex", addressable: true },
   }).text;
 
-  assert.match(text, new RegExp(`To reply: relay_send to "${id}"`));
+  assert.match(text, new RegExp(`To reply: relay_send with to="${id}"`));
 });
 
 test("the detected identity names which provider the sender is running on", async () => {
@@ -404,7 +409,7 @@ test("a Codex sender gets a usable reply address", () => {
   // once an id exists to resolve (spec 4.4c).
   const { text } = buildRelayEnvelope({ message: "hi", identity: CODEX_IDENTITY });
 
-  assert.equal(text.includes('To reply: relay_send to "codex-1"'), true);
+  assert.equal(text.includes('To reply: relay_send with to="codex-1"'), true);
 });
 
 test("no identity still renders the unverified wording", () => {

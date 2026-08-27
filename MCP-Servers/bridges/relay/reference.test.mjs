@@ -6,6 +6,11 @@ import path from "node:path";
 
 import { buildRelayEnvelope, parseArgs, resolveReference, sendMessage } from "./client.mjs";
 
+// Never append to the operator's real ledger: a test run would consume real
+// quota, and later runs would fail on caps filled by earlier ones.
+process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
+
+
 // Unit 5 — threading (spec 4.6).
 //
 // `--re <turnId>` attaches a message to the claim it is about, so the receiver

@@ -31,8 +31,12 @@ const HOUR_MS = 60 * 60 * 1000;
 // servers, so both providers resolve the same path. A counter split across two
 // files by provider is worse than no counter, because it reports a bound it is
 // not enforcing.
+// RELAY_LEDGER relocates the ledger. The test suites set it so a run cannot
+// append to the operator's real one - without it, running the suite consumes
+// real quota and later runs fail on caps filled by earlier runs. The spool
+// carries the same override for the same reason.
 export function ledgerPath() {
-  return path.join(os.tmpdir(), "cross-agent-relay-ledger.log");
+  return process.env.RELAY_LEDGER || path.join(os.tmpdir(), "cross-agent-relay-ledger.log");
 }
 
 // Appends are atomic at this size and counting is a read, so no lock protocol is
