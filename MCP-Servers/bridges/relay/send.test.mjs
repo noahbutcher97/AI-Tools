@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { SEND_CAUSES, defaultSpoolPath, sendMessage } from "./client.mjs";
+import { SEND_CAUSES, defaultSpoolPath, parseMetaFromMessage, sendMessage } from "./client.mjs";
 import { CONVERSATION_CAP, recordSend } from "./ledger.mjs";
 
 const NOW = 1787507400000;
@@ -505,4 +505,75 @@ test("an unfamiliar host metadata key is recorded to the spool and does not bloc
 
   assert.equal(result.ok, true, "drift is a thing to look at, never a reason to refuse");
   assert.match(fs.readFileSync(spoolFile, "utf8"), /codex_invented_this_yesterday/);
+});
+
+// -- Conversation and message ids (typed-messages Task 6) --
+//
+// The plan duplicated the Codex fixture into conversation.test.mjs; this file
+// already has one, and two fixtures for one shape drift apart.
+
+const SESSION_A = { id: "session-a", provider: "claude", channel: "environment", host: {} };
+const SESSION_B = { id: "session-b", provider: "claude", channel: "environment", host: {} };
+
+test("every send carries a minted conversation and message id", needsStore, async () => {
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: tempLedgerPath(), identity: SESSION_A, ...h.options,
+  });
+
+  assert.match(result.conversation, /^c-[0-9a-f]{8}@session-a$/);
+  assert.match(result.messageId, /^m-[0-9a-f]{8}$/);
+  assert.equal(parseMetaFromMessage(h.calls[0].text).conversation, result.conversation);
+});
+
+test("a supplied conversation is carried, not replaced by a fresh mint", needsStore, async () => {
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: tempLedgerPath(), identity: SESSION_B,
+    conversation: "c-1111aaaa@session-a", kind: "reply", inReplyTo: "m-abc12345", ...h.options,
+  });
+
+  const meta = parseMetaFromMessage(h.calls[0].text);
+
+  assert.equal(result.conversation, "c-1111aaaa@session-a");
+  assert.equal(meta.in_reply_to, "m-abc12345");
+  assert.equal(meta.kind, "reply");
+  assert.match(h.calls[0].text, /opened by session-a/);
+});
+
+test("a reply naming no conversation says relay opened a new one", needsStore, async () => {
+  // Minting silently would start a new thread while the message claims to
+  // continue an old one. A correlation pointing quietly at the wrong thread is
+  // worse than one visibly absent.
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+
+  await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: tempLedgerPath(), identity: SESSION_A,
+    kind: "reply", ...h.options,
+  });
+
+  assert.match(h.calls[0].text, /relay opened a new conversation/i);
+});
+
+test("the minted conversation is what the ledger counts against", needsStore, async () => {
+  // The cap was inert until ids existed to key it on: with none supplied only
+  // the machine-wide hourly cap could ever trip.
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+  const ledger = tempLedgerPath();
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: ledger, identity: SESSION_A, ...h.options,
+  });
+
+  assert.equal(fs.readFileSync(ledger, "utf8").includes(result.conversation), true);
 });

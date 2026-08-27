@@ -624,6 +624,7 @@ export function buildRelayEnvelope({
   conversation = null,
   messageId = null,
   inReplyTo = null,
+  openedNew = false,
 } = {}) {
   const bodyBegin = `RELAY-${nonce}-BODY-BEGIN`;
   const bodyEnd = `RELAY-${nonce}-BODY-END`;
@@ -699,7 +700,11 @@ export function buildRelayEnvelope({
   // on it is a reader. Rendered for BOTH parties: a reply from the other side is
   // the ordinary case and must not read as a warning.
   if (conversation) {
-    lines.push(`Conversation ${conversation} — ${conversationVerdict(conversation, identity?.id ?? null).text}.`);
+    const verdict = conversationVerdict(conversation, identity?.id ?? null).text;
+    const note = openedNew
+      ? " This reply named no conversation, so relay opened a new conversation for it."
+      : "";
+    lines.push(`Conversation ${conversation} — ${verdict}.${note}`);
   }
 
   if (transport === "claude-delegate") {
@@ -1011,7 +1016,9 @@ export async function sendMessage(options = {}) {
     // ping-pongs within; with none supplied only the machine-wide hourly cap
     // applies, which is the backstop rather than the primary bound.
     ledgerPath = defaultLedgerPath(),
-    conversation = null,
+    conversation: conversationIn = null,
+    kind = "notice",
+    inReplyTo = null,
     now = Date.now(),
     spoolPath = defaultSpoolPath(),
     spoolFallbackPath = fallbackSpoolPath(),
@@ -1044,6 +1051,14 @@ export async function sendMessage(options = {}) {
   // Resolved against the same live listing, so the header can tell the
   // recipient whether the claimed sender corresponds to anything reachable.
   const originTarget = resolveOrigin(identity?.id || origin, targets);
+
+  // Minted here so both transports, the ledger and the dry-run path see the
+  // same ids rather than each deriving their own.
+  const conversation = conversationIn || mintConversationId(identity?.id ?? null);
+  const messageId = `m-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  // A reply naming no conversation would otherwise silently start a new thread
+  // while claiming to continue an old one. Said out loud instead.
+  const openedNew = kind === "reply" && !conversationIn;
 
   if (!target) {
     if (isThreadId(to) && (await threadIsInStore(codexHome, to, openDb))) {
@@ -1103,7 +1118,7 @@ export async function sendMessage(options = {}) {
         target.kind,
       );
     }
-    const delegated = await relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun });
+    const delegated = await relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew });
     if (delegated.ok && !dryRun) recordSend(ledgerPath, { now, conversation });
     return delegated;
   }
@@ -1157,7 +1172,7 @@ export async function sendMessage(options = {}) {
   }
 
   if (dryRun) {
-    return { ok: true, to, target, queuedId: null, detail: `would queue into ${target.id}` };
+    return { ok: true, to, target, queuedId: null, conversation, messageId, detail: `would queue into ${target.id}` };
   }
 
   // Stamped, not raw. A queued message lands as an ordinary userMessage and the
@@ -1174,6 +1189,11 @@ export async function sendMessage(options = {}) {
     identity,
     reference,
     transport: "codex-queue",
+    kind,
+    conversation,
+    messageId,
+    inReplyTo,
+    openedNew,
   }).text;
 
   let outcome;
@@ -1206,6 +1226,8 @@ export async function sendMessage(options = {}) {
     to,
     target,
     queuedId: confirmation[1],
+    conversation,
+    messageId,
     detail: `queued into ${target.id} as ${confirmation[1]}`,
   };
 }
