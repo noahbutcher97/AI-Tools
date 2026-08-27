@@ -36,3 +36,51 @@ export function detectRequestOrigin(extra) {
 
   return { id, provider: "codex", channel: "request-metadata", host: turn || {} };
 }
+
+// Names are unconstrained; shape and size are not (spec 4.4b). Passing unknown
+// NAMES through is the point: an allow-list would drop new host fields silently
+// and the blob would decay toward whatever was known the day it was written.
+// Passing unknown SHAPES through is not, and the two are easy to conflate — a
+// deny-list matching key names cannot see a credential nested under an
+// innocuous parent, so only scalars survive.
+export const HOST_META_DENY = [
+  "token", "secret", "password", "passwd", "apikey", "key", "auth",
+  "credential", "bearer", "cookie", "session", "jwt", "signature", "sig", "private",
+];
+
+// The header is prepended to every relayed message and travels the delegate
+// path inside a spawned prompt, so an unbounded blob is a cost paid per send
+// rather than once. The measured blob is roughly 300 bytes; this is headroom.
+export const HOST_META_MAX_BYTES = 2048;
+
+// Over-matches on purpose: dropping an innocuous field costs a line of
+// metadata, missing a credential costs a credential.
+function isDenied(name) {
+  const flat = String(name).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return HOST_META_DENY.some((needle) => flat.includes(needle));
+}
+
+export function buildHostMetadata(raw) {
+  const kept = {};
+  const dropped = [];
+  if (!isObject(raw)) return { kept, dropped, overflow: false };
+
+  for (const [name, value] of Object.entries(raw)) {
+    const scalar = typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+    if (!scalar || isDenied(name)) {
+      dropped.push(name);
+      continue;
+    }
+    kept[name] = value;
+  }
+  dropped.sort();
+
+  // Applied after filtering, so a dropped credential cannot push the blob over
+  // the cap and take the legitimate fields with it. Carrying nothing beats a
+  // truncation, which would produce invalid JSON, and beats a silent subset,
+  // which no recipient could detect.
+  if (Buffer.byteLength(JSON.stringify(kept), "utf8") > HOST_META_MAX_BYTES) {
+    return { kept: {}, dropped, overflow: true };
+  }
+  return { kept, dropped, overflow: false };
+}

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { CODEX_META_KEY, detectRequestOrigin } from "./identity.mjs";
+import {
+  CODEX_META_KEY,
+  HOST_META_MAX_BYTES,
+  buildHostMetadata,
+  detectRequestOrigin,
+} from "./identity.mjs";
 
 // A capture from a real Codex tool call, 2026-08-26. Point-in-time: it cannot
 // detect Codex changing this shape in the field, which is why unknown keys are
@@ -75,4 +80,63 @@ test("the raw turn metadata is carried through for filtering", () => {
   const identity = detectRequestOrigin({ _meta: REAL_META });
 
   assert.equal(identity.host.model, "gpt-5.6-terra");
+});
+
+// -- The host metadata container (spec 4.4b) --
+
+test("scalars are carried", () => {
+  const out = buildHostMetadata({ model: "gpt-5.6-terra", turns: 3, fast: true });
+
+  assert.deepEqual(out.kept, { model: "gpt-5.6-terra", turns: 3, fast: true });
+});
+
+test("an object value is dropped while scalar siblings survive", () => {
+  // Two assertions on purpose. A test that only checks the survivors passes
+  // when nothing is filtered at all (spec 4.4c).
+  const out = buildHostMetadata({ model: "gpt-5.6-terra", context: { auth_token: "SECRET" } });
+
+  assert.deepEqual(out.kept, { model: "gpt-5.6-terra" });
+  assert.equal(out.dropped.includes("context"), true);
+});
+
+test("an array value is dropped", () => {
+  const out = buildHostMetadata({ model: "m", tags: ["a", "b"] });
+
+  assert.equal("tags" in out.kept, false);
+});
+
+test("a credential-named key is dropped however it is spelled", () => {
+  const out = buildHostMetadata({
+    apiKey: "x", access_token: "x", AUTH: "x", "bearer-value": "x", model: "m",
+  });
+
+  assert.deepEqual(out.kept, { model: "m" });
+  assert.equal(out.dropped.length, 4);
+});
+
+test("session_id is dropped because the identity it duplicates is carried elsewhere", () => {
+  // Intended, not incidental: "session" is on the deny-list and the id is
+  // already from.id (spec 4.4b).
+  const out = buildHostMetadata({ session_id: "s1", thread_id: "t1" });
+
+  assert.equal("session_id" in out.kept, false);
+  assert.equal(out.kept.thread_id, "t1");
+});
+
+test("an oversized blob is carried as nothing, and says so", () => {
+  // Not a truncation, which would produce invalid JSON, and not a silent
+  // subset, which no recipient could detect (spec 4.4b).
+  const out = buildHostMetadata({ big: "x".repeat(HOST_META_MAX_BYTES + 1) });
+
+  assert.deepEqual(out.kept, {});
+  assert.equal(out.overflow, true);
+});
+
+test("a blob under the cap does not report overflow", () => {
+  assert.equal(buildHostMetadata({ model: "m" }).overflow, false);
+});
+
+test("a null or malformed input yields an empty result rather than throwing", () => {
+  assert.deepEqual(buildHostMetadata(null).kept, {});
+  assert.deepEqual(buildHostMetadata("nope").kept, {});
 });
