@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildHostMetadata, newHostKeys } from "./identity.mjs";
-import { checkCaps, ledgerPath as defaultLedgerPath, recordSend } from "./ledger.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
@@ -406,9 +405,6 @@ export const SEND_CAUSES = {
   DELEGATE_FAILED: "delegate_failed",
   REFERENCE_UNRESOLVED: "reference_unresolved",
   NOT_CONSUMING: "target_not_consuming",
-  // Bounding runaway exchanges (4.7). The only cause here that can refuse a
-  // send nothing is wrong with, which is why its detail names the remedy.
-  EXCHANGE_CAPPED: "exchange_capped",
 };
 
 // ── The Claude delivery delegate (spec 4.4) ──
@@ -1033,7 +1029,6 @@ export async function sendMessage(options = {}) {
     // Bounding runaway exchanges (4.7). The conversation is what a loop
     // ping-pongs within; with none supplied only the machine-wide hourly cap
     // applies, which is the backstop rather than the primary bound.
-    ledgerPath = defaultLedgerPath(),
     conversation: conversationIn = null,
     kind = "notice",
     inReplyTo = null,
@@ -1070,8 +1065,8 @@ export async function sendMessage(options = {}) {
   // recipient whether the claimed sender corresponds to anything reachable.
   const originTarget = resolveOrigin(identity?.id || origin, targets);
 
-  // Minted here so both transports, the ledger and the dry-run path see the
-  // same ids rather than each deriving their own.
+  // Minted here so both transports and the dry-run path see the same ids
+  // rather than each deriving their own.
   const conversation = conversationIn || mintConversationId(identity?.id ?? null);
   const messageId = `m-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
   // A reply naming no conversation would otherwise silently start a new thread
@@ -1107,27 +1102,6 @@ export async function sendMessage(options = {}) {
     });
   }
 
-  // Checked before the transport dispatch so both paths are bounded, and after
-  // the target resolves so a refusal names a real target. A dry run delivers
-  // nothing, costs no turn, and must not consume quota.
-  if (!dryRun) {
-    const verdict = checkCaps(ledgerPath, { now, conversation });
-    if (!verdict.allowed) return fail(SEND_CAUSES.EXCHANGE_CAPPED, verdict.detail, target.kind);
-    // Fails open on a broken ledger rather than refusing every send, but never
-    // silently: a cost guard nobody knows is inoperative is the shape of an
-    // overnight runaway.
-    if (verdict.inoperative) {
-      spool(spoolPath, spoolFallbackPath, {
-        now,
-        to,
-        kind: target.kind,
-        cause: "ledger_inoperative",
-        detail: `the exchange-volume ledger at ${ledgerPath} could not be read; caps are not being enforced`,
-        message: "",
-      });
-    }
-  }
-
   if (target.kind === "claude") {
     if (!allowDelegate) {
       return fail(
@@ -1136,9 +1110,7 @@ export async function sendMessage(options = {}) {
         target.kind,
       );
     }
-    const delegated = await relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew });
-    if (delegated.ok && !dryRun) recordSend(ledgerPath, { now, conversation });
-    return delegated;
+    return relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew });
   }
 
   if (target.kind !== "codex") {
@@ -1237,8 +1209,6 @@ export async function sendMessage(options = {}) {
 
   // "queued", never "delivered": the queue confirms an enqueue, and nothing in
   // this unit can observe whether the peer took it up.
-  recordSend(ledgerPath, { now, conversation });
-
   return {
     ok: true,
     to,

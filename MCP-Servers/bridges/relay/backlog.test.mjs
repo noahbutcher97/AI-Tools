@@ -6,10 +6,6 @@ import path from "node:path";
 
 import { SEND_CAUSES, sendMessage } from "./client.mjs";
 
-// Never append to the operator's real ledger: a test run would consume real
-// quota, and later runs would fail on caps filled by earlier ones.
-process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
-
 
 // Lock presence over-reports liveness: proven 2026-08-24, four locks survived
 // with every Codex process stopped, and discovery still called one addressable.

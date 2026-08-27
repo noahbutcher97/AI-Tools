@@ -30,6 +30,25 @@ Explicitly out of scope, each for a stated reason:
 - **Speaking the Claude peer pipe protocol directly.** See section 4.4. A
   sanctioned client does the delivery instead. No reverse engineering, no key
   handling, no version gate.
+- **Volume caps on relayed messages.** Built 2026-08-27 and removed the same
+  day, before use. The justification was that two agents might acknowledge each
+  other indefinitely, which does not survive inspection: a relayed message lands
+  as a user message, the recipient answers and goes idle, and every further hop
+  needs an explicit tool call. No loop has ever been observed.
+
+  The removal argument is stronger than the absence of evidence, though. A cap
+  low enough to catch a runaway early is low enough to refuse a legitimate
+  multi-step agent collaboration, which is the thing this bridge exists to
+  enable — so its likeliest effect was breaking intended use while never firing
+  on an accident. A guard whose main victim is the feature it guards is worse
+  than no guard, and a send refused for a reason the operator did not ask for
+  reads as a broken bridge.
+
+  The residual risk is real but different in kind, and is recorded in section 7:
+  a **cycle in a workflow someone builds**, not politeness between agents. If
+  that is ever seen, the answer is a ceiling high enough that firing is itself
+  the signal, plus something that records rather than refuses.
+
 - **A redundant fallback transport.** Rejected during design: a second delivery
   path is never exercised, rots, and introduces duplicate-delivery, reordering,
   racing-drain and ambiguous-addressing failures. Failure handling is a spool
@@ -1268,88 +1287,6 @@ a bare id can address something the peer no longer remembers. `--re` therefore
 sends a short quote of the referenced turn alongside the id, so the reference
 survives compaction on the receiver.
 
-### 4.7 Bounding runaway exchanges
-
-Delivery wakes an idle session with no human input (3.2) and every delivered
-message costs a model turn. Once 4.4a gave the Codex direction a verified reply
-address, two agents could sustain an exchange indefinitely. The missing address
-had been suppressing that by accident; this section replaces the accident with
-something deliberate.
-
-**The threat is an accidental loop, not a malicious one.** Two agents politely
-acknowledging each other overnight is the realistic failure. An adversary who
-can spawn processes already defeats the identity model entirely (7), so
-designing these caps against a determined attacker would buy nothing while
-costing legitimate use.
-
-**Two caps.** Messages in one conversation are capped at **20**; relayed
-messages machine-wide are capped at **200 per rolling hour**. The first targets
-the failure precisely, because a loop is one conversation ping-ponging. The
-second catches an agent minting a fresh conversation per message — no longer
-an accident, but identical in cost.
-
-**A ledger file, not process memory, and one path for both providers.** The
-count must be shared across the two sides of a loop, which are different
-processes in different sessions, and must read the same from the long-lived MCP
-server and the per-invocation CLI. A file is the only thing satisfying both
-without a daemon, and adding a daemon to prevent runaway cost would be its own
-joke.
-
-It lives in the **temp directory**, not under the user profile, and this is
-load-bearing rather than incidental — but the reason is narrower than an earlier
-draft of this section claimed, and the difference matters to anyone choosing a
-path for something else.
-
-**Measured 2026-08-27.** A Codex-spawned relay **MCP server** writes under the
-user profile without difficulty: a failing send from a Codex session spooled to
-`~/.cross-agent-relay/spool.log` with no error, confirmed by the file growing on
-the other side. It is the **CLI** face that is sandboxed, running in the session
-shell under `workspace-write`, and that is why a temp fallback exists at all.
-The earlier wording generalised the CLI's limit to the server, which is the
-population swap guards 5 and 6 describe.
-
-The ledger is written by **both** faces, so it must live where the more
-restricted one can write. `TEMP` and `TMP` are among the eighteen variables
-Codex passes (4.4a), so both providers resolve the same path. A counter split
-across two files by provider would be worse than none, reporting a bound it was
-not enforcing.
-
-Appends are atomic at this size, counting is a read, and no lock protocol is
-needed. A race over-counts rather than under-counts, which errs toward
-refusing — the safe direction for a cost guard.
-
-**Retention is 24 hours; the global window is one hour.** The conversation cap
-counts every retained entry for that conversation, so a slow loop cannot reset
-itself by falling below an hourly window. Neither cap resets at a boundary: both
-are rolling, so an entry stops counting when it ages past its window and
-capacity returns message by message rather than in a lump.
-
-**Expired entries are compacted away on the read path.** Recording only appends,
-so without this the file would grow without bound and every cap check would
-parse all of it, making the check slower forever at a cost paid on every send.
-Compaction happens where the entries are already parsed, and is best effort: a
-failure to tidy must never fail a send, because the count just read is still
-correct. With it the file holds at most a day of entries, under five thousand
-lines at the ceiling. An earlier draft asserted that bound while nothing
-implemented it.
-
-**Refusal must be actionable, because this is the first thing in the design
-that can refuse a legitimate send.** A twenty-message working exchange between
-two agents is plausible. The error names the conversation, says which cap was
-hit, and says that a genuinely longer exchange should open a new conversation
-deliberately rather than by accident.
-
-**An unwritable ledger fails open, loudly.** Refusing every send because a
-counter file is broken would cause the outage it exists to prevent. The send
-proceeds, the failure is spooled, and the guard reports itself inoperative.
-That is defeatable by anyone who can make the file unwritable, which is again
-the adversary this section does not claim to stop.
-
-**Residual, stated rather than implied.** A loop slower than twenty messages
-per day stays under both caps and still costs about twenty turns a day.
-Clearing the temp directory resets the counters. Neither is worth more
-machinery, but a reader should not have to infer them.
-
 ## 5. Safety disciplines
 
 1. Delegate confinement (4.4) - no laundering in the write direction.
@@ -1358,16 +1295,6 @@ machinery, but a reader should not have to infer them.
 4. Never read session `.key` material. The design has no need for it.
 5. Scope defaults to caller `cwd` so a broadcast cannot accidentally reach
    sessions in unrelated projects.
-
-6. Bounded exchange volume (4.7) - a conversation cap and a machine-wide
-   hourly cap, so a reply loop between two agents cannot run unattended at
-   the user's expense. The only discipline here that can refuse a legitimate
-   action, which is why its refusal names the remedy.
-
-Disciplines 1-5 bound what a message may *cause*. Discipline 6 was added
-2026-08-26 because none of them bounded how many messages there may *be*, and
-the verified reply address in 4.4a turned that gap from theoretical into
-reachable.
 
 ## 6. Failure handling
 
@@ -1406,7 +1333,7 @@ wider.** Delivery fails after a target resolves too. The full set the code
 must match: `target_not_found`, `target_disappeared`,
 `target_not_addressable`, `claude_target_needs_delegate`,
 `target_not_consuming`, `queue_failed`, `delegate_failed`,
-`reference_unresolved`, `exchange_capped` (4.7). Three of those postdate this section and were added to
+`reference_unresolved`. Three of those postdate this section and were added to
 the code without it being updated: `target_not_consuming` is the queue-backlog
 guard that refuses a target whose queue is not draining, `reference_unresolved`
 belongs to threading (4.6), and `delegate_failed` to the delegate path (4.4).
@@ -1475,22 +1402,21 @@ section 2 rejected it for.
   process, since MCP servers are children of the TUI rather than the
   app-server. Confirm liveness per setting, which is what the original wording
   actually says.
-- **No rate limit, no loop detection, no hop count** (3.2, 4.4a) - delivery
-  wakes a fully idle session with no human input, and every delivered message
-  costs a model turn in the recipient. Nothing bounds how many messages an
-  agent may send, and nothing detects two agents replying to one another
-  indefinitely. Until 2026-08-26 the Codex-to-Claude direction carried no
-  reply address, which suppressed the loop case **by accident**; the origin
-  work removed that accident deliberately, so this risk is created by the
-  feature rather than merely coexisting with it. The cost is real money and
-  it accrues while nobody is watching, which is the worst shape a runaway can
-  have. Candidate mitigations, none chosen: a hop count carried in the header
-  and refused past a limit; a per-target send rate limit; or a
-  same-conversation reply cap keyed to the conversation id the typed-message
-  work already mints. **Resolved 2026-08-26: see 4.7**, which takes the
-  conversation cap with an hourly machine-wide backstop. Two residuals remain
-  and are stated there: a loop slower than the caps still costs about twenty
-  turns a day, and an unwritable ledger fails open by design.
+- **No bound on relayed message volume** (2, 3.2) - delivery wakes an idle
+  session with no human input and every delivered message costs a model turn,
+  and nothing limits how many messages an agent may send. Caps were built and
+  removed the same day; section 2 records why.
+
+  The characterisation that matters: the plausible failure is **a cycle in a
+  workflow someone builds**, not two agents being polite to each other. It is
+  caused by automation, arrives at whatever rate the models run, and is
+  invisible overnight. Nothing here detects it.
+
+  Deliberately unmitigated for now, because every mitigation considered fired
+  more readily on intended use than on the failure. If one is wanted later, the
+  shape is a ceiling high enough that reaching it is itself the signal, and a
+  record rather than a refusal. Anyone reaching for a low cap should read the
+  non-goal first.
 - **Relay cannot authenticate its own MCP client** (4.4a) - whoever spawns an
   MCP server controls its environment and the metadata on every request it
   receives, so an agent able to start a process can run its own relay and emit

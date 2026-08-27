@@ -7,10 +7,6 @@ import path from "node:path";
 import { buildDelegateInvocation, buildRelayEnvelope, sendMessage } from "./client.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 
-// Never append to the operator's real ledger: a test run would consume real
-// quota, and later runs would fail on caps filled by earlier ones.
-process.env.RELAY_LEDGER = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-test-ledger-")), "ledger.log");
-
 
 // Identity is one object resolved per call (spec 4.4a). These tests predate
 // that collapse and passed the id and provider as separate parameters, which is
