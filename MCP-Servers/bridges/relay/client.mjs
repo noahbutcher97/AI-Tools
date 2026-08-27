@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildHostMetadata } from "./identity.mjs";
+import { checkCaps, ledgerPath as defaultLedgerPath, recordSend } from "./ledger.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
@@ -405,6 +406,9 @@ export const SEND_CAUSES = {
   DELEGATE_FAILED: "delegate_failed",
   REFERENCE_UNRESOLVED: "reference_unresolved",
   NOT_CONSUMING: "target_not_consuming",
+  // Bounding runaway exchanges (4.7). The only cause here that can refuse a
+  // send nothing is wrong with, which is why its detail names the remedy.
+  EXCHANGE_CAPPED: "exchange_capped",
 };
 
 // ── The Claude delivery delegate (spec 4.4) ──
@@ -973,6 +977,11 @@ export async function sendMessage(options = {}) {
     to,
     message,
     dryRun = false,
+    // Bounding runaway exchanges (4.7). The conversation is what a loop
+    // ping-pongs within; with none supplied only the machine-wide hourly cap
+    // applies, which is the backstop rather than the primary bound.
+    ledgerPath = defaultLedgerPath(),
+    conversation = null,
     now = Date.now(),
     spoolPath = defaultSpoolPath(),
     spoolFallbackPath = fallbackSpoolPath(),
@@ -1017,6 +1026,27 @@ export async function sendMessage(options = {}) {
     return fail(SEND_CAUSES.NOT_FOUND, `no live agent session is named "${to}"`);
   }
 
+  // Checked before the transport dispatch so both paths are bounded, and after
+  // the target resolves so a refusal names a real target. A dry run delivers
+  // nothing, costs no turn, and must not consume quota.
+  if (!dryRun) {
+    const verdict = checkCaps(ledgerPath, { now, conversation });
+    if (!verdict.allowed) return fail(SEND_CAUSES.EXCHANGE_CAPPED, verdict.detail, target.kind);
+    // Fails open on a broken ledger rather than refusing every send, but never
+    // silently: a cost guard nobody knows is inoperative is the shape of an
+    // overnight runaway.
+    if (verdict.inoperative) {
+      spool(spoolPath, spoolFallbackPath, {
+        now,
+        to,
+        kind: target.kind,
+        cause: "ledger_inoperative",
+        detail: `the exchange-volume ledger at ${ledgerPath} could not be read; caps are not being enforced`,
+        message: "",
+      });
+    }
+  }
+
   if (target.kind === "claude") {
     if (!allowDelegate) {
       return fail(
@@ -1025,7 +1055,9 @@ export async function sendMessage(options = {}) {
         target.kind,
       );
     }
-    return relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun });
+    const delegated = await relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun });
+    if (delegated.ok && !dryRun) recordSend(ledgerPath, { now, conversation });
+    return delegated;
   }
 
   if (target.kind !== "codex") {
@@ -1119,6 +1151,8 @@ export async function sendMessage(options = {}) {
 
   // "queued", never "delivered": the queue confirms an enqueue, and nothing in
   // this unit can observe whether the peer took it up.
+  recordSend(ledgerPath, { now, conversation });
+
   return {
     ok: true,
     to,

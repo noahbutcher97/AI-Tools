@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { SEND_CAUSES, defaultSpoolPath, sendMessage } from "./client.mjs";
+import { CONVERSATION_CAP, recordSend } from "./ledger.mjs";
 
 const NOW = 1787507400000;
 const NOW_S = Math.floor(NOW / 1000);
@@ -381,4 +382,100 @@ test("the module offers no way to read the spool back", async () => {
   const readers = Object.keys(module).filter((name) => /drain|retry|replay|readSpool|listSpool/i.test(name));
 
   assert.deepEqual(readers, []);
+});
+
+// -- Bounding runaway exchanges (spec 4.7) --
+
+function tempLedgerPath() {
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-cap-")), "ledger.log");
+}
+
+test("a send past the conversation cap is refused and spooled", needsStore, async () => {
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+  const ledger = tempLedgerPath();
+  // Real timestamps: sendMessage defaults `now` to Date.now(), and entries
+  // older than the retention window are pruned before counting.
+  const t = Date.now();
+  for (let i = 0; i < CONVERSATION_CAP; i++) recordSend(ledger, { now: t - i, conversation: "c-loop" });
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: ledger, conversation: "c-loop", ...h.options,
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.cause, SEND_CAUSES.EXCHANGE_CAPPED);
+  assert.equal(typeof result.spooled, "string");
+  assert.equal(h.calls.length, 0, "a capped send must not reach the transport");
+});
+
+test("the refusal names the conversation and the remedy", needsStore, async () => {
+  // This is the first thing in the design that can refuse a LEGITIMATE send: a
+  // twenty-message working exchange between two agents is plausible. An opaque
+  // refusal would read as a bug rather than a bound.
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+  const ledger = tempLedgerPath();
+  // Real timestamps: sendMessage defaults `now` to Date.now(), and entries
+  // older than the retention window are pruned before counting.
+  const t = Date.now();
+  for (let i = 0; i < CONVERSATION_CAP; i++) recordSend(ledger, { now: t - i, conversation: "c-loop" });
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: ledger, conversation: "c-loop", ...h.options,
+  });
+
+  assert.match(result.detail, /c-loop/);
+  assert.match(result.detail, /new conversation/i);
+});
+
+test("a successful send is recorded, so the next one counts it", needsStore, async () => {
+  // Two assertions, not one: a test that only checks the send succeeded stays
+  // green if recording is deleted entirely, leaving a cap that never fills.
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+  const ledger = tempLedgerPath();
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: ledger, conversation: "c-1", ...h.options,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(fs.readFileSync(ledger, "utf8").includes("c-1"), true);
+});
+
+test("a dry run is neither capped nor recorded", needsStore, async () => {
+  // A dry run delivers nothing, so it costs no turn and must not consume quota.
+  const home = codexHome();
+  liveThread(home);
+  const h = harness(home);
+  const ledger = tempLedgerPath();
+
+  await sendMessage({
+    to: THREAD, message: MESSAGE, dryRun: true, ledgerPath: ledger, conversation: "c-1", ...h.options,
+  });
+
+  assert.equal(fs.existsSync(ledger), false);
+});
+
+test("an unreadable ledger lets the send through and spools that the guard is off", needsStore, async () => {
+  // Fails open, LOUDLY. Two assertions: one that the send survived, one that
+  // the failure was announced. A test checking only the first passes when the
+  // announcement is deleted, leaving a cost guard that is silently off - which
+  // is the shape of an overnight runaway nobody notices.
+  const home = codexHome();
+  liveThread(home);
+  const spoolFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-spool-")), "spool.log");
+  const h = harness(home, { spoolPath: spoolFile });
+  const unreadable = path.join(os.tmpdir(), "relay-ledger-missing-dir", "ledger.log");
+
+  const result = await sendMessage({
+    to: THREAD, message: MESSAGE, ledgerPath: unreadable, conversation: "c-1", ...h.options,
+  });
+
+  assert.equal(result.ok, true);
+  assert.match(fs.readFileSync(spoolFile, "utf8"), /ledger_inoperative/);
 });

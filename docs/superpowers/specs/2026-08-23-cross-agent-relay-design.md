@@ -1385,7 +1385,7 @@ wider.** Delivery fails after a target resolves too. The full set the code
 must match: `target_not_found`, `target_disappeared`,
 `target_not_addressable`, `claude_target_needs_delegate`,
 `target_not_consuming`, `queue_failed`, `delegate_failed`,
-`reference_unresolved`. Three of those postdate this section and were added to
+`reference_unresolved`, `exchange_capped` (4.7). Three of those postdate this section and were added to
 the code without it being updated: `target_not_consuming` is the queue-backlog
 guard that refuses a target whose queue is not draining, `reference_unresolved`
 belongs to threading (4.6), and `delegate_failed` to the delegate path (4.4).
