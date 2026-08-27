@@ -340,14 +340,33 @@ To reply: relay_send with to="ai-tools-dd", conversation="c-4b2c9f1a@...", in_re
           (CLI: relay send ai-tools-dd --message "..." --conversation c-4b2c9f1a@... --in-reply-to m-6f21a0 --kind reply).
 ```
 
-**The delegate carries the header, verified by construction and not yet by a
-live round trip.** The delegate instruction now names the header alongside the
-body markers, and a test drives the whole send path to assert the ids reach the
-delivered text. What has NOT been observed is a message travelling out through a
-live `claude -p` delegate and a reply coming back into the originating Codex
-thread. Both halves are verified separately; the loop has not been closed
-end to end, and anyone citing this work as proven bidirectional should close it
-first.
+**The loop is closed, observed 2026-08-27.** A Codex session sent to a Claude
+session through the confined delegate; the message arrived with a verified Codex
+origin, an intact header and intact body markers, so the header survived the one
+hop that contains a model. The Claude session replied into the originating
+thread through `codex queue` and the reply landed. Both directions in one motion.
+
+**That round trip immediately found a bug no unit test had.** The envelope told
+its Claude recipient *"Conversation ... opened by you"* about a conversation the
+Codex sender had opened. The verdict was computed in the sender's process from
+the sender's identity and then read by the recipient: correct for whoever wrote
+the line, wrong for everyone who reads it. The envelope now takes the recipient
+and compares against that, and names the conversation without a verdict when no
+reader is known.
+
+Worth recording why the tests missed it. Every one was written from the sender's
+side, where passing the sender's identity is the obvious thing to do, and the
+test named *the conversation verdict appears in the prose for a human reader*
+asserted `opened by someone-else` and passed while the shipped message told its
+actual reader the opposite. It checked the string and not the perspective. The
+class is general: code correct in the frame where it is written and wrong in the
+frame where it is consumed, which is what serialisation boundaries are made of.
+
+The fix was then verified the same way rather than by more sender-side tests.
+Three lines sit in the recipient's own store: the pre-fix reply telling the
+Codex thread *"you are 2ed73e8c"*, which is the Claude id; the post-fix message
+reading *"opened by you"* to the session that did open it; and the Codex agent's
+own answer confirming the line was true from its side.
 
 **Volume caps were built and removed the same day.** They are recorded as a
 non-goal in section 2 of the relay design, with the reasoning, so they are not
