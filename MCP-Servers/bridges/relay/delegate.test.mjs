@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { SEND_CAUSES, buildDelegateInvocation, sendMessage } from "./client.mjs";
+import { SEND_CAUSES, buildDelegateInvocation, parseMetaFromMessage, sendMessage } from "./client.mjs";
 
 
 // The delegate is the only path from a Codex agent to a Claude session, and it
@@ -369,4 +369,100 @@ test("the delegate is never used for a codex target", async () => {
 
   assert.equal(result.ok, false);
   assert.deepEqual(calls, []);
+});
+
+// -- The header has to survive the delegate (typed-messages Task 9) --
+//
+// This is the one hop in the system where a MODEL sits between relay and the
+// recipient. Everywhere else the envelope is handed along byte for byte.
+
+test("the ids reach the delivered text through the whole send path", async () => {
+  // The wiring test, and the one that matters: sendMessage minted a conversation
+  // and handed it to relayViaDelegate, which did not destructure it, so it was
+  // dropped one call short of the envelope. Asserting on buildDelegateInvocation
+  // alone would not have seen that.
+  const calls = [];
+  const result = await sendMessage(
+    sendOptions({
+      allowDelegate: true,
+      kind: "request",
+      runDelegate: (inv) => {
+        calls.push(inv);
+        return { code: 0, stdout: "RELAY-OK\n", stderr: "" };
+      },
+    }),
+  );
+
+  const meta = parseMetaFromMessage(calls[0].delivered);
+
+  assert.equal(result.ok, true);
+  assert.equal(meta.conversation, result.conversation);
+  assert.equal(meta.message_id, result.messageId);
+  assert.equal(meta.kind, "request");
+});
+
+test("the delegate is told to preserve the machine-readable header", () => {
+  // Its instruction named the BODY markers specifically, and a specific list
+  // reads as exhaustive: a header not named could be dropped by a paraphrasing
+  // model. That failure is silent - delivery succeeds and the correlation is
+  // simply gone.
+  const { stdin } = buildDelegateInvocation({
+    targetName: "peer",
+    message: "hello",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    nonce: NONCE,
+  });
+
+  // Scoped to the INSTRUCTION half. The payload below the marker contains a
+  // real RELAY-META line, so matching the whole prompt passes whether or not
+  // the instruction says anything at all.
+  // Split on the line that IS the marker, not its first appearance: the marker
+  // is also named mid-sentence in the instruction above it, so splitting on the
+  // string cuts the instructions in half and tests a fragment.
+  const lines = stdin.split("\n");
+  const instructions = lines.slice(0, lines.indexOf(`RELAY-${NONCE}-DELIVER-BEGIN`)).join("\n");
+
+  assert.match(instructions, /RELAY-META/);
+});
+
+test("the delivered text carries a parseable header", () => {
+  const { delivered } = buildDelegateInvocation({
+    targetName: "peer",
+    message: "hello",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    identity: { id: "real", provider: "claude", channel: "environment", host: {} },
+    nonce: NONCE,
+  });
+
+  assert.equal(parseMetaFromMessage(delivered).conversation, "c-1111aaaa@real");
+});
+
+test("no instruction line begins with the header prefix", () => {
+  // A footgun rather than a live bug: any line starting with "RELAY-META " is
+  // read as a header by the parser, and prose after it fails to parse as JSON,
+  // yielding null. Naming the header in the instructions must not put it at the
+  // start of a line.
+  const { stdin } = buildDelegateInvocation({
+    targetName: "peer",
+    message: "hello",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    nonce: NONCE,
+  });
+
+  const offenders = stdin
+    .split("\n")
+    .filter((line) => line.startsWith("RELAY-META "))
+    .filter((line) => {
+      try {
+        JSON.parse(line.slice("RELAY-META ".length));
+        return false;
+      } catch {
+        return true;
+      }
+    });
+
+  assert.deepEqual(offenders, []);
 });
