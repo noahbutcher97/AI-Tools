@@ -6,6 +6,7 @@ import {
   HOST_META_MAX_BYTES,
   buildHostMetadata,
   detectRequestOrigin,
+  resolveCallerIdentity,
 } from "./identity.mjs";
 
 // A capture from a real Codex tool call, 2026-08-26. Point-in-time: it cannot
@@ -139,4 +140,60 @@ test("a blob under the cap does not report overflow", () => {
 test("a null or malformed input yields an empty result rather than throwing", () => {
   assert.deepEqual(buildHostMetadata(null).kept, {});
   assert.deepEqual(buildHostMetadata("nope").kept, {});
+});
+
+// -- Resolving one identity from whichever channel the host offers (spec 4.4a) --
+
+const CODEX_EXTRA = { _meta: { [CODEX_META_KEY]: { thread_id: "codex-1", model: "m" } } };
+
+test("the environment channel serves a Claude-spawned server", () => {
+  const identity = resolveCallerIdentity({ env: { CLAUDE_CODE_SESSION_ID: "claude-1" } });
+
+  assert.equal(identity.id, "claude-1");
+  assert.equal(identity.provider, "claude");
+  assert.equal(identity.channel, "environment");
+});
+
+test("the request channel serves a Codex-spawned server", () => {
+  const identity = resolveCallerIdentity({ env: {}, extra: CODEX_EXTRA });
+
+  assert.equal(identity.id, "codex-1");
+  assert.equal(identity.channel, "request-metadata");
+});
+
+test("neither channel yields null, not a null-filled object", () => {
+  // Matches detectVerifiedOrigin and the optional-chaining idiom at both call
+  // sites (spec 4.4a).
+  assert.equal(resolveCallerIdentity({ env: {} }), null);
+});
+
+test("agreeing channels report the per-call one", () => {
+  const identity = resolveCallerIdentity({ env: { CODEX_THREAD_ID: "codex-1" }, extra: CODEX_EXTRA });
+
+  assert.equal(identity.id, "codex-1");
+  assert.equal(identity.channel, "request-metadata");
+});
+
+test("disagreeing channels yield no identity at all", () => {
+  // Fail-closed. An earlier draft let the fresher value win, which hands an
+  // override to an adversary able to influence one channel but not the other
+  // (spec 4.4a). Two channels that should never both speak, contradicting each
+  // other, is the worst moment to stamp VERIFIED on either.
+  const identity = resolveCallerIdentity({ env: { CODEX_THREAD_ID: "other" }, extra: CODEX_EXTRA });
+
+  assert.equal(identity, null);
+});
+
+test("the messaging token is never read, on any path", () => {
+  // Safety discipline 4. The environment lookup is an explicit allow-list of
+  // three names, never a scan.
+  const seen = [];
+  const env = new Proxy(
+    { CLAUDE_CODE_SESSION_ID: "s1", CLAUDE_CODE_MESSAGING_TOKEN: "SECRET" },
+    { get(target, name) { seen.push(String(name)); return target[name]; } },
+  );
+
+  resolveCallerIdentity({ env, extra: null });
+
+  assert.equal(seen.includes("CLAUDE_CODE_MESSAGING_TOKEN"), false, "relay touched the messaging token");
 });

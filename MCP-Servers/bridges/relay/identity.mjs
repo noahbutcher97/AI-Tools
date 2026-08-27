@@ -84,3 +84,36 @@ export function buildHostMetadata(raw) {
   }
   return { kept, dropped, overflow: false };
 }
+
+// An explicit allow-list, never a prefix scan: CLAUDE_CODE_MESSAGING_TOKEN sits
+// in this same namespace and is pipe-secret material (safety discipline 4).
+const IDENTITY_VARS = [
+  ["CODEX_THREAD_ID", "codex"],
+  ["CODEX_SESSION_ID", "codex"],
+  ["CLAUDE_CODE_SESSION_ID", "claude"],
+];
+
+function fromEnvironment(env) {
+  for (const [name, provider] of IDENTITY_VARS) {
+    const value = env ? env[name] : undefined;
+    if (value) return { id: value, provider, channel: "environment", host: {} };
+  }
+  return null;
+}
+
+// Returns null rather than a null-filled object, matching the optional-chaining
+// idiom at both call sites.
+export function resolveCallerIdentity({ env = process.env, extra = null } = {}) {
+  const fromRequest = detectRequestOrigin(extra);
+  const fromEnv = fromEnvironment(env);
+
+  // The two are not expected to co-occur: a Codex-spawned server has no
+  // identity in its environment, a Claude-spawned one receives no Codex turn
+  // metadata. Agreement reports the per-call channel, being the one that cannot
+  // go stale. DISAGREEMENT claims nothing at all: two channels that should
+  // never both speak, contradicting each other, is a condition this design did
+  // not anticipate, and an unanticipated condition is the worst moment to stamp
+  // VERIFIED on whichever value a tiebreak happens to select (spec 4.4a).
+  if (fromRequest && fromEnv && fromRequest.id !== fromEnv.id) return null;
+  return fromRequest || fromEnv;
+}
