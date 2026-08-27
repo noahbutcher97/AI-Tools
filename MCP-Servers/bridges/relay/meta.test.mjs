@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { RELAY_META_PREFIX, buildMetaLine, parseMetaFromMessage } from "./client.mjs";
+import { RELAY_META_PREFIX, buildMetaLine, buildRelayEnvelope, parseMetaFromMessage } from "./client.mjs";
 
 function parse(line) {
   return JSON.parse(line.slice(RELAY_META_PREFIX.length));
@@ -173,4 +173,105 @@ test("a credential smuggled into host metadata does not reach the header", () =>
 
   assert.equal(JSON.stringify(meta).includes("SECRET"), false);
   assert.equal(meta.from.host.model, "m");
+});
+
+// -- The envelope emits the header (spec 4.4c, typed-messages Task 5) --
+//
+// The plan for these wrote verifiedOrigin and verifiedProvider as separate
+// options. They were collapsed into one identity object by the per-call origin
+// work, so the calls below carry the current shape.
+
+const CLAUDE = { id: "real", provider: "claude", channel: "environment", host: {} };
+
+test("the envelope emits the header before the prose and outside the body", () => {
+  const { text, bodyBegin } = buildRelayEnvelope({
+    message: "hello",
+    kind: "request",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    identity: CLAUDE,
+    nonce: "EX",
+  });
+
+  const metaAt = text.indexOf("RELAY-META ");
+  const bodyAt = text.indexOf(bodyBegin);
+  const proseAt = text.indexOf("[cross-agent relay]");
+
+  assert.notEqual(metaAt, -1);
+  assert.equal(metaAt < bodyAt, true, "the header must precede the body region");
+  // The "before the prose" half of this test's name was unverified until
+  // mutation showed the header could be moved to the END of the relay-written
+  // region with every test still green: anything in that region precedes the
+  // body, so the body comparison alone pins nothing about ordering.
+  assert.equal(metaAt < proseAt, true, "the header must be the first line, not merely outside the body");
+  assert.equal(text.startsWith("RELAY-META "), true);
+});
+
+test("the emitted header is what the parser reads back", () => {
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    kind: "request",
+    conversation: "c-1111aaaa@real",
+    messageId: "m-1",
+    identity: CLAUDE,
+    nonce: "EX",
+  });
+
+  const meta = parseMetaFromMessage(text);
+
+  assert.equal(meta.kind, "request");
+  assert.equal(meta.conversation, "c-1111aaaa@real");
+  assert.equal(meta.message_id, "m-1");
+});
+
+test("the machine field and the prose line state the same origin", () => {
+  // Two renderings of one fact drift, and a reader cannot tell which is stale.
+  // Both are built from one resolved value.
+  const id = "01a034fa-7e07-7c71-a58f-4d49569c1636";
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    identity: { id, provider: "codex", channel: "request-metadata", host: {} },
+    nonce: "EX",
+  });
+
+  const meta = parseMetaFromMessage(text);
+
+  assert.equal(meta.from.id, id);
+  assert.equal(meta.from.verified, true);
+  assert.match(text, new RegExp(id));
+  assert.match(text, /VERIFIED/);
+});
+
+test("the header records the channel the prose names", () => {
+  // Same drift argument, applied to the field the origin work added: the prose
+  // says which channel verified the sender and so must the machine field.
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    identity: { id: "c1", provider: "codex", channel: "request-metadata", host: { model: "m" } },
+    nonce: "EX",
+  });
+
+  const meta = parseMetaFromMessage(text);
+
+  assert.equal(meta.from.channel, "request-metadata");
+  assert.match(text, /metadata the host attached to this call/);
+});
+
+test("an unadorned envelope still carries a notice header", () => {
+  // No existing caller changes: a message sent without any typed-message option
+  // is a notice, and still parseable.
+  const { text } = buildRelayEnvelope({ message: "hello", nonce: "EX" });
+
+  assert.equal(parseMetaFromMessage(text).kind, "notice");
+});
+
+test("the conversation verdict appears in the prose for a human reader", () => {
+  const { text } = buildRelayEnvelope({
+    message: "hello",
+    conversation: "c-1111aaaa@someone-else",
+    identity: { id: "me", provider: "claude", channel: "environment", host: {} },
+    nonce: "EX",
+  });
+
+  assert.match(text, /opened by someone-else/);
 });

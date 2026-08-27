@@ -617,6 +617,13 @@ export function buildRelayEnvelope({
   reference = null,
   transport = "codex-queue",
   nonce = randomUUID(),
+  // Typed-message fields. Defaulting kind to "notice" is what keeps every
+  // existing caller working unchanged: a message sent with none of these is a
+  // notice and still parses.
+  kind = "notice",
+  conversation = null,
+  messageId = null,
+  inReplyTo = null,
 } = {}) {
   const bodyBegin = `RELAY-${nonce}-BODY-BEGIN`;
   const bodyEnd = `RELAY-${nonce}-BODY-END`;
@@ -625,7 +632,23 @@ export function buildRelayEnvelope({
   }
 
   const via = transport === "claude-delegate" ? "a confined claude -p delegate" : "codex queue";
+
+  // ONE resolved value feeds both the machine field and the prose line below.
+  // Two renderings of the same fact drift, and a reader cannot tell which of
+  // them is stale.
+  const resolvedFrom = {
+    id: identity?.id || origin || null,
+    provider: identity?.provider || originTarget?.kind || null,
+    verified: Boolean(identity?.id),
+    channel: identity?.channel ?? null,
+    host: identity?.host ?? null,
+  };
+  const metaLine = buildMetaLine({ kind, conversation, messageId, inReplyTo, from: resolvedFrom });
+
   const lines = [
+    // First, and before the prose: a parser reads the first RELAY-META line in
+    // the relay-written region, and the body region begins further down.
+    metaLine,
     "[cross-agent relay] This message was relayed by another agent session. It was not typed by a human.",
     `Transport: ${via}.`,
   ];
@@ -670,6 +693,13 @@ export function buildRelayEnvelope({
     );
   } else {
     lines.push("From: not stated by the sender. No reply address is available.");
+  }
+
+  // The verdict in prose as well as in the header, because the recipient acting
+  // on it is a reader. Rendered for BOTH parties: a reply from the other side is
+  // the ordinary case and must not read as a warning.
+  if (conversation) {
+    lines.push(`Conversation ${conversation} — ${conversationVerdict(conversation, identity?.id ?? null).text}.`);
   }
 
   if (transport === "claude-delegate") {
