@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { test } from "node:test";
@@ -483,5 +483,95 @@ test("concurrent downloads never clobber a destination created after validation"
     assert.equal(results.filter((result) => result.status === "rejected").length, 1);
     const winner = results.findIndex((result) => result.status === "fulfilled") === 0 ? "7001" : "7002";
     assert.deepEqual(await readFile(destinationPath), bytesById[winner]);
+  });
+});
+
+test("download returns its receipt when published temp cleanup fails once", async () => {
+  await withTempRoots(async ({ allowed }) => {
+    const bytes = Buffer.from("verified packet");
+    const destinationPath = join(allowed, "review.pdf");
+    let cleanupAttempts = 0;
+    const warnings = [];
+    const transfer = new AttachmentTransfer({
+      baseUrl: BASE_URL,
+      authorization: AUTH,
+      allowedRoots: [allowed],
+      unlinkFileImpl: async (filePath) => {
+        cleanupAttempts += 1;
+        if (cleanupAttempts === 1) {
+          const error = new Error(`cannot remove ${filePath}`);
+          error.code = "EPERM";
+          throw error;
+        }
+        await unlink(filePath);
+      },
+      warnImpl: (message) => warnings.push(message),
+      fetchImpl: async (url) => String(url).endsWith("/rest/api/3/attachment/7001")
+        ? jsonResponse(200, {
+          id: "7001",
+          filename: "review.pdf",
+          size: bytes.length,
+          mimeType: "application/pdf",
+          content: `${BASE_URL}/rest/api/3/attachment/content/7001`,
+        })
+        : new Response(bytes, { status: 200, headers: { "content-type": "application/pdf" } }),
+    });
+
+    const receipt = await transfer.download({
+      attachmentId: "7001",
+      destinationPath,
+      expectedSha256: sha256(bytes),
+      maxBytes: 1024,
+    });
+
+    assert.deepEqual(receipt, { path: destinationPath, bytes: bytes.length, sha256: sha256(bytes) });
+    assert.deepEqual(await readFile(destinationPath), bytes);
+    assert.equal(cleanupAttempts, 2);
+    assert.deepEqual(warnings, []);
+  });
+});
+
+test("download returns its receipt and warns without paths when published temp cleanup remains blocked", async () => {
+  await withTempRoots(async ({ allowed }) => {
+    const bytes = Buffer.from("verified packet");
+    const destinationPath = join(allowed, "review.pdf");
+    let cleanupAttempts = 0;
+    const warnings = [];
+    const transfer = new AttachmentTransfer({
+      baseUrl: BASE_URL,
+      authorization: AUTH,
+      allowedRoots: [allowed],
+      unlinkFileImpl: async (filePath) => {
+        cleanupAttempts += 1;
+        const error = new Error(`cannot remove ${filePath}`);
+        error.code = "EPERM";
+        throw error;
+      },
+      warnImpl: (message) => warnings.push(message),
+      fetchImpl: async (url) => String(url).endsWith("/rest/api/3/attachment/7001")
+        ? jsonResponse(200, {
+          id: "7001",
+          filename: "review.pdf",
+          size: bytes.length,
+          mimeType: "application/pdf",
+          content: `${BASE_URL}/rest/api/3/attachment/content/7001`,
+        })
+        : new Response(bytes, { status: 200, headers: { "content-type": "application/pdf" } }),
+    });
+
+    const receipt = await transfer.download({
+      attachmentId: "7001",
+      destinationPath,
+      expectedSha256: sha256(bytes),
+      maxBytes: 1024,
+    });
+
+    assert.deepEqual(receipt, { path: destinationPath, bytes: bytes.length, sha256: sha256(bytes) });
+    assert.deepEqual(await readFile(destinationPath), bytes);
+    assert.equal(cleanupAttempts, 2);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /destination published.*cleanup failed.*EPERM/i);
+    assert.equal(warnings[0].includes(allowed), false);
+    assert.equal(warnings[0].includes(destinationPath), false);
   });
 });

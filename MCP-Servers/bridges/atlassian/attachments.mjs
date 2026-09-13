@@ -87,12 +87,23 @@ async function responseBytes(response, maxBytes) {
 }
 
 export class AttachmentTransfer {
-  constructor({ baseUrl, authorization, allowedRoots, fetchImpl, openFileImpl = open, timeoutMs = 30_000 }) {
+  constructor({
+    baseUrl,
+    authorization,
+    allowedRoots,
+    fetchImpl,
+    openFileImpl = open,
+    unlinkFileImpl = unlink,
+    warnImpl = (message) => console.error(message),
+    timeoutMs = 30_000,
+  }) {
     this.baseUrl = new URL(baseUrl);
     this.authorization = authorization;
     this.allowedRoots = Array.isArray(allowedRoots) ? allowedRoots.map((root) => resolve(root)) : [];
     this.fetch = fetchImpl || ((...args) => fetch(...args));
     this.openFile = openFileImpl;
+    this.unlinkFile = unlinkFileImpl;
+    this.warn = warnImpl;
     this.timeoutMs = timeoutMs;
   }
 
@@ -316,11 +327,33 @@ export class AttachmentTransfer {
       await handle.close();
       handle = null;
       await link(tempPath, destinationPath);
-      await unlink(tempPath);
     } catch (error) {
-      if (handle) await handle.close();
-      await unlink(tempPath).catch(() => {});
+      if (handle) await handle.close().catch(() => {});
+      await this.unlinkFile(tempPath).catch(() => {});
       throw error;
+    }
+
+    await this._cleanupPublishedTemp(tempPath);
+  }
+
+  async _cleanupPublishedTemp(tempPath) {
+    let cleanupError;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await this.unlinkFile(tempPath);
+        return;
+      } catch (error) {
+        cleanupError = error;
+      }
+    }
+
+    const code = typeof cleanupError?.code === "string" && /^[A-Z0-9_]+$/.test(cleanupError.code)
+      ? cleanupError.code
+      : "UNKNOWN";
+    try {
+      this.warn(`[atlassian-bridge] Attachment destination published, but temporary-file cleanup failed (${code}).`);
+    } catch {
+      // A diagnostic sink must not turn a committed destination into a failed download.
     }
   }
 
