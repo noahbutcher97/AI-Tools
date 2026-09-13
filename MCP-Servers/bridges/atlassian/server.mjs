@@ -111,6 +111,31 @@ const server = new McpServer({
   description: "Atlassian Bridge for " + creds.siteName + " (Jira + Confluence)"
 });
 
+// MCP's default thrown-error conversion drops typed metadata and exposes the
+// exception message. Keep successful tool results unchanged; Jira failures
+// deliberately contain no upstream body, URL, credentials, or exception text.
+const registerTool = server.tool.bind(server);
+server.tool = (name, ...args) => {
+  if (name.startsWith("jira_")) {
+    const callback = args.pop();
+    args.push(async (...inputs) => {
+      try { return await callback(...inputs); }
+      catch (error) {
+        const raw = error.retryAfter;
+        const retryAfter = typeof raw === "string" && raw.length <= 64
+          && (/^\d{1,8}$/.test(raw) || /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(raw) && Number.isFinite(Date.parse(raw)))
+          ? raw : null;
+        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: {
+          version: 1, code: "ATLASSIAN_REQUEST_FAILED",
+          status: Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : null,
+          retryAfter,
+        } }) }] };
+      }
+    });
+  }
+  return registerTool(name, ...args);
+};
+
 // ── connection_info ──
 server.tool("connection_info", "Show which Atlassian org this server is connected to and where credentials came from", {},
   async () => toolJsonResult({
@@ -145,31 +170,6 @@ server.tool("jira_get_issue", "Get full details of a single Jira issue by key", 
   const i = await client.getIssue(issueKey);
   return toolJsonResult(i);
 });
-
-// MCP's default thrown-error conversion drops typed metadata and exposes the
-// exception message. Keep successful tool results unchanged; Jira failures
-// deliberately contain no upstream body, URL, credentials, or exception text.
-const registerTool = server.tool.bind(server);
-server.tool = (name, ...args) => {
-  if (name.startsWith("jira_")) {
-    const callback = args.pop();
-    args.push(async (...inputs) => {
-      try { return await callback(...inputs); }
-      catch (error) {
-        const raw = error.retryAfter;
-        const retryAfter = typeof raw === "string" && raw.length <= 64
-          && (/^\d{1,8}$/.test(raw) || /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(raw) && Number.isFinite(Date.parse(raw)))
-          ? raw : null;
-        return { isError: true, content: [{ type: "text", text: JSON.stringify({ error: {
-          version: 1, code: "ATLASSIAN_REQUEST_FAILED",
-          status: Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : null,
-          retryAfter,
-        } }) }] };
-      }
-    });
-  }
-  return registerTool(name, ...args);
-};
 
 server.tool("jira_read_issue", "Read selected Jira fields without reducing or reformatting their values", {
   issueKey: z.string().describe("Issue key, e.g. 'OS-123'"),

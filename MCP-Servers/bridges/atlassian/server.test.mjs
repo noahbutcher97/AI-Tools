@@ -37,6 +37,11 @@ test("Jira failures preserve bounded status and Retry-After on the actual stdio 
         code: "ATLASSIAN_REQUEST_FAILED", status,
         retryAfter: status === 429 ? "30" : "Sun, 13 Sep 2026 19:00:00 GMT" } });
     }
+    for (const [name, args] of [["jira_list_projects", {}], ["jira_search", { jql: "project=TEST" }], ["jira_get_issue", { issueKey: "TEST-1" }]]) {
+      const result = await client.callTool({ name, arguments: args });
+      assert.ok(!JSON.stringify(result).includes("PRIVATE_UPSTREAM_BODY"));
+      assert.equal(JSON.parse(result.content[0].text).error.status, 429);
+    }
   } finally { await client.close(); }
 });
 
