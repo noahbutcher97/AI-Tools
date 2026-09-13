@@ -45,6 +45,17 @@
         "3. Click 'Create', then 'Copy'.",
         "4. Paste the token below."
       ]
+    },
+    {
+      "name": "ATLASSIAN_FILE_ROOTS",
+      "label": "Allowed attachment file roots",
+      "type": "string",
+      "secret": false,
+      "required": false,
+      "instructions": [
+        "Optional JSON array of absolute paths allowed for Jira attachment upload and download.",
+        "Example on Windows: [\"D:\\\\Portfolio\\\\exports\"]. File transfer tools stay unavailable when this value is missing, empty, malformed, or contains a relative path."
+      ]
     }
   ],
   "validate": {

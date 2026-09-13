@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { readFileSync, existsSync } from "fs";
-import { join, resolve, dirname } from "path";
+import { join, resolve, dirname, isAbsolute } from "path";
 import { fileURLToPath } from "url";
 import { z } from "zod/v3";
 
@@ -89,7 +89,21 @@ if (!creds) {
   process.exit(1);
 }
 
-const client = new AtlassianClient(creds);
+function parseAllowedFileRoots(value) {
+  if (!value) return [];
+  try {
+    const roots = JSON.parse(value);
+    return Array.isArray(roots) && roots.length > 0
+      && roots.every((root) => typeof root === "string" && isAbsolute(root))
+      ? roots
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+const allowedFileRoots = parseAllowedFileRoots(process.env.ATLASSIAN_FILE_ROOTS);
+const client = new AtlassianClient(creds, { allowedFileRoots });
 const confluence = new ConfluenceClient(creds);
 const server = new McpServer({
   name: "atlassian-bridge",
@@ -131,6 +145,47 @@ server.tool("jira_get_issue", "Get full details of a single Jira issue by key", 
   const i = await client.getIssue(issueKey);
   return toolJsonResult(i);
 });
+
+server.tool("jira_read_issue", "Read selected Jira fields without reducing or reformatting their values", {
+  issueKey: z.string().describe("Issue key, e.g. 'OS-123'"),
+  fields: z.array(z.string()).min(1).describe("Exact Jira field names to return, including custom fields")
+}, async ({ issueKey, fields }) => {
+  return toolJsonResult(await client.readIssue(issueKey, fields));
+});
+
+server.tool("jira_list_comments", "Read one Jira comment page with an explicit continuation cursor and completeness flag", {
+  issueKey: z.string().describe("Issue key"),
+  startAt: z.number().int().min(0).optional().default(0).describe("Zero-based comment cursor"),
+  maxResults: z.number().int().min(1).max(100).optional().default(100).describe("Comments per page")
+}, async ({ issueKey, startAt, maxResults }) => {
+  return toolJsonResult(await client.listComments(issueKey, startAt, maxResults));
+});
+
+server.tool("jira_list_attachments", "List complete attachment metadata for one Jira issue", {
+  issueKey: z.string().describe("Issue key")
+}, async ({ issueKey }) => {
+  return toolJsonResult(await client.listAttachments(issueKey));
+});
+
+if (allowedFileRoots.length > 0) {
+  server.tool("jira_upload_attachment", "Upload one locally verified attachment. The configured file roots, expected hash and byte cap are mandatory.", {
+    issueKey: z.string().describe("Issue key"),
+    filePath: z.string().describe("Absolute source path within ATLASSIAN_FILE_ROOTS"),
+    expectedSha256: z.string().regex(/^[a-f0-9]{64}$/i).describe("Expected lowercase or uppercase SHA-256 hex digest"),
+    maxBytes: z.number().int().positive().describe("Hard maximum source byte count")
+  }, async ({ issueKey, filePath, expectedSha256, maxBytes }) => {
+    return toolJsonResult(await client.uploadAttachment({ issueKey, filePath, expectedSha256, maxBytes }));
+  });
+
+  server.tool("jira_download_attachment", "Download one verified Jira attachment to a new local file within configured roots", {
+    attachmentId: z.string().describe("Jira attachment ID"),
+    destinationPath: z.string().describe("Absolute new destination path within ATLASSIAN_FILE_ROOTS"),
+    expectedSha256: z.string().regex(/^[a-f0-9]{64}$/i).describe("Expected lowercase or uppercase SHA-256 hex digest"),
+    maxBytes: z.number().int().positive().describe("Hard maximum downloaded byte count")
+  }, async ({ attachmentId, destinationPath, expectedSha256, maxBytes }) => {
+    return toolJsonResult(await client.downloadAttachment({ attachmentId, destinationPath, expectedSha256, maxBytes }));
+  });
+}
 
 // ── jira_get_links ──
 // Reconstructing the link graph otherwise means reading per-issue changelogs and
@@ -244,22 +299,7 @@ server.tool("jira_list_epics", "List all epics in a project", {
 server.tool("jira_project_summary", "High-level project summary: status counts, priority breakdown, assignee workload", {
   projectKey: z.string().describe("Project key")
 }, async ({ projectKey }) => {
-  const statusData = await client.searchIssues(`project = "${projectKey}" ORDER BY status`, 200);
-  const byStatus = {}, byPriority = {}, byAssignee = {}, byType = {};
-  let blockerCount = 0;
-  for (const issue of statusData.issues) {
-    const cat = issue.statusCategory || "Unknown";
-    byStatus[cat] = (byStatus[cat] || 0) + 1;
-    byPriority[issue.priority || "None"] = (byPriority[issue.priority || "None"] || 0) + 1;
-    byAssignee[issue.assignee] = (byAssignee[issue.assignee] || 0) + 1;
-    byType[issue.issueType || "Unknown"] = (byType[issue.issueType || "Unknown"] || 0) + 1;
-    if (issue.priority === "Highest" || issue.priority === "Blocker") blockerCount++;
-  }
-  return toolJsonResult({
-    project: projectKey, site: creds.siteName + ".atlassian.net", totalIssues: statusData.total,
-    byStatusCategory: byStatus, byPriority, byAssignee, byIssueType: byType, blockerCount,
-    completionRate: byStatus["Done"] ? ((byStatus["Done"] / statusData.total) * 100).toFixed(1) + "%" : "0%"
-  });
+  return toolJsonResult(await client.projectSummary(projectKey));
 });
 
 // ── jira_dashboard_export ──

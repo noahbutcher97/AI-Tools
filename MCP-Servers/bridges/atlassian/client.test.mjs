@@ -86,6 +86,215 @@ test("request still returns parsed JSON on success", async () => {
   assert.deepEqual(await client.request("/rest/api/3/issue/OA-829"), { key: "OA-829" });
 });
 
+test("request rejects an absolute URL outside the configured Jira origin", async () => {
+  let calls = 0;
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => {
+      calls += 1;
+      return response(200, {});
+    },
+  });
+
+  await assert.rejects(
+    () => client.request("https://example.invalid/rest/api/3/myself"),
+    /configured Jira origin/,
+  );
+  assert.equal(calls, 0);
+});
+
+test("request aborts a Jira transport that exceeds its configured timeout", async () => {
+  const client = new AtlassianClient(CREDS, {
+    timeoutMs: 5,
+    fetchImpl: async (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }),
+  });
+
+  await assert.rejects(
+    () => client.request("/rest/api/3/myself"),
+    /Atlassian request timed out/,
+  );
+});
+
+test("request timeout remains active while the Jira response body is read", async () => {
+  const client = new AtlassianClient(CREDS, {
+    timeoutMs: 5,
+    fetchImpl: async (_url, { signal }) => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return new Promise((_resolve, reject) => {
+          const fallback = setTimeout(() => reject(new Error("body stalled without an active timeout")), 25);
+          signal.addEventListener("abort", () => {
+            clearTimeout(fallback);
+            reject(signal.reason);
+          }, { once: true });
+        });
+      },
+    }),
+  });
+
+  await assert.rejects(
+    () => client.request("/rest/api/3/myself"),
+    /Atlassian request timed out/,
+  );
+});
+
+test("readIssue preserves selected raw Jira fields", async () => {
+  const seen = [];
+  const rawDescription = {
+    type: "doc",
+    version: 1,
+    content: [{ type: "paragraph", content: [{ type: "text", text: "Exact body" }] }],
+  };
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async (url) => {
+      seen.push(String(url));
+      return response(200, {
+        id: "10001",
+        key: "TEST-1",
+        self: "https://example.atlassian.net/rest/api/3/issue/10001",
+        fields: { description: rawDescription, customfield_12345: { value: "Keep me" } },
+      });
+    },
+  });
+
+  const issue = await client.readIssue("TEST-1", ["description", "customfield_12345"]);
+
+  assert.ok(seen[0].includes("fields=description%2Ccustomfield_12345"));
+  assert.deepEqual(issue, {
+    id: "10001",
+    key: "TEST-1",
+    self: "https://example.atlassian.net/rest/api/3/issue/10001",
+    fields: { description: rawDescription, customfield_12345: { value: "Keep me" } },
+  });
+});
+
+test("listComments exposes a next cursor for a partial page", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      startAt: 50,
+      maxResults: 2,
+      total: 53,
+      comments: [{ id: "51", body: { type: "doc" } }, { id: "52", body: { type: "doc" } }],
+    }),
+  });
+
+  const page = await client.listComments("TEST-1", 50, 2);
+
+  assert.deepEqual(page.items.map((item) => item.id), ["51", "52"]);
+  assert.equal(page.nextCursor, 52);
+  assert.equal(page.complete, false);
+});
+
+test("listComments does not claim a full page is complete when total is absent", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      startAt: 0,
+      maxResults: 2,
+      comments: [{ id: "1" }, { id: "2" }],
+    }),
+  });
+
+  const page = await client.listComments("TEST-1", 0, 2);
+
+  assert.equal(page.nextCursor, 2);
+  assert.equal(page.complete, false);
+});
+
+test("listAttachments returns complete bounded metadata without content URLs", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      key: "TEST-1",
+      fields: {
+        attachment: [{
+          id: "7001",
+          filename: "review.pdf",
+          size: 123,
+          mimeType: "application/pdf",
+          created: "2026-09-13T10:00:00.000+0000",
+          author: { accountId: "abc", displayName: "Reviewer" },
+          content: "https://api.media.atlassian.com/private-token",
+          thumbnail: "https://api.media.atlassian.com/thumb-token",
+        }],
+      },
+    }),
+  });
+
+  const result = await client.listAttachments("TEST-1");
+
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.items, [{
+    id: "7001",
+    filename: "review.pdf",
+    size: 123,
+    mimeType: "application/pdf",
+    created: "2026-09-13T10:00:00.000+0000",
+    author: { accountId: "abc", displayName: "Reviewer" },
+  }]);
+});
+
+test("projectSummary enumerates 201 issues across two independently authored pages", async () => {
+  const firstPage = Array.from({ length: 120 }, (_, index) => ({
+    key: `TEST-${index + 1}`,
+    fields: {
+      status: { name: index < 80 ? "Done" : "In Progress", statusCategory: { name: index < 80 ? "Done" : "In Progress" } },
+      priority: { name: index === 0 ? "Highest" : "Medium" },
+      assignee: index % 2 === 0 ? { displayName: "A" } : null,
+      issuetype: { name: "Task" },
+      labels: [],
+      components: [],
+    },
+  }));
+  const secondPage = Array.from({ length: 81 }, (_, index) => ({
+    key: `TEST-${index + 121}`,
+    fields: {
+      status: { name: "To Do", statusCategory: { name: "To Do" } },
+      priority: { name: index === 80 ? "Blocker" : "Low" },
+      assignee: { displayName: "B" },
+      issuetype: { name: index % 2 === 0 ? "Bug" : "Story" },
+      labels: [],
+      components: [],
+    },
+  }));
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async (url) => {
+      const token = new URL(String(url)).searchParams.get("nextPageToken");
+      return token === "page-2"
+        ? response(200, { issues: secondPage, isLast: true })
+        : response(200, { issues: firstPage, nextPageToken: "page-2", isLast: false });
+    },
+  });
+
+  const summary = await client.projectSummary("TEST");
+
+  assert.equal(summary.totalIssues, 201);
+  assert.equal(summary.complete, true);
+  assert.equal(Object.values(summary.byStatusCategory).reduce((a, b) => a + b, 0), 201);
+  assert.deepEqual(summary.byStatusCategory, { Done: 80, "In Progress": 40, "To Do": 81 });
+  assert.equal(summary.blockerCount, 2);
+  assert.equal(summary.completionRate, "39.8%");
+});
+
+test("projectSummary marks pagination gaps incomplete and uses enumerated rows as its denominator", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      issues: [
+        { key: "TEST-1", fields: { status: { statusCategory: { name: "Done" } } } },
+        { key: "TEST-2", fields: { status: { statusCategory: { name: "To Do" } } } },
+      ],
+      isLast: false,
+    }),
+  });
+
+  const summary = await client.projectSummary("TEST");
+
+  assert.equal(summary.totalIssues, 2);
+  assert.equal(summary.complete, false);
+  assert.equal(summary.completionRate, "50.0%");
+  assert.equal(Object.values(summary.byStatusCategory).reduce((a, b) => a + b, 0), 2);
+});
+
 // ── validateKeys (audit item 1) ──
 //
 // A bulk `key in (...)` query returns only the keys it resolves, with no error

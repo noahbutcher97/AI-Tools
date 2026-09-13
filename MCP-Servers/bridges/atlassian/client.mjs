@@ -1,4 +1,5 @@
 import { htmlToText, extractSection } from "../../lib/html-text.mjs";
+import { AttachmentTransfer } from "./attachments.mjs";
 
 // Atlassian + Confluence HTTP clients.
 //
@@ -10,15 +11,23 @@ import { htmlToText, extractSection } from "../../lib/html-text.mjs";
 export class AtlassianClient {
   // fetchImpl is injectable so request/parse logic can be unit tested without a
   // live instance, matching the otter bridge's client. Defaults to global fetch.
-  constructor(creds, { fetchImpl } = {}) {
+  constructor(creds, { fetchImpl, allowedFileRoots = [], timeoutMs = 30_000 } = {}) {
     this.baseUrl = `https://${creds.siteName}.atlassian.net`;
     this.auth = Buffer.from(`${creds.userEmail}:${creds.apiToken}`).toString("base64");
     this.siteName = creds.siteName;
     this.fetch = fetchImpl || ((...args) => fetch(...args));
+    this.timeoutMs = timeoutMs;
+    this.attachmentTransfer = new AttachmentTransfer({
+      baseUrl: this.baseUrl,
+      authorization: `Basic ${this.auth}`,
+      allowedRoots: allowedFileRoots,
+      fetchImpl: this.fetch,
+      timeoutMs,
+    });
   }
 
   async request(path, params = {}, method = "GET", body = null) {
-    const url = new URL(path, this.baseUrl);
+    const url = this._jiraUrl(path);
     if (method === "GET" || method === "DELETE") {
       Object.entries(params).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
@@ -33,20 +42,42 @@ export class AtlassianClient {
       }
     };
     if (body && method !== "GET" && method !== "DELETE") opts.body = JSON.stringify(body);
-    const resp = await this.fetch(url.toString(), opts);
-    if (!resp.ok) {
-      const text = await resp.text();
-      // The status is attached as a value, not just formatted into the message.
-      // Callers that must tell a missing issue from an unreadable one (404 vs
-      // 403) cannot recover it by parsing the string. Message text is unchanged
-      // so anything matching on it keeps working.
-      const err = new Error(`Atlassian API ${resp.status}: ${text}`);
-      err.status = resp.status;
-      err.body = text;
-      throw err;
+    opts.redirect = "manual";
+    const controller = new AbortController();
+    opts.signal = controller.signal;
+    const timeout = setTimeout(() => controller.abort(new Error("request timed out")), this.timeoutMs);
+    try {
+      const resp = await this.fetch(url.toString(), opts);
+      if (resp.status >= 300 && resp.status < 400) {
+        throw new Error("Authenticated Atlassian requests do not follow redirects");
+      }
+      if (!resp.ok) {
+        const text = await resp.text();
+        // The status is attached as a value, not just formatted into the message.
+        // Callers that must tell a missing issue from an unreadable one (404 vs
+        // 403) cannot recover it by parsing the string. Message text is unchanged
+        // so anything matching on it keeps working.
+        const err = new Error(`Atlassian API ${resp.status}: ${text}`);
+        err.status = resp.status;
+        err.body = text;
+        throw err;
+      }
+      if (resp.status === 204) return { success: true };
+      return await resp.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error("Atlassian request timed out");
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    if (resp.status === 204) return { success: true };
-    return resp.json();
+  }
+
+  _jiraUrl(path) {
+    const url = new URL(path, this.baseUrl);
+    if (url.origin !== this.baseUrl || url.username || url.password || url.hash) {
+      throw new Error("Authenticated request URL must stay on the configured Jira origin");
+    }
+    return url;
   }
 
   // ── Key validation ──
@@ -299,6 +330,115 @@ export class AtlassianClient {
       issues: data.issues.map(i => this._formatIssue(i)),
       nextPageToken: data.nextPageToken || null,
       isLast: data.isLast === true,
+    };
+  }
+
+  async readIssue(issueKey, fields) {
+    const data = await this.request(`/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
+      fields: fields.join(","),
+    });
+    return { id: data.id, key: data.key, self: data.self, fields: data.fields || {} };
+  }
+
+  async listComments(issueKey, startAt = 0, maxResults = 100) {
+    const data = await this.request(`/rest/api/3/issue/${encodeURIComponent(issueKey)}/comment`, {
+      startAt,
+      maxResults,
+    });
+    const items = data.comments || [];
+    const pageStart = Number.isInteger(data.startAt) ? data.startAt : startAt;
+    const pageLimit = Number.isInteger(data.maxResults) && data.maxResults > 0
+      ? data.maxResults
+      : maxResults;
+    const consumed = pageStart + items.length;
+    const complete = data.isLast === true
+      || (Number.isFinite(data.total) ? consumed >= data.total : items.length < pageLimit);
+    return {
+      items,
+      nextCursor: complete ? null : consumed,
+      complete,
+    };
+  }
+
+  async listAttachments(issueKey) {
+    const data = await this.request(`/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
+      fields: "attachment",
+    });
+    const items = (data.fields?.attachment || []).map((attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      size: attachment.size,
+      mimeType: attachment.mimeType,
+      created: attachment.created,
+      author: attachment.author ? {
+        accountId: attachment.author.accountId,
+        displayName: attachment.author.displayName,
+      } : null,
+    }));
+    return { items, complete: true };
+  }
+
+  async uploadAttachment(options) {
+    return this.attachmentTransfer.upload(options);
+  }
+
+  async downloadAttachment(options) {
+    return this.attachmentTransfer.download(options);
+  }
+
+  async projectSummary(projectKey) {
+    const issues = [];
+    const seenTokens = new Set();
+    const jql = `project = "${projectKey}" ORDER BY status`;
+    let nextPageToken = null;
+    let complete = false;
+    while (true) {
+      const page = await this.searchIssues(
+        jql,
+        100,
+        nextPageToken,
+        "summary,status,priority,assignee,issuetype",
+      );
+      issues.push(...page.issues);
+      if (page.isLast) {
+        complete = true;
+        break;
+      }
+      if (!page.nextPageToken || seenTokens.has(page.nextPageToken) || page.issues.length === 0) break;
+      seenTokens.add(page.nextPageToken);
+      nextPageToken = page.nextPageToken;
+    }
+
+    const byStatusCategory = {};
+    const byPriority = {};
+    const byAssignee = {};
+    const byIssueType = {};
+    let blockerCount = 0;
+    for (const issue of issues) {
+      const category = issue.statusCategory || "Unknown";
+      const priority = issue.priority || "None";
+      const assignee = issue.assignee || "Unassigned";
+      const issueType = issue.issueType || "Unknown";
+      byStatusCategory[category] = (byStatusCategory[category] || 0) + 1;
+      byPriority[priority] = (byPriority[priority] || 0) + 1;
+      byAssignee[assignee] = (byAssignee[assignee] || 0) + 1;
+      byIssueType[issueType] = (byIssueType[issueType] || 0) + 1;
+      if (priority === "Highest" || priority === "Blocker") blockerCount += 1;
+    }
+    const totalIssues = issues.length;
+    return {
+      project: projectKey,
+      site: `${this.siteName}.atlassian.net`,
+      totalIssues,
+      complete,
+      byStatusCategory,
+      byPriority,
+      byAssignee,
+      byIssueType,
+      blockerCount,
+      completionRate: byStatusCategory.Done && totalIssues > 0
+        ? `${((byStatusCategory.Done / totalIssues) * 100).toFixed(1)}%`
+        : "0%",
     };
   }
 
