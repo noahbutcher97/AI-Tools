@@ -68,6 +68,44 @@ test("upload sends verified bytes as multipart form data and returns a narrow re
   });
 });
 
+test("upload hashes all bytes when the file handle returns bounded partial reads", async () => {
+  await withTempRoots(async ({ allowed }) => {
+    const bytes = Buffer.from("abcdef");
+    const filePath = join(allowed, "review.pdf");
+    await writeFile(filePath, "xx");
+    const chunks = [Buffer.from("ab"), Buffer.from("cd"), Buffer.from("ef"), Buffer.alloc(0)];
+    const transfer = new AttachmentTransfer({
+      baseUrl: BASE_URL,
+      authorization: AUTH,
+      allowedRoots: [allowed],
+      openFileImpl: async () => ({
+        async read(buffer) {
+          const chunk = chunks.shift();
+          chunk.copy(buffer);
+          return { bytesRead: chunk.length, buffer };
+        },
+        async close() {},
+      }),
+      fetchImpl: async () => jsonResponse(200, [{
+        id: "7001",
+        filename: "review.pdf",
+        size: bytes.length,
+        mimeType: "application/pdf",
+      }]),
+    });
+
+    const receipt = await transfer.upload({
+      issueKey: "TEST-1",
+      filePath,
+      expectedSha256: sha256(bytes),
+      maxBytes: 1024,
+    });
+
+    assert.equal(receipt.size, bytes.length);
+    assert.equal(receipt.sha256, sha256(bytes));
+  });
+});
+
 test("upload rejects bytes whose hash does not match before making a request", async () => {
   await withTempRoots(async ({ allowed }) => {
     const filePath = join(allowed, "review.pdf");
@@ -396,5 +434,54 @@ test("download rejects a symlink-escaped destination", async () => {
       /outside configured roots/,
     );
     assert.equal(calls, 0);
+  });
+});
+
+test("concurrent downloads never clobber a destination created after validation", async () => {
+  await withTempRoots(async ({ allowed }) => {
+    const destinationPath = join(allowed, "review.pdf");
+    const bytesById = {
+      "7001": Buffer.from("first packet"),
+      "7002": Buffer.from("second packet"),
+    };
+    let arrivals = 0;
+    let release;
+    const bothDownloadsReady = new Promise((resolve) => { release = resolve; });
+    const fetchImpl = async (url) => {
+      const match = String(url).match(/attachment\/(?:content\/)?(700[12])$/);
+      const id = match?.[1];
+      if (!String(url).includes("/content/")) {
+        return jsonResponse(200, {
+          id,
+          filename: "review.pdf",
+          size: bytesById[id].length,
+          mimeType: "application/pdf",
+          content: `${BASE_URL}/rest/api/3/attachment/content/${id}`,
+        });
+      }
+      arrivals += 1;
+      if (arrivals === 2) release();
+      await bothDownloadsReady;
+      return new Response(bytesById[id], {
+        status: 200,
+        headers: { "content-type": "application/pdf" },
+      });
+    };
+    const transfer = new AttachmentTransfer({
+      baseUrl: BASE_URL,
+      authorization: AUTH,
+      allowedRoots: [allowed],
+      fetchImpl,
+    });
+
+    const results = await Promise.allSettled([
+      transfer.download({ attachmentId: "7001", destinationPath, expectedSha256: sha256(bytesById["7001"]), maxBytes: 1024 }),
+      transfer.download({ attachmentId: "7002", destinationPath, expectedSha256: sha256(bytesById["7002"]), maxBytes: 1024 }),
+    ]);
+
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+    const winner = results.findIndex((result) => result.status === "fulfilled") === 0 ? "7001" : "7002";
+    assert.deepEqual(await readFile(destinationPath), bytesById[winner]);
   });
 });

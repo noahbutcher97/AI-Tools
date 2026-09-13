@@ -53,6 +53,7 @@ test("atlassian bridge registers its Jira and Confluence tools", async () => {
     "jira_read_issue",
     "jira_list_comments",
     "jira_list_attachments",
+    "jira_export_issues_page",
     "jira_request",
     "confluence_get_page",
     "confluence_search",
@@ -75,6 +76,10 @@ test("the additive Jira read tools expose raw fields and explicit page coverage"
   const comments = tools.find((tool) => tool.name === "jira_list_comments");
   assert.ok(comments.inputSchema.properties.startAt);
   assert.ok(comments.inputSchema.properties.maxResults);
+  const exportPage = tools.find((tool) => tool.name === "jira_export_issues_page");
+  assert.deepEqual(exportPage.inputSchema.required.sort(), ["fields", "projectKey"]);
+  assert.equal(exportPage.inputSchema.properties.maxResults.maximum, 100);
+  assert.ok(exportPage.inputSchema.properties.nextCursor);
 });
 
 test("attachment transfer tools are unavailable until absolute file roots are configured", async () => {

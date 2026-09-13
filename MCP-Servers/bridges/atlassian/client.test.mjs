@@ -202,6 +202,49 @@ test("listComments does not claim a full page is complete when total is absent",
   assert.equal(page.complete, false);
 });
 
+test("listComments honors explicit isLast false on a short page", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      startAt: 0,
+      maxResults: 2,
+      isLast: false,
+      comments: [{ id: "1" }],
+    }),
+  });
+
+  const page = await client.listComments("TEST-1", 0, 2);
+
+  assert.deepEqual(page, { items: [{ id: "1" }], nextCursor: 1, complete: false });
+});
+
+test("listComments rejects a response without its required comments inventory", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {}),
+  });
+
+  await assert.rejects(
+    () => client.listComments("TEST-1", 0, 2),
+    /comments inventory/,
+  );
+});
+
+test("listComments rejects a nonterminal page that cannot advance its cursor", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      startAt: 50,
+      maxResults: 2,
+      total: 53,
+      isLast: false,
+      comments: [],
+    }),
+  });
+
+  await assert.rejects(
+    () => client.listComments("TEST-1", 50, 2),
+    /did not advance/,
+  );
+});
+
 test("listAttachments returns complete bounded metadata without content URLs", async () => {
   const client = new AtlassianClient(CREDS, {
     fetchImpl: async () => response(200, {
@@ -232,6 +275,126 @@ test("listAttachments returns complete bounded metadata without content URLs", a
     created: "2026-09-13T10:00:00.000+0000",
     author: { accountId: "abc", displayName: "Reviewer" },
   }]);
+});
+
+test("listAttachments rejects a response without a fields object", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {}),
+  });
+
+  await assert.rejects(
+    () => client.listAttachments("TEST-1"),
+    /attachment inventory/,
+  );
+});
+
+test("listAttachments rejects fields that omit the attachment inventory", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, { fields: {} }),
+  });
+
+  await assert.rejects(
+    () => client.listAttachments("TEST-1"),
+    /attachment inventory/,
+  );
+});
+
+test("exportIssuesPage returns selected raw fields with terminal coverage", async () => {
+  const raw = { type: "doc", version: 1, content: [{ type: "paragraph" }] };
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async (url) => {
+      const parsed = new URL(String(url));
+      assert.equal(parsed.searchParams.get("jql"), 'project = "TEST" ORDER BY rank ASC');
+      assert.equal(parsed.searchParams.get("fields"), "description,customfield_12345");
+      assert.equal(parsed.searchParams.get("maxResults"), "2");
+      return response(200, {
+        issues: [{ id: "10001", key: "TEST-1", self: "issue/10001", fields: { description: raw, customfield_12345: 7 } }],
+        isLast: true,
+      });
+    },
+  });
+
+  const page = await client.exportIssuesPage("TEST", ["description", "customfield_12345"], null, 2);
+
+  assert.deepEqual(page, {
+    items: [{ id: "10001", key: "TEST-1", self: "issue/10001", fields: { description: raw, customfield_12345: 7 } }],
+    nextCursor: null,
+    complete: true,
+  });
+});
+
+test("exportIssuesPage returns a capped nonterminal page and its cursor", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      issues: [
+        { id: "1", key: "TEST-1", fields: { summary: "One" } },
+        { id: "2", key: "TEST-2", fields: { summary: "Two" } },
+      ],
+      nextPageToken: "page-2",
+      isLast: false,
+    }),
+  });
+
+  const page = await client.exportIssuesPage("TEST", ["summary"], null, 2);
+
+  assert.equal(page.items.length, 2);
+  assert.equal(page.nextCursor, "page-2");
+  assert.equal(page.complete, false);
+});
+
+test("exportIssuesPage keeps rows but cannot certify coverage when a cursor is missing", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      issues: [{ id: "1", key: "TEST-1", fields: { summary: "One" } }],
+      isLast: false,
+    }),
+  });
+
+  const page = await client.exportIssuesPage("TEST", ["summary"], null, 2);
+
+  assert.deepEqual(page.items.map((issue) => issue.key), ["TEST-1"]);
+  assert.equal(page.nextCursor, null);
+  assert.equal(page.complete, false);
+});
+
+test("exportIssuesPage rejects a nonadvancing cursor", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      issues: [{ id: "3", key: "TEST-3", fields: { summary: "Three" } }],
+      nextPageToken: "page-2",
+      isLast: false,
+    }),
+  });
+
+  await assert.rejects(
+    () => client.exportIssuesPage("TEST", ["summary"], "page-2", 2),
+    /did not advance/,
+  );
+});
+
+test("exportIssuesPage rejects a malformed missing issues inventory", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, { isLast: true }),
+  });
+
+  await assert.rejects(
+    () => client.exportIssuesPage("TEST", ["summary"], null, 2),
+    /issues inventory/,
+  );
+});
+
+test("exportIssuesPage rejects an issue that omits its selected raw fields", async () => {
+  const client = new AtlassianClient(CREDS, {
+    fetchImpl: async () => response(200, {
+      issues: [{ id: "1", key: "TEST-1" }],
+      isLast: true,
+    }),
+  });
+
+  await assert.rejects(
+    () => client.exportIssuesPage("TEST", ["summary"], null, 2),
+    /raw fields/,
+  );
 });
 
 test("projectSummary enumerates 201 issues across two independently authored pages", async () => {

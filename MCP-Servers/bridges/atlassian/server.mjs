@@ -167,8 +167,17 @@ server.tool("jira_list_attachments", "List complete attachment metadata for one 
   return toolJsonResult(await client.listAttachments(issueKey));
 });
 
+server.tool("jira_export_issues_page", "Export one page of selected raw Jira issue fields with explicit coverage", {
+  projectKey: z.string().describe("Project key"),
+  fields: z.array(z.string()).min(1).describe("Exact Jira field names to return without reduction"),
+  nextCursor: z.string().optional().describe("Cursor returned by the preceding page; omit for the first page"),
+  maxResults: z.number().int().min(1).max(100).optional().default(100).describe("Issues per page")
+}, async ({ projectKey, fields, nextCursor, maxResults }) => {
+  return toolJsonResult(await client.exportIssuesPage(projectKey, fields, nextCursor, maxResults));
+});
+
 if (allowedFileRoots.length > 0) {
-  server.tool("jira_upload_attachment", "Upload one locally verified attachment. The configured file roots, expected hash and byte cap are mandatory.", {
+  server.tool("jira_upload_attachment", "Upload one locally verified attachment. The configured file roots, expected hash and byte cap are mandatory. Configured roots and ancestors must remain locally trusted and stable during transfer.", {
     issueKey: z.string().describe("Issue key"),
     filePath: z.string().describe("Absolute source path within ATLASSIAN_FILE_ROOTS"),
     expectedSha256: z.string().regex(/^[a-f0-9]{64}$/i).describe("Expected lowercase or uppercase SHA-256 hex digest"),
@@ -177,7 +186,7 @@ if (allowedFileRoots.length > 0) {
     return toolJsonResult(await client.uploadAttachment({ issueKey, filePath, expectedSha256, maxBytes }));
   });
 
-  server.tool("jira_download_attachment", "Download one verified Jira attachment to a new local file within configured roots", {
+  server.tool("jira_download_attachment", "Download one verified Jira attachment to a new local file within configured roots. Configured roots and ancestors must remain locally trusted and stable during transfer.", {
     attachmentId: z.string().describe("Jira attachment ID"),
     destinationPath: z.string().describe("Absolute new destination path within ATLASSIAN_FILE_ROOTS"),
     expectedSha256: z.string().regex(/^[a-f0-9]{64}$/i).describe("Expected lowercase or uppercase SHA-256 hex digest"),

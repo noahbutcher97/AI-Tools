@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { access, open, realpath, rename, stat, unlink } from "node:fs/promises";
+import { access, link, open, realpath, stat, unlink } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 const DOWNLOAD_HOST_SUFFIXES = [".atlassian.com", ".atlassian.net", ".atl-paas.net"];
@@ -87,11 +87,12 @@ async function responseBytes(response, maxBytes) {
 }
 
 export class AttachmentTransfer {
-  constructor({ baseUrl, authorization, allowedRoots, fetchImpl, timeoutMs = 30_000 }) {
+  constructor({ baseUrl, authorization, allowedRoots, fetchImpl, openFileImpl = open, timeoutMs = 30_000 }) {
     this.baseUrl = new URL(baseUrl);
     this.authorization = authorization;
     this.allowedRoots = Array.isArray(allowedRoots) ? allowedRoots.map((root) => resolve(root)) : [];
     this.fetch = fetchImpl || ((...args) => fetch(...args));
+    this.openFile = openFileImpl;
     this.timeoutMs = timeoutMs;
   }
 
@@ -105,8 +106,7 @@ export class AttachmentTransfer {
       throw new Error(`Attachment exceeds maxBytes (${fileStats.size} > ${limit})`);
     }
 
-    const bytes = await this._readLocalFile(safePath, limit);
-    const actualHash = createHash("sha256").update(bytes).digest("hex");
+    const { bytes, sha256: actualHash } = await this._readLocalFile(safePath, limit);
     if (actualHash !== expectedHash) {
       throw new Error(`Attachment SHA-256 mismatch: expected ${expectedHash}, got ${actualHash}`);
     }
@@ -245,6 +245,12 @@ export class AttachmentTransfer {
     return Promise.all(this.allowedRoots.map((root) => realpath(root)));
   }
 
+  // Canonicalization blocks paths that already escape through symlinks. The
+  // configured roots and their ancestors are a local trust boundary: callers
+  // must keep them stable while a transfer runs. Node does not expose openat-
+  // style directory handles that could contain a hostile process replacing an
+  // already-validated ancestor between realpath and a later path operation.
+
   async _existingPath(filePath, label) {
     if (!isAbsolute(filePath)) throw new Error(`${label} must be an absolute path`);
     const candidate = await realpath(filePath);
@@ -273,12 +279,28 @@ export class AttachmentTransfer {
   }
 
   async _readLocalFile(filePath, maxBytes) {
-    const handle = await open(filePath, "r");
+    const handle = await this.openFile(filePath, "r");
     try {
-      const bytes = Buffer.alloc(maxBytes + 1);
-      const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-      if (bytesRead > maxBytes) throw new Error(`Attachment exceeds maxBytes (${bytesRead} > ${maxBytes})`);
-      return bytes.subarray(0, bytesRead);
+      const chunks = [];
+      const hash = createHash("sha256");
+      let total = 0;
+      let position = 0;
+      while (true) {
+        const readSize = Math.min(64 * 1024, maxBytes - total + 1);
+        const buffer = Buffer.allocUnsafe(readSize);
+        const { bytesRead } = await handle.read(buffer, 0, readSize, position);
+        if (!Number.isInteger(bytesRead) || bytesRead < 0 || bytesRead > readSize) {
+          throw new Error("Attachment file read returned an invalid byte count");
+        }
+        if (bytesRead === 0) break;
+        total += bytesRead;
+        if (total > maxBytes) throw new Error(`Attachment exceeds maxBytes (${total} > ${maxBytes})`);
+        const chunk = buffer.subarray(0, bytesRead);
+        chunks.push(chunk);
+        hash.update(chunk);
+        position += bytesRead;
+      }
+      return { bytes: Buffer.concat(chunks, total), sha256: hash.digest("hex") };
     } finally {
       await handle.close();
     }
@@ -290,9 +312,11 @@ export class AttachmentTransfer {
     try {
       handle = await open(tempPath, "wx");
       await handle.writeFile(bytes);
+      await handle.sync();
       await handle.close();
       handle = null;
-      await rename(tempPath, destinationPath);
+      await link(tempPath, destinationPath);
+      await unlink(tempPath);
     } catch (error) {
       if (handle) await handle.close();
       await unlink(tempPath).catch(() => {});

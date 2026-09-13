@@ -345,14 +345,25 @@ export class AtlassianClient {
       startAt,
       maxResults,
     });
-    const items = data.comments || [];
+    if (!Array.isArray(data.comments)) {
+      throw new Error("Jira comments response omitted the required comments inventory");
+    }
+    const items = data.comments;
     const pageStart = Number.isInteger(data.startAt) ? data.startAt : startAt;
     const pageLimit = Number.isInteger(data.maxResults) && data.maxResults > 0
       ? data.maxResults
       : maxResults;
     const consumed = pageStart + items.length;
     const complete = data.isLast === true
-      || (Number.isFinite(data.total) ? consumed >= data.total : items.length < pageLimit);
+      ? true
+      : data.isLast === false
+        ? false
+        : Number.isFinite(data.total)
+          ? consumed >= data.total
+          : items.length < pageLimit;
+    if (!complete && consumed <= startAt) {
+      throw new Error("Jira comments page is nonterminal but did not advance its cursor");
+    }
     return {
       items,
       nextCursor: complete ? null : consumed,
@@ -364,7 +375,10 @@ export class AtlassianClient {
     const data = await this.request(`/rest/api/3/issue/${encodeURIComponent(issueKey)}`, {
       fields: "attachment",
     });
-    const items = (data.fields?.attachment || []).map((attachment) => ({
+    if (!data.fields || !Array.isArray(data.fields.attachment)) {
+      throw new Error("Jira issue response omitted the required attachment inventory");
+    }
+    const items = data.fields.attachment.map((attachment) => ({
       id: attachment.id,
       filename: attachment.filename,
       size: attachment.size,
@@ -376,6 +390,47 @@ export class AtlassianClient {
       } : null,
     }));
     return { items, complete: true };
+  }
+
+  async exportIssuesPage(projectKey, fields, nextCursor = null, maxResults = 100) {
+    if (!Array.isArray(fields) || fields.length === 0) {
+      throw new Error("fields must be a non-empty array");
+    }
+    if (!Number.isInteger(maxResults) || maxResults < 1 || maxResults > 100) {
+      throw new Error("maxResults must be an integer from 1 through 100");
+    }
+    const params = {
+      jql: `project = "${projectKey}" ORDER BY rank ASC`,
+      fields: fields.join(","),
+      maxResults,
+    };
+    if (nextCursor) params.nextPageToken = nextCursor;
+    const data = await this.request("/rest/api/3/search/jql", params);
+    if (!Array.isArray(data.issues)) {
+      throw new Error("Jira search response omitted the required issues inventory");
+    }
+    if (data.issues.length > maxResults) {
+      throw new Error("Jira search response exceeded the requested page cap");
+    }
+    if (data.issues.some((issue) => !issue || typeof issue.fields !== "object"
+      || issue.fields === null || Array.isArray(issue.fields))) {
+      throw new Error("Jira issue export item omitted its selected raw fields");
+    }
+    const complete = data.isLast === true;
+    const returnedCursor = complete ? null : data.nextPageToken || null;
+    if (returnedCursor && returnedCursor === nextCursor) {
+      throw new Error("Jira issue export page did not advance its cursor");
+    }
+    return {
+      items: data.issues.map((issue) => ({
+        id: issue.id,
+        key: issue.key,
+        self: issue.self,
+        fields: issue.fields,
+      })),
+      nextCursor: returnedCursor,
+      complete,
+    };
   }
 
   async uploadAttachment(options) {
