@@ -59,6 +59,7 @@ export class AtlassianClient {
         // so anything matching on it keeps working.
         const err = new Error(`Atlassian API ${resp.status}: ${text}`);
         err.status = resp.status;
+        err.retryAfter = resp.headers?.get?.("retry-after") ?? null;
         err.body = text;
         throw err;
       }

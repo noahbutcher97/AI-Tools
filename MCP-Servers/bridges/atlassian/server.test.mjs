@@ -1,12 +1,44 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const bridgeDir = dirname(fileURLToPath(import.meta.url));
+
+test("Jira failures preserve bounded status and Retry-After on the actual stdio wire without bodies", async (t) => {
+  const root = mkdtempSync(join(tmpdir(), "atlassian-error-wire-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const preload = join(root, "fetch.mjs");
+  writeFileSync(preload, `globalThis.fetch = async (url) => {
+    const status = Number(new URL(url).searchParams.get('status')) || 429;
+    return new Response('PRIVATE_UPSTREAM_BODY token=NEVER_OUTPUT', {
+      status, headers: { 'Retry-After': status === 429 ? '30' : 'Sun, 13 Sep 2026 19:00:00 GMT' }
+    });
+  };`);
+  const client = new Client({ name: "error-wire", version: "1.0.0" });
+  const transport = new StdioClientTransport({ command: process.execPath,
+    args: ["--import", pathToFileURL(preload).href, join(bridgeDir, "server.mjs")], cwd: bridgeDir,
+    env: buildSpawnEnv(), stderr: "pipe" });
+  await client.connect(transport);
+  try {
+    for (const status of [401, 403, 404, 429, 503]) {
+      const result = await client.callTool({ name: "jira_request", arguments: {
+        path: "/rest/api/3/myself", queryParams: { status: String(status) }
+      } });
+      assert.equal(result.isError, true);
+      assert.ok(!JSON.stringify(result).includes("PRIVATE_UPSTREAM_BODY"));
+      assert.deepEqual(JSON.parse(result.content[0].text), { error: { version: 1,
+        code: "ATLASSIAN_REQUEST_FAILED", status,
+        retryAfter: status === 429 ? "30" : "Sun, 13 Sep 2026 19:00:00 GMT" } });
+    }
+  } finally { await client.close(); }
+});
 
 // Registration smoke tests, matching the perforce/otter/discord pattern. This
 // bridge is loaded BY PATH by live workspaces with no version pin, so a typo in

@@ -56,6 +56,12 @@ function responseHeader(response, name) {
   return response.headers?.get?.(name) ?? null;
 }
 
+function httpError(response, message) {
+  return Object.assign(new Error(message), {
+    status: response.status, retryAfter: responseHeader(response, "retry-after"),
+  });
+}
+
 async function responseBytes(response, maxBytes) {
   const declared = Number(responseHeader(response, "content-length"));
   if (Number.isFinite(declared) && declared > maxBytes) {
@@ -138,7 +144,7 @@ export class AttachmentTransfer {
       body: form,
     }, async (response) => {
       if (!response.ok) {
-        throw new Error(`Atlassian attachment upload ${response.status}: ${await this._boundedError(response)}`);
+        throw httpError(response, `Atlassian attachment upload ${response.status}: ${await this._boundedError(response)}`);
       }
       const data = await response.json();
       return Array.isArray(data) ? data[0] : null;
@@ -171,7 +177,7 @@ export class AttachmentTransfer {
       headers: { Authorization: this.authorization, Accept: "application/json" },
     }, async (response) => {
       if (!response.ok) {
-        throw new Error(`Atlassian attachment metadata ${response.status}: ${await this._boundedError(response)}`);
+        throw httpError(response, `Atlassian attachment metadata ${response.status}: ${await this._boundedError(response)}`);
       }
       return response.json();
     });
@@ -194,7 +200,7 @@ export class AttachmentTransfer {
             return { redirect: responseHeader(response, "location") };
           }
           if (!response.ok) {
-            throw new Error(`Atlassian attachment download ${response.status}: ${await this._boundedError(response)}`);
+            throw httpError(response, `Atlassian attachment download ${response.status}: ${await this._boundedError(response)}`);
           }
           return {
             bytes: await responseBytes(response, limit),
@@ -367,7 +373,8 @@ export class AttachmentTransfer {
       const timedOut = controller.signal.aborted;
       if (ambiguousWrite) {
         const cause = timedOut ? "timed out" : `failed: ${error.message}`;
-        throw new Error(`Attachment upload ${cause}; remote state is ambiguous and must be checked before retrying`);
+        throw Object.assign(new Error(`Attachment upload ${cause}; remote state is ambiguous and must be checked before retrying`),
+          { status: timedOut ? null : error.status, retryAfter: timedOut ? null : error.retryAfter });
       }
       if (timedOut) throw new Error("Attachment request timed out");
       throw error;

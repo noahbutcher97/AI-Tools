@@ -10,6 +10,27 @@ import { AttachmentTransfer } from "./attachments.mjs";
 const AUTH = "Basic test-auth";
 const BASE_URL = "https://example.atlassian.net";
 
+test("attachment HTTP failures carry status and Retry-After without retrying uploads", async () => {
+  await withTempRoots(async ({ allowed }) => {
+    const filePath = join(allowed, "bounded.pdf");
+    const bytes = Buffer.from("fictional bytes");
+    await writeFile(filePath, bytes);
+    let calls = 0;
+    const transfer = new AttachmentTransfer({ baseUrl: BASE_URL, authorization: AUTH,
+      allowedRoots: [allowed], fetchImpl: async () => {
+        calls++;
+        return jsonResponse(429, {}, { "retry-after": "45" });
+      } });
+    await assert.rejects(transfer.upload({ issueKey: "TEST-1", filePath,
+      expectedSha256: sha256(bytes), maxBytes: 1024 }), error => {
+      assert.equal(error.status, 429);
+      assert.equal(error.retryAfter, "45");
+      return true;
+    });
+    assert.equal(calls, 1);
+  });
+});
+
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
