@@ -322,6 +322,9 @@ test("download validates a cross-origin redirect and omits Jira credentials", as
           });
         }
         if (String(url).includes("/attachment/content/7001")) {
+          // The native Jira content route negotiates the attachment's actual
+          // media type and returns 406 for application/octet-stream alone.
+          if (options.headers.Accept !== "*/*") return new Response(null, { status: 406 });
           return new Response(null, {
             status: 302,
             headers: { location: "https://api.media.atlassian.com/file/7001" },

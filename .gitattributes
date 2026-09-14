@@ -1,0 +1,2 @@
+# The Coordinator verifies the executable against its exact committed bytes.
+MCP-Servers/bridges/atlassian/server.mjs text eol=lf

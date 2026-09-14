@@ -190,8 +190,8 @@ export class AttachmentTransfer {
     let downloaded;
     for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
       const headers = includeAuthorization
-        ? { Authorization: this.authorization, Accept: "application/octet-stream" }
-        : { Accept: "application/octet-stream" };
+        ? { Authorization: this.authorization, Accept: "*/*" }
+        : { Accept: "*/*" };
       const result = await this._request(
         currentUrl,
         { method: "GET", redirect: "manual", headers },
