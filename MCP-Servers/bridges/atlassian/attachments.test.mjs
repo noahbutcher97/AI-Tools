@@ -388,6 +388,21 @@ test("download rejects a trusted hostname on an unapproved redirect port", async
   });
 });
 
+test("download accepts Jira's plain-text delivery of hash-verified Markdown", async () => {
+  await withTempRoots(async ({ allowed }) => {
+    const bytes = Buffer.from("# Fictional letter\n");
+    const transfer = new AttachmentTransfer({ baseUrl: BASE_URL, authorization: AUTH, allowedRoots: [allowed],
+      fetchImpl: async (url) => String(url).endsWith("/rest/api/3/attachment/7001")
+        ? jsonResponse(200, { size: bytes.length, mimeType: "text/markdown", content: `${BASE_URL}/rest/api/3/attachment/content/7001` })
+        : new Response(bytes, { headers: { "content-type": "text/plain; charset=utf-8" } }),
+    });
+    const path = join(allowed, "letter.md");
+    const receipt = await transfer.download({ attachmentId: "7001", destinationPath: path, expectedSha256: sha256(bytes), maxBytes: 1024 });
+    assert.equal(receipt.sha256, sha256(bytes));
+    assert.deepEqual(await readFile(path), bytes);
+  });
+});
+
 test("download rejects byte size, hash and content type mismatches without writing", async (t) => {
   const cases = [
     {

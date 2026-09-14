@@ -221,7 +221,8 @@ export class AttachmentTransfer {
     if (!downloaded) throw new Error("Attachment download returned no bytes");
     const responseType = downloaded.mediaType;
     const metadataType = normalizeMediaType(metadata.mimeType);
-    if (!responseType || !metadataType || responseType !== metadataType) {
+    const markdownAsText = metadataType === "text/markdown" && responseType === "text/plain";
+    if (!responseType || !metadataType || (responseType !== metadataType && !markdownAsText)) {
       throw new Error(`Attachment media type mismatch: metadata ${metadataType || "missing"}, response ${responseType || "missing"}`);
     }
     const bytes = downloaded.bytes;
