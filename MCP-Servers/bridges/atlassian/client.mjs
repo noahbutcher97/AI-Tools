@@ -75,7 +75,7 @@ export class AtlassianClient {
 
   _jiraUrl(path) {
     const url = new URL(path, this.baseUrl);
-    if (url.origin !== this.baseUrl || url.username || url.password || url.hash) {
+    if (url.origin !== new URL(this.baseUrl).origin || url.username || url.password || url.hash) {
       throw new Error("Authenticated request URL must stay on the configured Jira origin");
     }
     return url;

@@ -102,6 +102,28 @@ test("request rejects an absolute URL outside the configured Jira origin", async
   assert.equal(calls, 0);
 });
 
+test("mixed-case configured Jira origins retain same-origin request restrictions", async () => {
+  const urls = [];
+  const client = new AtlassianClient({ ...CREDS, siteName: "ExAmPlE" }, {
+    fetchImpl: async (url) => {
+      urls.push(url);
+      return response(200, { accountId: "fictional" });
+    },
+  });
+  assert.deepEqual(await client.request("/rest/api/3/myself"), { accountId: "fictional" });
+  assert.deepEqual(await client.request("https://EXAMPLE.atlassian.net/rest/api/3/myself"), { accountId: "fictional" });
+  assert.deepEqual(urls, ["https://example.atlassian.net/rest/api/3/myself", "https://example.atlassian.net/rest/api/3/myself"]);
+  for (const url of [
+    "https://other.atlassian.net/rest/api/3/myself",
+    "http://example.atlassian.net/rest/api/3/myself",
+    "https://user@example.atlassian.net/rest/api/3/myself",
+    "https://example.atlassian.net/rest/api/3/myself#fragment",
+  ]) {
+    await assert.rejects(() => client.request(url), /configured Jira origin/);
+  }
+  assert.equal(urls.length, 2);
+});
+
 test("request aborts a Jira transport that exceeds its configured timeout", async () => {
   const client = new AtlassianClient(CREDS, {
     timeoutMs: 5,
