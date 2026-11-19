@@ -13,6 +13,7 @@ $scheduler.Connect()
 $script:registered = @{}
 $script:fixtureUser = $null
 $script:starts = 0
+$script:renewals = 0
 $script:interrupt = $true
 $script:fixtureSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-1001')
 function Must([bool]$ok,[string]$msg) { if (!$ok) { throw $msg } }
@@ -28,7 +29,11 @@ $folder | Add-Member ScriptMethod GetTask { param($name) return $script:register
 $folder | Add-Member ScriptMethod DeleteTask { param($name,$flags) $script:registered.Remove($name) }
 $folder | Add-Member ScriptMethod RegisterTaskDefinition {
     param($name,$definition,$flags,$sid,$password,$type,$sddl)
-    Must ($flags -eq 18 -and $null -eq $password) 'Unsafe registration arguments'
+    Must ($flags -eq 18) 'Unexpected registration flags'
+    if ($name -eq $brokerTask) {
+        Must ($type -eq 2 -and $sid -eq $script:fixtureSid.Value -and $password -and
+            $password -ceq $script:fixtureCredential.GetNetworkCredential().Password) 'Wrong S4U registration credential'
+    } else { Must ($type -eq 3 -and $null -eq $password) 'Interactive task received a credential' }
     if ($script:interrupt -and $name -eq $brokerTask) { throw 'Fixture interruption' }
     $task = [pscustomobject]@{Name=$name;Definition=$definition;State=3;Acl=$sddl}
     $task | Add-Member ScriptMethod GetSecurityDescriptor { param($flags) return $this.Acl }
@@ -37,10 +42,20 @@ $folder | Add-Member ScriptMethod RegisterTaskDefinition {
     return $task
 }
 function Get-LocalUser { param($Name,$ErrorAction) return $script:fixtureUser }
-function New-Account([string]$tag) {
+function New-LocalUser {
+    param($Name,[securestring]$Password,$Description,[switch]$PasswordNeverExpires,[switch]$UserMayNotChangePassword)
     Must ($null -eq $script:fixtureUser) 'Duplicate account creation'
-    $script:fixtureUser = [pscustomobject]@{Description=$tag;SID=$script:fixtureSid;Enabled=$true}
+    Must ($Name -eq $accountName -and $Password.Length -gt 20) 'Unexpected account credentials'
+    $script:fixtureCredential = [pscredential]::new($Name,$Password.Copy())
+    $script:fixtureUser = [pscustomobject]@{Description=$Description;SID=$script:fixtureSid;Enabled=$true}
     return $script:fixtureUser
+}
+function Set-LocalUser {
+    param($SID,[securestring]$Password)
+    Must ($SID -eq $script:fixtureSid -and $Password.Length -gt 20) 'Unexpected credential recovery target'
+    $script:fixtureCredential.Password.Dispose()
+    $script:fixtureCredential = [pscredential]::new($accountName,$Password.Copy())
+    $script:renewals++
 }
 function Disable-LocalUser { param($SID) Must ($SID.Value -eq $script:fixtureSid.Value) 'Wrong user'; $script:fixtureUser.Enabled=$false }
 function Enable-LocalUser { param($SID) Must ($SID.Value -eq $script:fixtureSid.Value) 'Wrong user'; $script:fixtureUser.Enabled=$true }
@@ -60,14 +75,22 @@ $Mode = 'Apply'
 Denied { Invoke-WatcherSetup $scheduler $folder } '*Fixture interruption*'
 Must ($script:registered.Count -eq 1 -and $script:starts -eq 0) 'Interrupted installation started'
 $script:interrupt = $false
+Denied { Invoke-WatcherSetup $scheduler $folder } 'Missing broker task requires explicit password recovery*'
+Must ($script:renewals -eq 0) 'Unapproved password reset'
+$RenewBrokerPassword = $true
+$script:fixtureUser.Description = 'unmanaged'
+Denied { Invoke-WatcherSetup $scheduler $folder } 'The broker account name is already in use'
+Must ($script:renewals -eq 0) 'Unmanaged password reset'
+$script:fixtureUser.Description = (Get-Content $journal -Raw | ConvertFrom-Json).tag
 Invoke-WatcherSetup $scheduler $folder | Out-Null
-Must ($script:registered.Count -eq 2 -and $script:starts -eq 1) 'Setup did not recover'
+Must ($script:registered.Count -eq 2 -and $script:starts -eq 1 -and $script:renewals -eq 1) 'Setup did not recover'
 $policy = Join-Path $root 'completion-policy.json'
 [IO.File]::WriteAllText($policy,'{"v":1,"grants":[],"fixture":true}')
 $state = Join-Path $root 'completion-state/jobs.sqlite'
 [IO.File]::AppendAllText($state,'fixture-live-state')
 $beforeHash = (Get-FileHash -LiteralPath $state).Hash
 Invoke-WatcherSetup $scheduler $folder | Out-Null
+Must ($script:renewals -eq 1) 'Healthy account password was reset'
 Must ((Get-FileHash -LiteralPath $state).Hash -eq $beforeHash -and [IO.File]::ReadAllText($policy).Contains('fixture')) 'Reinstallation reset state'
 $broker = $folder.GetTask($brokerTask)
 Must ($broker.Definition.Principal.LogonType -eq 2 -and $broker.Definition.Triggers.Item(1).Type -eq 9) 'Unexpected broker logon'

@@ -27,14 +27,14 @@ Run the reviewed installer from a location controlled by the administrator, unde
 Install-CompletionWatcher.ps1 -Mode Apply -Package <directory> -PackageDigest <reviewed-digest>
 ```
 
-Setup creates the non-administrative local account `RelayWatchBroker` with a random password. It registers two tasks.
+Setup creates the non-administrative local account `RelayWatchBroker` with a random password. Windows requires that password when the installer registers an S4U task for a different account. Setup passes it in memory to Task Scheduler during registration. S4U stores no password for subsequent starts. [Windows Task Scheduler security contexts](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks)
 
 - `CrossAgentRelayCompletionBroker` runs under the broker account using S4U at the desktop user's logon. Setup starts it once and requires a current heartbeat from the PID reported by the scheduled task.
 - `CrossAgentRelayCompletionWorker` is an on-demand, non-elevated task under the interactive desktop account. The broker may start it through the authenticated local channel.
 
 Administrators own the installed code and configuration under the system Program Files relay directory. The broker can write its job store, health projection and grant publications. The designated desktop account can read the health and grant directories. Initial authority is empty. Enabling provider dispatch and adding grants require qualified provider startup and an independently protected owner policy. Doctor reports `reports_only` when this initial installation is healthy.
 
-A retry with the same package uses the private installation record and verifies registered task identities and actions. Setup preserves existing owner policy, live job data and unrelated entries. An initialized but missing job database stops installation. A different distribution digest needs a reviewed upgrade procedure.
+A retry with the same package uses the private installation record and verifies registered task identities and actions. If an interrupted installation has an assigned broker account but no broker task, setup needs a fresh credential for registration. After approving a password reset for that dedicated account, repeat Apply with `-RenewBrokerPassword`. Setup checks the installation tag and account SID before resetting the password. Existing registered tasks reuse their S4U registration. Setup preserves existing owner policy, live job data and unrelated entries. An initialized but missing job database stops installation. A different distribution digest needs a reviewed upgrade procedure.
 
 ## Deactivate and retain state
 
@@ -42,6 +42,6 @@ A retry with the same package uses the private installation record and verifies 
 Install-CompletionWatcher.ps1 -Mode Rollback
 ```
 
-Rollback stops and removes the two managed tasks and disables the dedicated account. The package, account SID, grant policy and job database remain available for recovery. An explicit apply with the original digest can reactivate the installation.
+Rollback stops and removes the two managed tasks and disables the dedicated account. The package, account SID, grant policy and job database remain available for recovery. Apply with the original digest and `-RenewBrokerPassword` can reactivate the installation.
 
 This installer is the watcher component of fleet setup. Mesh enrollment, SSH credentials, inbound receive policy and provider MCP registration are separate machine-setup operations. The watcher plan grants no authority to change them.

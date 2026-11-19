@@ -4,7 +4,8 @@
 param(
     [ValidateSet('Plan','Apply','Rollback')][string]$Mode = 'Plan',
     [string]$Package,
-    [string]$PackageDigest
+    [string]$PackageDigest,
+    [switch]$RenewBrokerPassword
 )
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
@@ -90,13 +91,11 @@ function Save-Record($record) {
     if ([IO.File]::Exists($journal)) { [IO.File]::Replace($tmp,$journal,[System.Management.Automation.Language.NullString]::Value) } else { [IO.File]::Move($tmp,$journal) }
 }
 
-function New-Account([string]$tag) {
+function New-BrokerPassword {
     $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
     $bytes = New-Object byte[] 48
-    try { $rng.GetBytes($bytes); $secret = ConvertTo-SecureString ('Aa1!'+[Convert]::ToBase64String($bytes)) -AsPlainText -Force }
+    try { $rng.GetBytes($bytes); ConvertTo-SecureString ('Aa1!'+[Convert]::ToBase64String($bytes)) -AsPlainText -Force }
     finally { [Array]::Clear($bytes,0,$bytes.Length); $rng.Dispose() }
-    try { New-LocalUser -Name $accountName -Password $secret -Description $tag -PasswordNeverExpires -UserMayNotChangePassword }
-    finally { $secret.Dispose() }
 }
 
 function Get-TaskDefinition([string]$name,[string]$sid,[int]$logon,[string]$tag) {
@@ -127,10 +126,18 @@ function Get-TaskDefinition([string]$name,[string]$sid,[int]$logon,[string]$tag)
     return $definition
 }
 
-function Set-LogonTask([string]$name,[string]$sid,[int]$logon,[string]$tag,[string]$brokerSid) {
+function Set-LogonTask([string]$name,[string]$sid,[int]$logon,[string]$tag,[string]$brokerSid,[securestring]$password) {
     $definition = Get-TaskDefinition $name $sid $logon $tag
     $sddl = "O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;GRGX;;;$brokerSid)"
-    $null = $folder.RegisterTaskDefinition($name,$definition,18,$sid,$null,$logon,$sddl)
+    if ($name -eq $brokerTask) {
+        if ($logon -ne 2 -or $sid -ne $brokerSid -or !$password) { throw 'Missing S4U broker registration credential' }
+        # Task Scheduler authenticates the different principal during registration.
+        # S4U does not store the credential. Keep the plaintext at the COM boundary.
+        $credential = [pscredential]::new($sid,$password)
+        $null = $folder.RegisterTaskDefinition($name,$definition,18,$sid,$credential.GetNetworkCredential().Password,$logon,$sddl)
+    } else {
+        $null = $folder.RegisterTaskDefinition($name,$definition,18,$sid,$null,$logon,$sddl)
+    }
 }
 
 function Resolve-Principal([string]$principalName) {
@@ -273,10 +280,22 @@ function Invoke-WatcherSetup($scheduler,$folder) {
         Save-Record $record
     }
 
-    if (!$account) {
-        if ($record.brokerSid) { throw 'Assigned broker identity is missing' }
-        $account = New-Account $record.tag
-    }
+    $password = $null
+    try {
+        if (!$account) {
+            if ($record.brokerSid) { throw 'Assigned broker identity is missing' }
+            $password = New-BrokerPassword
+            $account = New-LocalUser -Name $accountName -Password $password -Description $record.tag -PasswordNeverExpires -UserMayNotChangePassword
+        } elseif ($brokerTask -notin $tasks.Name) {
+            if (!$RenewBrokerPassword -or !$record.brokerSid -or $record.status -notin @('installing','disabled')) {
+                throw 'Missing broker task requires explicit password recovery for the assigned installation account'
+            }
+        }
+        Complete-Installation $account $record $tasks $password
+    } finally { if ($password) { $password.Dispose() } }
+}
+
+function Complete-Installation($account,$record,$tasks,[securestring]$password) {
     $brokerSid = $account.SID.Value
     if (!$record.brokerSid) { $record.brokerSid=$brokerSid; Save-Record $record }
     if (!$account.Enabled -and $record.status -ne 'disabled') { throw 'Broker account is disabled outside setup' }
@@ -334,7 +353,17 @@ function Invoke-WatcherSetup($scheduler,$folder) {
     Grant-StateAccess $brokerSid $brokerModify
     if (!$account.Enabled) { Enable-LocalUser -SID $account.SID }
     if ($workerTask -notin $tasks.Name) { Set-LogonTask $workerTask $desktopSid 3 $record.tag $brokerSid }
-    if ($brokerTask -notin $tasks.Name) { Set-LogonTask $brokerTask $brokerSid 2 $record.tag $brokerSid }
+    if ($brokerTask -notin $tasks.Name) {
+        if ($password) {
+            Set-LogonTask $brokerTask $brokerSid 2 $record.tag $brokerSid $password
+        } else {
+            $replacement = New-BrokerPassword
+            try {
+                Set-LocalUser -SID $account.SID -Password $replacement
+                Set-LogonTask $brokerTask $brokerSid 2 $record.tag $brokerSid $replacement
+            } finally { $replacement.Dispose() }
+        }
+    }
     $broker = $folder.GetTask($brokerTask)
     Assert-RegisteredTask $broker $record
     Assert-RegisteredTask ($folder.GetTask($workerTask)) $record
