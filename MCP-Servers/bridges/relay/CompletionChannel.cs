@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
@@ -24,6 +25,10 @@ internal static class CompletionChannel {
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeClientProcessId(SafePipeHandle handle, out uint pid);
 
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafePipeHandle CreateFile(string name, uint access, uint share, IntPtr security,
+        uint disposition, uint flags, IntPtr template);
+
     internal static NamedPipeServerStream OpenServer(string name, SecurityIdentifier broker, SecurityIdentifier worker) {
         var acl = new PipeSecurity();
         acl.SetAccessRuleProtection(true, false);
@@ -41,10 +46,19 @@ internal static class CompletionChannel {
     internal static NamedPipeClientStream Connect(string name, SecurityIdentifier broker) {
         var rights = PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadPermissions |
             PipeAccessRights.Synchronize;
-        var pipe = new NamedPipeClientStream(".", name, rights, PipeOptions.None,
-            TokenImpersonationLevel.Identification, HandleInheritability.None);
+        // The Framework client constructor adds generic access for duplex
+        // pipes. GENERIC_WRITE includes the right to create a pipe instance.
+        // Open with only the rights granted to this one client instead.
+        var handle = CreateFile(@"\\.\pipe\" + name, (uint)rights, 0, IntPtr.Zero, 3,
+            0x00110000 /* SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION */, IntPtr.Zero);
+        if (handle.IsInvalid) {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            if (error == 5) throw new UnauthorizedAccessException();
+            throw new Win32Exception(error);
+        }
+        var pipe = new NamedPipeClientStream(PipeDirection.InOut, false, true, handle);
         try {
-            pipe.Connect(5000);
             if (!broker.Equals(pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier)))) throw new UnauthorizedAccessException();
             pipe.WriteByte(72);
             pipe.Flush();
