@@ -42,7 +42,7 @@ test("relay bridge registers discovery, send and receipt lookup", async () => {
     return tools.map((t) => t.name).sort();
   });
 
-  assert.deepEqual(names, ["relay_doctor", "relay_list", "relay_ping", "relay_send"]);
+  assert.deepEqual(names, ["relay_doctor", "relay_list", "relay_ping", "relay_send", "relay_watch"]);
 });
 
 test("MCP refuses malformed host selectors and receipt handles before discovery", async () => {
@@ -51,6 +51,19 @@ test("MCP refuses malformed host selectors and receipt handles before discovery"
     assert.equal(JSON.parse(send.content[0].text).cause, "invalid_address");
     const status = await c.callTool({ name: "relay_ping", arguments: { status: "host-b:missing" } });
     assert.equal(JSON.parse(status.content[0].text).cause, "invalid_handle");
+  });
+});
+
+test("MCP schedule registration requires a bound caller and declares its effect", async () => {
+  await withClient("relay-schedule", async c => {
+    const { tools } = await c.listTools();
+    const tool = tools.find(entry => entry.name === "relay_watch");
+    assert.equal(tool.annotations.readOnlyHint, false);
+    assert.deepEqual(Object.keys(tool.inputSchema.properties).sort(), ["condition","target"]);
+    const result = await c.callTool({ name: "relay_watch", arguments: {
+      target: "00000000-0000-4000-8000-000000000001", condition: "00000000-0000-4000-8000-000000000002",
+    } });
+    assert.deepEqual(JSON.parse(result.content[0].text), { ok: false, state: "denied" });
   });
 });
 

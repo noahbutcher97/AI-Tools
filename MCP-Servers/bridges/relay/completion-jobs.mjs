@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { digest, matches, UUID } from "./delivery-protocol.mjs";
 import { jobMac, sameMac, validExit, validJobFrame } from "./completion-protocol.mjs";
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
+import { scheduleTable, scheduleWatches } from "./schedule-watch.mjs";
 
 const COOLDOWN_MS = 10000;
 const HANDOFF_TABLE = `CREATE TABLE grant_handoffs (
@@ -56,7 +57,7 @@ export function statusBinding(target) {
 }
 
 export async function openCompletionJobs(file, { now = Date.now, send = sendProvedNotice, status = localStatus,
-  permits = () => false } = {}) {
+  permits = () => false, schedules } = {}) {
   const { DatabaseSync } = await import("node:sqlite");
   const url = pathToFileURL(file);
   url.searchParams.set("mode", "rw");
@@ -74,6 +75,9 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         PRAGMA user_version=2`);
     } else if (version !== 2 && version !== 3) throw new Error("invalid job store");
     if (version < 3) db.exec(HANDOFF_TABLE + "; ALTER TABLE jobs ADD COLUMN run_only INTEGER NOT NULL DEFAULT 0; PRAGMA user_version=3");
+    // Older brokers ignore this independent table and can still collect jobs
+    // after a package rollback. The job schema and version stay compatible.
+    if (schedules) db.exec(scheduleTable);
     db.exec("COMMIT");
   } catch (error) { db.close(); throw error; }
   const row = db.prepare("SELECT * FROM jobs WHERE id=?");
@@ -204,7 +208,9 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       .run(id, Buffer.from(digest(capability), "hex"), session, provider, binding, validUntil, Number(runOnly));
     return { id, capability };
   }
+  const watches = schedules && scheduleWatches(db, transaction, { ...schedules, now, send, status });
   return {
+    watches,
     close: () => db.close(),
     subscriptions: () => projectSubscriptions(""),
     authorizedSubscriptions(grants) {
@@ -248,6 +254,11 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
     // protected policy lookup. Sign acknowledgements after the durable write.
     acceptFrame(frame) {
       if (!validJobFrame(frame)) throw new Error("job denied");
+      if (frame.op === "activate_schedule") {
+        if (!watches) throw new Error("schedule unavailable");
+        const key = watches.activate(frame, secret => sameMac(frame.mac, jobMac(secret, frame, "request")));
+        return { ack: jobMac(key, frame, "ack") };
+      }
       const key = row.get(frame.id)?.token_hash;
       if (!key || !sameMac(frame.mac, jobMac(key, frame, "request"))) throw new Error("job denied");
       const job = active(frame.id);

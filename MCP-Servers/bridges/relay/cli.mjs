@@ -51,6 +51,13 @@ async function main() {
     return;
   }
 
+  if (options.command === "watch") {
+    const { subscribeWatch } = await import("./watch-client.mjs");
+    const result = await subscribeWatch(options.to, options.condition, resolveCallerIdentity());
+    console.log(JSON.stringify(result));
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
   if (options.command === "run") {
     const { startRun, RunInputError } = await import("./run-job.mjs");
     try {

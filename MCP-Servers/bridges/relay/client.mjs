@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { buildHostMetadata, newHostKeys } from "./identity.mjs";
 import { runProvider } from "./provider-process.mjs";
+import { matches, UUID } from "./delivery-protocol.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
@@ -1305,7 +1306,7 @@ export async function resolveCodexReference(id, re, {
 // Unit 1 knows one command. Unknown commands and flags are refused rather than
 // ignored: a mistyped --scope that silently fell back to the caller's own
 // workspace would report an empty machine and look like a broken relay.
-const COMMANDS = new Set(["list", "send", "ping", "doctor", "run"]);
+const COMMANDS = new Set(["list", "send", "ping", "doctor", "run", "watch"]);
 const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
 
@@ -1322,6 +1323,13 @@ export function parseArgs(argv = []) {
   if (command === "run") {
     if (args.shift() !== "--" || !args[0]) throw new Error("Use relay run -- <executable> [args...].");
     return { command, argv: args };
+  }
+  if (command === "watch") {
+    const [flag, to, condition] = args;
+    if (args.length !== 3 || flag !== "--notify" || !matches(UUID, to) || !matches(UUID, condition)) {
+      throw new Error("Use relay watch --notify <raw-id> <condition-id>.");
+    }
+    return { command, to, condition };
   }
   const options = { command, scope: "cwd", cwd: undefined, json: false, dryRun: false, viaDelegate: false, kind: "notice" };
 

@@ -33,6 +33,17 @@ process.on("warning", (warning) => {
 const server = new McpServer({ name: "relay-bridge", version: "0.1.0" });
 
 server.tool(
+  "relay_watch",
+  "Activate an owner-granted local UTC schedule for the calling Codex thread.",
+  { target: z.string().uuid(), condition: z.string().uuid() },
+  { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  async ({ target, condition }, extra) => {
+    const { subscribeWatch } = await import("./watch-client.mjs");
+    return toolJsonResult(await subscribeWatch(target, condition, resolveCallerIdentity({ extra })));
+  },
+);
+
+server.tool(
   "relay_list",
   "List live Claude Code and Codex sessions locally or across configured hosts.",
   {

@@ -15,15 +15,18 @@ import { listenForJobReports } from "../../MCP-Servers/bridges/relay/completion-
 import { startRun } from "../../MCP-Servers/bridges/relay/run-job.mjs";
 import { localStatus, sendProvedNotice } from "../../MCP-Servers/bridges/relay/local-ping.mjs";
 import { runProvider } from "../../MCP-Servers/bridges/relay/provider-process.mjs";
+import { subscribeWatch } from "../../MCP-Servers/bridges/relay/watch-client.mjs";
+import { scheduleNotice } from "../../MCP-Servers/bridges/relay/completion-protocol.mjs";
 
 // Opt-in live check. The installed provider uses its signed-in desktop profile.
 // Only the disposable thread created below receives a turn or is archived.
 const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
+const schedule = process.argv[3] === "--schedule";
 const installed = process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
-if (process.argv.length !== (installed ? 5 : fromShell ? 4 : 3)) throw Error("Unexpected qualification argument");
+if (process.argv.length !== (installed ? 5 : fromShell || schedule ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
     fs.readdirSync(exchangeDir).length)) throw Error("Supply an empty private trial directory");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-resume-"));
@@ -113,6 +116,52 @@ async function runTrial() {
   assert.equal(end, "completed");
   const targets = async () => (await discoverTargets({ scope: "all" })).targets.filter(t => t.id === id);
   const original = await until(async () => (await targets()).find(t => t.addressable), 8000, "Original thread unavailable");
+  if (schedule) {
+    const file = path.join(root, "jobs.sqlite");
+    await initializeCompletionJobs(file);
+    fs.mkdirSync(path.join(root, "completion-grants"));
+    const grant = { provider: "codex", scope: "thread-schedule", condition: randomUUID(), target: id, intervalSeconds: 60,
+      startsAt: new Date(Date.now() + 8000).toISOString(), expiresAt: new Date(Date.now() + 180000).toISOString() };
+    let submissions = 0, proofs = 0;
+    const open = () => openCompletionJobs(file, { schedules: { root, policy: () => [grant] },
+      send: (to, text, options) => {
+        assert.equal(to, id); assert.equal(text, scheduleNotice);
+        return sendProvedNotice(to, text, { ...options, runQueue: (dest, envelope) => {
+          assert.equal(dest, id); submissions++;
+          return runProvider(image, ["queue", "--thread", dest, "--message", envelope], { cwd: root });
+        } });
+      },
+      status: async handle => {
+        const result = await localStatus(handle);
+        if (result.state === "delivered" && result.to === id) proofs++;
+        return result;
+      },
+    });
+    store = await open();
+    store.watches.provision();
+    listener = await listenForJobReports(store.acceptFrame, { port: 0 });
+    const activated = await subscribeWatch(id, grant.condition, { id, provider: "codex" }, { root, port: listener.port });
+    assert.equal(activated.ok, true);
+    assert.equal(await store.watches.dispatchDue(), false);
+    await provider.close();
+    await until(async () => (await targets()).length === 0, 8000, "Original writer did not close");
+    await until(() => Date.now() >= Date.parse(grant.startsAt), 10000, "UTC tick did not arrive");
+    assert.equal(await store.watches.dispatchDue(), true);
+    assert.equal(submissions, 0);
+    await listener.close(); listener = null;
+    store.close(); store = await open();
+    provider = await startProvider();
+    const resumed = await provider.call("thread/resume", { ...params, threadId: id, excludeTurns: true });
+    assert.equal(resumed.thread.id, id); assert.equal(resumed.model, model);
+    await until(async () => {
+      await store.watches.dispatchDue();
+      return proofs === 1;
+    }, 55000, "No consumed schedule notice after resume");
+    assert.equal(submissions, 1);
+    assert.equal(store.watches.subscriptions([grant])[0].state, "waiting");
+    console.log("Resumed disposable thread consumed exactly one scheduled notice after store restart.");
+    return;
+  }
   if (installed) {
     // The administrator authorizes the exact returned thread and independently
     // checks the installed broker's proof before allowing the writer to close.

@@ -24,7 +24,7 @@ $desktopSid = $identity.User.Value
 $members = @('CompletionChannel.exe','runtime/node.exe','provider/claude.exe','provider/codex.exe','initial/jobs.sqlite',
     'relay/CompletionChannel.cs','relay/completion-acl.ps1')
 foreach ($module in @('client','completion-broker','completion-jobs','completion-protocol','completion-session',
-    'completion-worker','delivery-protocol','fleet','identity','local-ping','proof','provider-process','run-handoff','watcher-health')) {
+    'completion-worker','delivery-protocol','fleet','identity','local-ping','proof','provider-process','run-handoff','schedule-watch','watcher-health')) {
     $members += "relay/$module.mjs"
 }
 $directories = @('runtime','provider','relay','worker-cwd','completion-state','completion-health','completion-grants')

@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { exactKeys, matches, UUID } from "./delivery-protocol.mjs";
-import { validExit } from "./completion-protocol.mjs";
+import { scheduleNotice, validExit } from "./completion-protocol.mjs";
 
 const handlePattern = /^local-proof\.[A-Za-z0-9_-]{39,8180}$/;
 const handleOk = value => matches(handlePattern, value);
@@ -95,12 +95,13 @@ export function sessionDelivery(root, exchange = nativeExchange(root)) {
     },
     async send(to, body, { checkTarget, onHandle, signal }) {
       let reserved = false;
-      if (!matches(UUID, to) || !completionText(body)) throw new Error("invalid job notice");
+      if (!matches(UUID, to) || !(body === scheduleNotice || completionText(body))) throw new Error("invalid watcher notice");
       try {
         return await exchange(async io => {
           await io.write({ op: "send", to, body });
           const first = await io.read();
-          if (!exactKeys(first, ["op", "target"]) || first.op !== "target" || !validTarget(first.target, to)) throw new Error();
+          if (!exactKeys(first, ["op", "target"]) || first.op !== "target" || !validTarget(first.target, to) ||
+              (body === scheduleNotice && first.target.kind !== "codex")) throw new Error();
           await checkTarget(first.target);
           await io.write({ op: "capture" });
           const next = await io.read();
@@ -145,13 +146,14 @@ export async function serveSession(io, { send, status, enabled = () => true }) {
       await io.write({ op: "done", to: proof.to, state: proof.state });
       return;
     }
-    if (!exactKeys(req, ["op", "to", "body"]) || req.op !== "send" || !matches(UUID, req.to) || !completionText(req.body)) throw new Error();
+    const schedule = req.body === scheduleNotice;
+    if (!exactKeys(req, ["op", "to", "body"]) || req.op !== "send" || !matches(UUID, req.to) || !(schedule || completionText(req.body))) throw new Error();
     let phase = 0;
-    const result = await send(req.to, req.body, { allowDelegate: true, deferProof: true,
+    const result = await send(req.to, req.body, { allowDelegate: !schedule, deferProof: true,
       async checkTarget(t) {
         const target = { id: t.id, kind: t.kind, pid: t.pid, startedAt: t.startedAt, addressable: t.addressable };
         const addressValid = t.kind === "codex" ? t.name === req.to : matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/, t.name);
-        if (phase++ !== 0 || !validTarget(target, req.to) || !addressValid || !enabled(t.kind)) throw new Error();
+        if (phase++ !== 0 || !validTarget(target, req.to) || !addressValid || (schedule && t.kind !== "codex") || !enabled(t.kind)) throw new Error();
         await io.write({ op: "target", target });
         const ack = await io.read();
         if (!exactKeys(ack, ["op"]) || ack.op !== "capture" || !enabled()) throw new Error();

@@ -86,3 +86,10 @@ export async function availableGrant(session, report, { root = installationRoot(
   if (index < 0) throw new Error("no unused run grant");
   return batch.grants[index];
 }
+
+export function readScheduleGrant(root, binding, session, condition) {
+  const batch = parseBatch(readBatch(handoffPath(root, binding)), binding);
+  if (batch.session !== session || batch.validUntil <= Date.now() || batch.grants.length !== 1 ||
+      batch.grants[0].id !== condition) throw new Error("schedule grant unavailable");
+  return batch.grants[0];
+}

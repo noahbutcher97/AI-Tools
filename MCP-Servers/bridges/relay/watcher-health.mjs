@@ -11,7 +11,7 @@ function validBeat(b) {
     ["watching","reports_only","stopped"].includes(b.mode) && (b.policyRevision === null || matches(/^[a-f0-9]{64}$/, b.policyRevision)) &&
     typeof b.partial === "boolean" && Array.isArray(b.subscriptions) && b.subscriptions.length <= 32 &&
     b.subscriptions.every(s => exactKeys(s, ["id","target","condition","state"]) && matches(UUID,s.id) &&
-      matches(UUID,s.target) && s.condition === "job_exit" && states.includes(s.state));
+      matches(UUID,s.target) && ["job_exit","schedule"].includes(s.condition) && states.includes(s.state));
 }
 
 function healthDir(root) {

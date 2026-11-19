@@ -12,7 +12,7 @@ import { initializeCompletionJobs } from "../../MCP-Servers/bridges/relay/comple
 const modules = [
   "client", "completion-broker", "completion-jobs", "completion-protocol", "completion-session",
   "completion-worker", "delivery-protocol", "fleet", "identity", "local-ping", "proof",
-  "provider-process", "run-handoff", "watcher-health",
+  "provider-process", "run-handoff", "schedule-watch", "watcher-health",
 ];
 const bridge = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/", import.meta.url));
 const sources = [...modules.map(name => name + ".mjs"), "completion-acl.ps1", "CompletionChannel.cs"];

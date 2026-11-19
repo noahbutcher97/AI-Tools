@@ -11,6 +11,7 @@ import { sessionDelivery } from "./completion-session.mjs";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { writeHeartbeat } from "./watcher-health.mjs";
 import { publishRunHandoff } from "./run-handoff.mjs";
+import { validSchedule } from "./schedule-watch.mjs";
 
 const PORT = 44197;
 const MAX_BYTES = 768;
@@ -118,21 +119,25 @@ function readJobPolicy(root, includeRevision = false) {
     if (includeRevision) revision = digest(contents);
   } finally { fs.closeSync(fd); }
   const automatic = policy?.v === 2;
+  const scheduled = policy?.v === 3;
+  if (scheduled && !(exactKeys(policy, ["v","grants","schedules"]) && Array.isArray(policy.schedules) &&
+      policy.schedules.length <= 32 && policy.schedules.every(validSchedule) &&
+      new Set(policy.schedules.map(g => g.condition)).size === policy.schedules.length)) throw new Error("invalid schedule policy");
   const valid = (automatic ? exactKeys(policy, ["v", "grants", "startupRun"]) :
-    exactKeys(policy, ["v", "grants"]) && policy.v === 1) && Array.isArray(policy.grants) &&
+    scheduled || exactKeys(policy, ["v", "grants"]) && policy.v === 1) && Array.isArray(policy.grants) &&
     policy.grants.length <= 128 && policy.grants.every(g => matches(UUID, g?.id) && (
       (exactKeys(g, ["id", "provider", "instance"]) && g.provider === "claude" && matches(/^[a-f0-9]{64}$/, g.instance)) ||
       (exactKeys(g, ["id", "provider", "scope"]) && g.provider === "codex" && g.scope === "thread-status")
     ));
   if (!valid) throw new Error("invalid job policy");
   const grants = policy.grants.map(g => g.provider === "codex" ? { ...g, instance: threadStatusBinding(g.id) } : g);
-  if (!automatic) return { grants, startup: null, revision };
+  if (!automatic) return { grants, startup: null, schedules: scheduled ? policy.schedules : [], revision };
   const startup = policy.startupRun;
   if (!exactKeys(startup, ["id", "expiresAt"]) || !matches(UUID, startup.id) ||
       typeof startup.expiresAt !== "string" || !Number.isFinite(Date.parse(startup.expiresAt)) ||
       new Date(startup.expiresAt).toISOString() !== startup.expiresAt ||
       grants.length !== 1 || grants[0].provider !== "codex" || grants[0].id !== startup.id) throw new Error("invalid startup run grant");
-  return { grants: Date.parse(startup.expiresAt) > Date.now() ? grants : [], startup, revision };
+  return { grants: Date.parse(startup.expiresAt) > Date.now() ? grants : [], startup, schedules: [], revision };
 }
 
 export function loadJobPolicy(root) {
@@ -184,12 +189,14 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
   const unavailable = () => { throw new Error("session-profile delivery unavailable"); };
   const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
     send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
+    schedules: { root, policy: () => readJobPolicy(root).schedules },
   });
   let listener;
   try {
     listener = await listenForJobReports(store.acceptFrame, { port });
     const { startup, grants } = readJobPolicy(root);
     if (startup && grants.length) publishApprovedRun(root, store, startup.id, "1", startup.expiresAt, true);
+    store.watches.provision();
   } catch (err) {
     await listener?.close();
     store.close();
@@ -207,6 +214,9 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
       if (policy) {
         policyRevision = policy.revision;
         projection = store.authorizedSubscriptions(policy.grants);
+        const combined = [...projection.subscriptions, ...store.watches.subscriptions(policy.schedules)];
+        combined.sort((a,b) => a.id.localeCompare(b.id));
+        projection = { partial: projection.partial || combined.length > 32, subscriptions: combined.slice(0,32) };
       }
       writeHeartbeat(root, { v: 1, pid: process.pid, startedAt, heartbeat: new Date().toISOString(), mode, policyRevision,
         ...projection });
@@ -220,6 +230,8 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
       let worked = false;
       try { worked = await store.dispatchDue(signal); }
       catch { /* A reserved dispatch stays uncertain; other jobs still run. */ }
+      try { worked = await store.watches.dispatchDue(signal) || worked; }
+      catch { /* The next check uses the saved cursor and any original proof handle. */ }
       try { await delay(worked ? 0 : 500, undefined, { signal }); } catch { return; }
     }
   }
