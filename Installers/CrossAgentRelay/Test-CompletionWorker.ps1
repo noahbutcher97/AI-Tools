@@ -104,7 +104,10 @@ try {
         for ($i=0; $i -lt 20 -and (Test-Path -LiteralPath $p); $i++) {
             try {
                 if ([IO.File]::Exists($p)) { [IO.File]::Delete($p) } else { [IO.Directory]::Delete($p, $false) }
-            } catch [IO.IOException] { if ($i -eq 19) { throw }; Start-Sleep -Milliseconds 150 }
+            } catch [IO.IOException], [UnauthorizedAccessException] {
+                if ($i -eq 19) { throw }
+                Start-Sleep -Milliseconds 150
+            }
         }
     }
 }

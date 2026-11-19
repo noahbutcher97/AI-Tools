@@ -36,7 +36,7 @@ internal static class CompletionChannel {
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid, null),
             PipeAccessRights.FullControl, AccessControlType.Deny));
         acl.AddAccessRule(new PipeAccessRule(broker, PipeAccessRights.FullControl, AccessControlType.Allow));
-        var access = PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadPermissions |
+        var access = PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadAttributes | PipeAccessRights.ReadPermissions |
             PipeAccessRights.Synchronize;
         acl.AddAccessRule(new PipeAccessRule(worker, access, AccessControlType.Allow));
         return new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
@@ -44,7 +44,7 @@ internal static class CompletionChannel {
     }
 
     internal static NamedPipeClientStream Connect(string name, SecurityIdentifier broker) {
-        var rights = PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadPermissions |
+        var rights = PipeAccessRights.ReadData | PipeAccessRights.WriteData | PipeAccessRights.ReadAttributes | PipeAccessRights.ReadPermissions |
             PipeAccessRights.Synchronize;
         // The Framework client constructor adds generic access for duplex
         // pipes. GENERIC_WRITE includes the right to create a pipe instance.
@@ -53,13 +53,16 @@ internal static class CompletionChannel {
             0x00110000 /* SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION */, IntPtr.Zero);
         if (handle.IsInvalid) {
             int error = Marshal.GetLastWin32Error();
+            failureStage = 3100 + error;
             handle.Dispose();
             if (error == 5) throw new UnauthorizedAccessException();
             throw new Win32Exception(error);
         }
         var pipe = new NamedPipeClientStream(PipeDirection.InOut, false, true, handle);
         try {
+            failureStage = 34;
             if (!broker.Equals(pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier)))) throw new UnauthorizedAccessException();
+            failureStage = 35;
             pipe.WriteByte(72);
             pipe.Flush();
             return pipe;
