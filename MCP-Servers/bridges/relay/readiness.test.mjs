@@ -82,6 +82,19 @@ test("fleet doctor refuses overbroad records and marks skewed evidence", async t
   assert.doesNotMatch(JSON.stringify(report), /private text/);
 });
 
+test("fleet doctor retains validated local evidence when no host directory is available", async t => {
+  const opts = setup(t);
+  const local = await checkReadiness({ ...opts, directory() { throw Error("unconfigured"); } });
+  const options = { directory: null, profile: opts.profile, now: () => opts.now, query: assert.fail };
+  const file = path.join(opts.profile, ".cross-agent-relay", "fleet-readiness.json");
+  const report = await fleetReadiness({ ...options, local });
+  assert.deepEqual(report, { v: 1, checkedAt: local.checkedAt, ready: false, reason: "directory_unavailable", hosts: [], local });
+  assert.equal(fs.existsSync(file), false);
+  assert.equal((await fleetReadiness({ ...options, local: { ...local, extra: "fixture" } })).local, null);
+  await fleetReadiness({ ...options, local, persist: true });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), report);
+});
+
 test("doctor probes require a designated local Claude session and explicit CLI opt-in", async t => {
   const opts = setup(t);
   const target = "00000000-0000-4000-8000-000000000001";

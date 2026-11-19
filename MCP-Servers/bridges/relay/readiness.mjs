@@ -171,8 +171,17 @@ export async function checkReadiness({ profile = os.homedir(), now = Date.now(),
   return record;
 }
 
-export async function fleetReadiness({ directory = loadDirectory(), query = requestHost, local = readReadiness(),
+export async function fleetReadiness({ directory, query = requestHost, local = readReadiness(),
   now = Date.now, profile = os.homedir(), persist = false } = {}) {
+  if (directory === undefined) {
+    try { directory = loadDirectory(); } catch { directory = null; }
+  }
+  if (!directory) {
+    const report = { v: 1, checkedAt: stamp(now()), ready: false, reason: "directory_unavailable",
+      hosts: [], local: validRecord(local) ? local : null };
+    if (persist) writeState(profile, "fleet-readiness.json", report);
+    return report;
+  }
   const hosts = await Promise.all(directory.hosts.map(async entry => {
     const host = entry.host, start = now();
     let record = local, skewMs = 0, uncertaintyMs = 0;
