@@ -31,6 +31,9 @@ test("watcher package contains a complete protected import closure and an empty 
   // This fixture already contains the current broker. Repackaging must keep every byte.
   assert.equal(await buildWatcherPackage(updated, { base: out, baseDigest: digest }), digest);
   assert.equal(await verifyWatcherPackage(updated, digest), digest);
+  await assert.rejects(buildWatcherPackage(path.join(temp, "forbidden"), {
+    base: out, baseDigest: digest, changedMember: "provider/codex.exe",
+  }), /Unsupported/);
   fs.writeFileSync(path.join(out, "relay", "package.json"), "{}");
   await assert.rejects(verifyWatcherPackage(out, digest), /Unexpected/);
   fs.unlinkSync(path.join(out, "relay", "package.json"));

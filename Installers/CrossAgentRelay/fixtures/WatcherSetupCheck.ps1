@@ -140,6 +140,14 @@ $different=@{}+$next
 $different['runtime/node.exe']='0'*64
 Denied { Assert-BrokerDelta $hashes $different } 'This updater accepts only a broker module change'
 Assert-BrokerDelta $hashes $next
+$brokerMember='relay/completion-jobs.mjs'
+Denied { Assert-BrokerDelta $hashes $next } 'This updater accepts only a broker module change'
+$jobHashes=@{}+$hashes
+$jobHashes[$brokerMember]='b'*64
+Assert-BrokerDelta $hashes $jobHashes
+$jobHashes['relay/completion-broker.mjs']='c'*64
+Denied { Assert-BrokerDelta $hashes $jobHashes } 'This updater accepts only a broker module change'
+$brokerMember='relay/completion-broker.mjs'
 $Operation='Plan'
 $plan=Invoke-BrokerUpdate $hashes $next | ConvertFrom-Json
 Must ($plan.changed -ceq $brokerMember -and (Get-FileHash (Join-Path $root $brokerMember)).Hash -eq $hashes[$brokerMember]) 'Update plan changed installation'

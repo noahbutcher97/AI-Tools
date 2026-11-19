@@ -95,18 +95,20 @@ function compileChannel(out) {
     env: { SystemRoot: process.env.SystemRoot, TEMP: out, TMP: out, PATH: path.join(process.env.SystemRoot, "System32") } });
 }
 
-export async function buildWatcherPackage(out, { node, codex, claude, compile = compileChannel, base, baseDigest }) {
+export async function buildWatcherPackage(out, { node, codex, claude, compile = compileChannel, base, baseDigest,
+  changedMember = "relay/completion-broker.mjs" }) {
   if (!path.isAbsolute(out)) throw Error("Expected an absolute package destination");
   const inputs = new Map(sources.map(name => ["relay/" + name, path.join(bridge, name)]));
   let priorEntries;
   if (base !== undefined) {
+    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
     await verifyWatcherPackage(base, baseDigest);
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
     if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
     priorEntries = new Map(JSON.parse(bytes).files);
     for (const member of packageFiles) {
-      if (member !== "relay/completion-broker.mjs") inputs.set(member, canonicalFile(base, member));
+      if (member !== changedMember) inputs.set(member, canonicalFile(base, member));
     }
   } else {
     for (const [member, file] of [["runtime/node.exe", node], ["provider/codex.exe", codex], ["provider/claude.exe", claude]]) {
@@ -136,7 +138,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       } else {
         const hash = await fileHash(inputs.get(member), file);
         created.push(file);
-        if (priorEntries && member !== "relay/completion-broker.mjs" && priorEntries.get(member) !== hash) throw Error("Base member changed");
+        if (priorEntries && member !== changedMember && priorEntries.get(member) !== hash) throw Error("Base member changed");
         entries.push([member, hash]);
       }
     }
@@ -167,8 +169,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const [mode, out, ...rest] = process.argv.slice(2);
     if (mode === "build" && rest.length === 2) {
       console.log(await buildWatcherPackage(out, { node: process.execPath, codex: rest[0], claude: rest[1] }));
-    } else if (mode === "stage-broker" && rest.length === 2) {
-      console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1] }));
+    } else if (["stage-broker","stage-jobs"].includes(mode) && rest.length === 2) {
+      const changedMember = mode === "stage-jobs" ? "relay/completion-jobs.mjs" : "relay/completion-broker.mjs";
+      console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1], changedMember }));
     } else if (mode === "verify" && rest.length === 1) {
       console.log(await verifyWatcherPackage(out, rest[0]));
     } else throw Error("Expected build, stage-broker <new-directory> <base-directory> <base-digest>, or verify");
