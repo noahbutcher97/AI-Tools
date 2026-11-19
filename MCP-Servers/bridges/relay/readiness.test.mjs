@@ -48,6 +48,10 @@ test("plain doctor writes a dated record, remote reads never launch or publish p
   assert.equal(readReadiness(opts.profile), null);
   const record = await checkReadiness(opts);
   assert.equal(validRecord(record), true);
+  const { watcher, ...legacy } = record;
+  assert.ok(watcher);
+  assert.equal(validRecord({ ...legacy, v: 1 }), true);
+  assert.equal(validRecord({ ...record, watcher: { state: "unavailable", record: null, detail: "fixture" } }), false);
   assert.equal(record.delegate.state, "not_checked");
   assert.deepEqual(readReadiness(opts.profile), record);
   const file = path.join(opts.profile, ".cross-agent-relay", "readiness.json");

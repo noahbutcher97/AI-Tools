@@ -8,7 +8,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { openCompletionJobs } from "./completion-jobs.mjs";
 import { prepareJobRequest } from "./completion-protocol.mjs";
 import { sessionDelivery } from "./completion-session.mjs";
-import { exactKeys, matches, UUID } from "./delivery-protocol.mjs";
+import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
+import { writeHeartbeat } from "./watcher-health.mjs";
 
 const PORT = 44197;
 const MAX_BYTES = 768;
@@ -122,7 +123,7 @@ export function loadJobPolicy(root) {
   };
 }
 
-export async function startCompletionBroker(root, { port, delivery } = {}) {
+export async function startCompletionBroker(root, { port, delivery, publishHealth = false } = {}) {
   // Only the trusted process launcher supplies these adapters. The production
   // broker account must never fall back to spawning a provider in its profile.
   if (delivery !== undefined && (typeof delivery?.send !== "function" || typeof delivery.status !== "function")) {
@@ -137,6 +138,19 @@ export async function startCompletionBroker(root, { port, delivery } = {}) {
   catch (err) { store.close(); throw err; }
   const controller = new AbortController();
   const { signal } = controller;
+  const startedAt = new Date().toISOString();
+  function publish(mode) {
+    try {
+      let policyRevision = null;
+      const file = underRoot(root, "completion-policy.json");
+      if (fs.statSync(file).size <= 32768) policyRevision = digest(fs.readFileSync(file));
+      writeHeartbeat(root, { v: 1, pid: process.pid, startedAt, heartbeat: new Date().toISOString(), mode, policyRevision,
+        ...store.subscriptions() });
+    } catch { /* A missing or stale heartbeat remains visible to doctor. */ }
+  }
+  const mode = delivery ? "watching" : "reports_only";
+  if (publishHealth) publish(mode);
+  const heartbeat = publishHealth ? setInterval(() => publish(mode), 5000) : undefined;
   async function watch() {
     while (!signal.aborted) {
       let worked = false;
@@ -150,8 +164,12 @@ export async function startCompletionBroker(root, { port, delivery } = {}) {
   return { port: listener.port, close() {
     if (!closing) {
       controller.abort();
+      clearInterval(heartbeat);
       // Retain exclusive ownership of the listener through the final callback.
-      closing = running.then(() => listener.close()).finally(() => store.close());
+      closing = running.then(() => {
+        if (publishHealth) publish("stopped");
+        return listener.close();
+      }).finally(() => store.close());
     }
     return closing;
   } };
@@ -172,7 +190,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       console.log("Authenticated desktop worker ready.");
     } else {
       const delivery = checked.enabled === true ? sessionDelivery(checked.root) : undefined;
-      const broker = await startCompletionBroker(checked.root, { delivery });
+      const broker = await startCompletionBroker(checked.root, { delivery, publishHealth: checked.health === true });
       for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
     }
   } catch {

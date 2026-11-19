@@ -8,6 +8,7 @@ import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { installationRoot, inventory, loadDirectory, requestHost } from "./fleet.mjs";
 import { localPing, localStatus } from "./local-ping.mjs";
 import { runProvider } from "./provider-process.mjs";
+import { readWatcher, validWatcherObservation } from "./watcher-health.mjs";
 
 const FRESH_MS = 5 * 60_000;
 const SMOKE_MS = 24 * 60 * 60_000;
@@ -100,8 +101,10 @@ function validAuth(value) {
 }
 
 export function validRecord(r) {
-  return exactKeys(r, ["v","checkedAt","validUntil","build","protocol","directoryRevision","inventory","providers","delegate","setup","status"]) &&
-    r.v === 1 && r.protocol === 2 && date(r.checkedAt) && date(r.validUntil) &&
+  const keys = ["v","checkedAt","validUntil","build","protocol","directoryRevision","inventory","providers","delegate","setup","status"];
+  if (r?.v === 2) keys.push("watcher");
+  return exactKeys(r, keys) && [1,2].includes(r.v) && r.protocol === 2 && date(r.checkedAt) && date(r.validUntil) &&
+    (r.v === 1 || validWatcherObservation(r.watcher, Date.parse(r.checkedAt))) &&
     Date.parse(r.validUntil) - Date.parse(r.checkedAt) === FRESH_MS && matches(hash, r.build) &&
     (r.directoryRevision === null || matches(hash, r.directoryRevision)) &&
     ["available","partial","unavailable"].includes(r.inventory) && exactKeys(r.providers, ["claude","codex"]) &&
@@ -148,6 +151,7 @@ async function delegateSmoke(profile, target, now, { ping, status, designated, l
 
 export async function checkReadiness({ profile = os.homedir(), now = Date.now(), target, directory = loadDirectory,
   list = inventory, check = providerAuth, ping = localPing, status = localStatus, designated = designatedTarget } = {}) {
+  const watcher = readWatcher(installationRoot(), now);
   let directoryRevision = null;
   try {
     const rows = directory().hosts.map(row => [row.host, row.endpoint, row.user, row.port]).sort((a,b) => a[0].localeCompare(b[0], "en"));
@@ -159,9 +163,9 @@ export async function checkReadiness({ profile = os.homedir(), now = Date.now(),
   ]);
   const setup = inspectSetup(profile);
   const ready = Object.values(setup).every(x => x === "present") && directoryRevision && inventoryState === "available" && claude.state === "signed_in" && codex.state === "signed_in" &&
-    delegate.state === "delivered";
-  const record = { v: 1, checkedAt: stamp(now), validUntil: stamp(now + FRESH_MS), build: loadedBuild, protocol: 2,
-    directoryRevision, inventory: inventoryState, providers: { claude, codex }, delegate, setup, status: ready ? "ready" : "degraded" };
+    delegate.state === "delivered" && watcher.state === "watching";
+  const record = { v: 2, checkedAt: stamp(now), validUntil: stamp(now + FRESH_MS), build: loadedBuild, protocol: 2,
+    directoryRevision, inventory: inventoryState, providers: { claude, codex }, delegate, setup, watcher, status: ready ? "ready" : "degraded" };
   if (!validRecord(record)) throw new Error("invalid readiness record");
   writeState(profile, "readiness.json", record);
   return record;

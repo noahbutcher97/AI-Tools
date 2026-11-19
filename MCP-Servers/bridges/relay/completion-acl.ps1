@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
 function Assert-BrokerAcl {
-    param([string]$Path, [string[]]$Authorities, [switch]$PrivateState)
+    param([string]$Path, [string[]]$Authorities, [switch]$PrivateState, [string[]]$Readers)
     $item = Get-Item -LiteralPath $Path -Force
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Broker path is redirected' }
     $acl = Get-Acl -LiteralPath $item.FullName
@@ -17,7 +17,10 @@ function Assert-BrokerAcl {
     if ($PrivateState) { $mask = $mask -bor [Security.AccessControl.FileSystemRights]::ReadData }
     foreach ($ace in $acl.GetAccessRules($true, $true, $sidType)) {
         if ($ace.AccessControlType -ne 'Allow' -or $ace.IdentityReference.Value -in $Authorities) { continue }
-        if (-not $PrivateState -and ($ace.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly)) { continue }
+        if (-not $PrivateState -and -not $Readers -and ($ace.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly)) { continue }
+        if ($Readers -and $ace.IdentityReference.Value -notin $Readers -and
+            (($ace.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData) -or
+             (([int]$ace.FileSystemRights) -band [int]::MinValue))) { throw 'Unexpected watcher health reader' }
         $genericMask = 0x50000000 # GENERIC_ALL or GENERIC_WRITE
         if ($PrivateState) { $genericMask = $genericMask -bor [int]::MinValue }
         if (($ace.FileSystemRights -band $mask) -or (([int]$ace.FileSystemRights) -band $genericMask)) {
@@ -71,7 +74,13 @@ function Get-CompletionRoot {
             $enabled = $setting.enabled
         }
     }
-    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled} | ConvertTo-Json -Compress
+    $healthPath = Join-Path $root 'completion-health'
+    $health = Test-Path -LiteralPath $healthPath
+    if ($health) {
+        Assert-BrokerAcl $healthPath $trusted -Readers @($agentSid.Value)
+        foreach ($item in Get-ChildItem -LiteralPath $healthPath -Force) { Assert-BrokerAcl $item.FullName $trusted -Readers @($agentSid.Value) }
+    }
+    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health} | ConvertTo-Json -Compress
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
