@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { discoverTargets } from "../../MCP-Servers/bridges/relay/client.mjs";
 import { initializeCompletionJobs, openCompletionJobs, threadStatusBinding } from "../../MCP-Servers/bridges/relay/completion-jobs.mjs";
@@ -19,9 +20,13 @@ import { runProvider } from "../../MCP-Servers/bridges/relay/provider-process.mj
 // Only the disposable thread created below receives a turn or is archived.
 const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
+const fromShell = process.argv[3] === "--from-shell";
+if (process.argv.length !== (fromShell ? 4 : 3)) throw Error("Unexpected qualification argument");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-resume-"));
+const workspace = path.join(root, "workspace");
+fs.mkdirSync(workspace);
 const model = "gpt-6-luna";
-const params = { model, cwd: root, sandbox: "read-only", approvalPolicy: "never",
+const params = { model, cwd: workspace, sandbox: fromShell ? "workspace-write" : "read-only", approvalPolicy: "never",
   config: { model_reasoning_effort: "low" } };
 const sessionName = "relay-check-" + randomUUID();
 let provider, store, listener, id;
@@ -38,12 +43,32 @@ async function until(check, ms, reason) {
 async function startProvider() {
   const child = spawn(image, ["app-server"], { cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
   const closed = once(child, "close");
-  const inbox = new Map(), turns = new Map();
+  const inbox = new Map(), turns = new Map(), shellResults = [];
+  const diagnostics = new Map();
   const lines = createInterface({ input: child.stdout });
   lines.on("line", line => {
     const msg = JSON.parse(line);
     if (msg.id && inbox.has(msg.id)) inbox.get(msg.id)(msg);
     if (msg.method === "turn/completed") turns.set(msg.params.turn.id, msg.params.turn.status);
+    if (msg.method === "item/completed") {
+      const { turnId, item } = msg.params;
+      const evidence = diagnostics.get(turnId) ?? { items: [], refusalReported: false, shellUnavailableReported: false };
+      evidence.items.push(item.type);
+      if (item.type === "agentMessage") {
+        evidence.refusalReported ||= /EXECUTION_REFUSED|refused|rejected|denied|blocked by policy/i.test(item.text);
+        evidence.shellUnavailableReported ||= /SHELL_UNAVAILABLE/i.test(item.text);
+      }
+      diagnostics.set(turnId, evidence);
+    }
+    if (msg.method === "item/completed" && msg.params.item.type === "commandExecution") {
+      const item = msg.params.item;
+      const output = item.aggregatedOutput ?? "";
+      shellResults.push({
+        exitCode: item.exitCode, started: /"state"\s*:\s*"started"/.test(output),
+        denied: /access is denied|blocked by policy|permission denied|rejected/i.test(output),
+        noSession: output.includes("Run is unavailable in this session"),
+      });
+    }
   });
   child.stdin.on("error", () => {});
   let seq = 0;
@@ -58,7 +83,7 @@ async function startProvider() {
       return result.result;
     } finally { inbox.delete(index); }
   }
-  const p = { call, turns, async close() {
+  const p = { call, turns, shellResults, diagnostics, async close() {
     if (child.exitCode !== null || child.signalCode !== null) return;
     child.stdin.end();
     const timer = setTimeout(() => child.kill(), 5000);
@@ -73,6 +98,11 @@ try {
   const started = await provider.call("thread/start", { ...params, threadSource: "user" });
   id = started.thread.id;
   assert.equal(started.model, model);
+  if (fromShell) {
+    assert.equal(started.sandbox.type, "workspaceWrite");
+    console.log("Workspace shell network access: " + started.sandbox.networkAccess);
+    assert.equal(started.approvalPolicy, "never");
+  }
   await provider.call("thread/name/set", { threadId: id, name: sessionName });
   const seed = await provider.call("turn/start", { threadId: id, input: [{ type: "text", text: "Reply only OK.", text_elements: []}] });
   const end = await until(() => provider.turns.get(seed.turn.id), 90000, "Seed turn did not finish");
@@ -93,18 +123,40 @@ try {
     status: localStatus,
   });
   const grant = store.issue(original, Date.now() + 180000);
-  listener = await listenForJobReports(store.acceptFrame, { port: 0 });
-  const release = path.join(root, "release");
+  listener = await listenForJobReports(store.acceptFrame, fromShell ? {} : { port: 0 });
+  const release = path.join(workspace, "release");
   const childScript = `
     const fs = require("node:fs");
     const deadline = Date.now() + 90000;
     setInterval(() => {
-      if (fs.existsSync(process.argv[1])) process.exit(23);
+      if (fs.existsSync(process.argv.at(-1))) process.exit(23);
       if (Date.now() > deadline) process.exit(1);
     }, 50);`;
-  const result = await startRun([process.execPath, "-e", childScript, release], { provider: "codex", id },
-    Readable.from([JSON.stringify(grant)]), { port: listener.port });
-  assert.equal(result.state, "started");
+  if (fromShell) {
+    const cli = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/cli.mjs", import.meta.url));
+    const grantFile = path.join(root, "grant.json");
+    const jobFile = path.join(workspace, "job.cjs");
+    fs.writeFileSync(grantFile, JSON.stringify(grant), { flag: "wx", mode: 0o600 });
+    fs.writeFileSync(jobFile, childScript);
+    const quote = value => "'" + value.replaceAll("'", "''") + "'";
+    const command = "Get-Content -LiteralPath " + quote(grantFile) + " -Raw | & " +
+      [process.execPath, cli, "run", "--", process.execPath, jobFile, release].map(quote).join(" ");
+    const prompt = "Run this qualification command exactly once through the ordinary PowerShell tool. " +
+      "Pipe the private input as shown. Do not display its contents. If execution is refused, report EXECUTION_REFUSED and stop. " +
+      "If this session has no shell tool, report SHELL_UNAVAILABLE and stop.\n" + command;
+    const turn = await provider.call("turn/start", { threadId: id, input: [{ type: "text", text: prompt, text_elements: [] }] });
+    await until(() => provider.turns.has(turn.turn.id), 90000, "Shell turn did not finish");
+    fs.unlinkSync(grantFile);
+    const state = store.subscriptions().subscriptions.find(s => s.id === grant.id)?.state;
+    if (provider.shellResults.length !== 1 || !provider.shellResults[0].started || state !== "claimed") {
+      throw Error("Shell launch unproven: " + JSON.stringify({ state, commands: provider.shellResults,
+        turn: provider.turns.get(turn.turn.id), evidence: provider.diagnostics.get(turn.turn.id) }));
+    }
+  } else {
+    const result = await startRun([process.execPath, "-e", childScript, release], { provider: "codex", id },
+      Readable.from([JSON.stringify(grant)]), { port: listener.port });
+    assert.equal(result.state, "started");
+  }
   await provider.close();
   await until(async () => (await targets()).length === 0, 8000, "Original writer did not close");
   fs.writeFileSync(release, "");
