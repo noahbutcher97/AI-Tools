@@ -1,0 +1,91 @@
+# Exercise the installer against an isolated directory and in-memory task and account adapters.
+param([Parameter(Mandatory)][string]$FixtureRoot,[Parameter(Mandatory)][string]$Bundle,[Parameter(Mandatory)][string]$Digest)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot '../Install-CompletionWatcher.ps1')
+$root = Join-Path $FixtureRoot 'destination'
+$null = [IO.Directory]::CreateDirectory($root)
+$journal = Join-Path $root 'watcher-install.json'
+$Package = $Bundle
+$PackageDigest = $Digest
+$hashes = Read-Package $Package
+$scheduler = New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$script:registered = @{}
+$script:fixtureUser = $null
+$script:starts = 0
+$script:interrupt = $true
+$script:fixtureSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-1001')
+function Must([bool]$ok,[string]$msg) { if (!$ok) { throw $msg } }
+function Denied([scriptblock]$op,[string]$reason) {
+    try { & $op | Out-Null } catch { if ($_.Exception.Message -like $reason) { return }; throw }
+    throw 'A prohibited operation succeeded'
+}
+# The fixture grants no OS accounts or task registrations. Use the Windows
+# scheduler's real definition objects to validate actions, triggers and SIDs.
+$folder = [pscustomobject]@{}
+$folder | Add-Member ScriptMethod GetTasks { param($flags) return $script:registered.Values }
+$folder | Add-Member ScriptMethod GetTask { param($name) return $script:registered[$name] }
+$folder | Add-Member ScriptMethod DeleteTask { param($name,$flags) $script:registered.Remove($name) }
+$folder | Add-Member ScriptMethod RegisterTaskDefinition {
+    param($name,$definition,$flags,$sid,$password,$type,$sddl)
+    Must ($flags -eq 18 -and $null -eq $password) 'Unsafe registration arguments'
+    if ($script:interrupt -and $name -eq $brokerTask) { throw 'Fixture interruption' }
+    $task = [pscustomobject]@{Name=$name;Definition=$definition;State=3;Acl=$sddl}
+    $task | Add-Member ScriptMethod GetSecurityDescriptor { param($flags) return $this.Acl }
+    $task | Add-Member ScriptMethod Stop { param($flags) $this.State=3 }
+    $script:registered.Add($name,$task)
+    return $task
+}
+function Get-LocalUser { param($Name,$ErrorAction) return $script:fixtureUser }
+function New-Account([string]$tag) {
+    Must ($null -eq $script:fixtureUser) 'Duplicate account creation'
+    $script:fixtureUser = [pscustomobject]@{Description=$tag;SID=$script:fixtureSid;Enabled=$true}
+    return $script:fixtureUser
+}
+function Disable-LocalUser { param($SID) Must ($SID.Value -eq $script:fixtureSid.Value) 'Wrong user'; $script:fixtureUser.Enabled=$false }
+function Enable-LocalUser { param($SID) Must ($SID.Value -eq $script:fixtureSid.Value) 'Wrong user'; $script:fixtureUser.Enabled=$true }
+function Assert-Protected([string]$p) { Assert-PlainPath $p }
+function New-AccessDirectory([string]$p,[string]$extra) {
+    Must ([IO.Path]::GetDirectoryName($p) -eq $root) 'Unexpected fixture destination'
+    $null = [IO.Directory]::CreateDirectory($p)
+}
+function Grant-StateAccess([string]$brokerSid,[string]$rights) { Must ($brokerSid -eq $script:fixtureSid.Value) 'Unexpected broker' }
+function Start-VerifiedWatcher($broker) { $script:starts++; $broker.State=4 }
+
+$Mode = 'Plan'
+$before = @(Get-ChildItem -LiteralPath $root -Force).Count
+$plan = Invoke-WatcherSetup $scheduler $folder | ConvertFrom-Json
+Must (!$plan.managed -and (Get-ChildItem -LiteralPath $root -Force | Measure-Object).Count -eq $before) 'Plan modified the fixture'
+$Mode = 'Apply'
+Denied { Invoke-WatcherSetup $scheduler $folder } '*Fixture interruption*'
+Must ($script:registered.Count -eq 1 -and $script:starts -eq 0) 'Interrupted installation started'
+$script:interrupt = $false
+Invoke-WatcherSetup $scheduler $folder | Out-Null
+Must ($script:registered.Count -eq 2 -and $script:starts -eq 1) 'Setup did not recover'
+$policy = Join-Path $root 'completion-policy.json'
+[IO.File]::WriteAllText($policy,'{"v":1,"grants":[],"fixture":true}')
+$state = Join-Path $root 'completion-state/jobs.sqlite'
+[IO.File]::AppendAllText($state,'fixture-live-state')
+$beforeHash = (Get-FileHash -LiteralPath $state).Hash
+Invoke-WatcherSetup $scheduler $folder | Out-Null
+Must ((Get-FileHash -LiteralPath $state).Hash -eq $beforeHash -and [IO.File]::ReadAllText($policy).Contains('fixture')) 'Reinstallation reset state'
+$broker = $folder.GetTask($brokerTask)
+Must ($broker.Definition.Principal.LogonType -eq 2 -and $broker.Definition.Triggers.Item(1).Type -eq 9) 'Unexpected broker logon'
+Must ($folder.GetTask($workerTask).Definition.Triggers.Count -eq 0) 'Worker got an independent trigger'
+$broker.Definition.Actions.Item(1).Arguments = 'unexpected'
+Denied { Invoke-WatcherSetup $scheduler $folder } 'Managed task action changed'
+$broker.Definition.Actions.Item(1).Arguments = '"' + (Join-Path $root 'relay/completion-broker.mjs') + '"'
+$acl = $broker.Acl
+$broker.Acl = 'O:BAG:BAD:(A;;GA;;;WD)'
+Denied { Invoke-WatcherSetup $scheduler $folder } 'Writable task outside setup'
+$broker.Acl = $acl
+$Mode='Rollback'
+Invoke-WatcherSetup $scheduler $folder | Out-Null
+Must ($script:registered.Count -eq 0 -and !$script:fixtureUser.Enabled) 'Activation survived rollback'
+Must ((Get-FileHash -LiteralPath $state).Hash -eq $beforeHash) 'Rollback lost state'
+$Mode='Apply'
+Invoke-WatcherSetup $scheduler $folder | Out-Null
+Must ($script:registered.Count -eq 2 -and $script:fixtureUser.Enabled) 'Explicit reactivation failed'
+[IO.File]::Delete($state)
+Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
+'Isolated setup, recovery, refusal, rollback and reactivation passed.'
