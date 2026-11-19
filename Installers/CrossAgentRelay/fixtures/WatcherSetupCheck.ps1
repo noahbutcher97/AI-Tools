@@ -67,6 +67,24 @@ function New-AccessDirectory([string]$p,[string]$extra) {
 function Grant-StateAccess([string]$brokerSid,[string]$rights) { Must ($brokerSid -eq $script:fixtureSid.Value) 'Unexpected broker' }
 function Start-VerifiedWatcher($broker) { $script:starts++; $broker.State=4 }
 
+$inventory = [pscustomobject]@{}
+$inventory | Add-Member ScriptMethod GetRunningTasks {
+    param($flags)
+    Must ($flags -eq 1) 'Hidden task enumeration required'
+    return $script:runningRows
+}
+$actual = [pscustomobject]@{ Path="\$brokerTask"; EnginePID=123; State=4 }
+$other = [pscustomobject]@{ Path="\other\$brokerTask"; EnginePID=456; State=4 }
+$script:runningRows = @($other,$actual)
+Must (Test-BrokerInstance $inventory 123) 'Hidden broker was missed'
+Must (!(Test-BrokerInstance $inventory 456)) 'Same name in another folder was accepted'
+Must (!(Test-BrokerInstance $inventory '123')) 'Invalid heartbeat PID was accepted'
+$actual.State = 3
+Must (!(Test-BrokerInstance $inventory 123)) 'Inactive instance was accepted'
+$actual.State = 4
+$script:runningRows = @($actual,$actual)
+Must (!(Test-BrokerInstance $inventory 123)) 'Duplicate instances were accepted'
+
 $Mode = 'Plan'
 $before = @(Get-ChildItem -LiteralPath $root -Force).Count
 $plan = Invoke-WatcherSetup $scheduler $folder | ConvertFrom-Json

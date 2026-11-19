@@ -193,6 +193,14 @@ function Grant-StateAccess([string]$brokerSid,[string]$brokerModify) {
     }
 }
 
+function Test-BrokerInstance($scheduler,$processId) {
+    if ($processId -isnot [long] -and $processId -isnot [int]) { return $false }
+    # GetInstances(0) can omit this hidden task even while it is running.
+    $instances = @($scheduler.GetRunningTasks(1) | Where-Object { $_.Path -eq "\$brokerTask" })
+    return $processId -gt 0 -and $instances.Count -eq 1 -and $instances[0].State -eq 4 -and
+        $instances[0].EnginePID -eq $processId
+}
+
 function Start-VerifiedWatcher($broker) {
     if ($broker.State -ne 4) { $null = $broker.Run($null) }
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
@@ -217,8 +225,7 @@ function Start-VerifiedWatcher($broker) {
                     }
                 } finally { $stream.Dispose() }
             } catch { $beat = $null }
-            $instances = @($broker.GetInstances(0))
-            if ($beat -and $instances.Count -eq 1 -and $instances[0].EnginePID -eq $beat.pid -and
+            if ($beat -and (Test-BrokerInstance $scheduler $beat.pid) -and
                 $beat.mode -in @('reports_only','watching') -and
                 [math]::Abs(([DateTime]::UtcNow-[DateTimeOffset]::Parse($beat.heartbeat).UtcDateTime).TotalSeconds) -lt 10 -and
                 $folder.GetTask($brokerTask).State -eq 4) {
