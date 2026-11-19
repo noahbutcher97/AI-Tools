@@ -39,7 +39,16 @@ internal static class CompletionChannelCheck {
     public static int Main(string[] args) {
         using (var deadline = new Timer(delegate { Environment.Exit(3); },null,12000,Timeout.Infinite)) {
             if (args.Length == 0) {
-                foreach (var mode in new string[] {"valid","wrong-sid","wrong-pid","wrong-owner"}) Probe(mode);
+                using (var identity = WindowsIdentity.GetCurrent()) {
+                    var network = new SecurityIdentifier(WellKnownSidType.NetworkSid, null);
+                    if (new WindowsPrincipal(identity).IsInRole(network)) {
+                        string name = "relay-test-" + Guid.NewGuid().ToString("N");
+                        using (var pipe = CompletionChannel.OpenServer(name, identity.User, identity.User)) {
+                            try { using (CompletionChannel.Connect(name, identity.User)) {} return 1; }
+                            catch (UnauthorizedAccessException) {}
+                        }
+                    } else foreach (var mode in new string[] {"valid","wrong-sid","wrong-pid","wrong-owner"}) Probe(mode);
+                }
                 var good = "O:BAG:BAD:(A;;FA;;;BA)(A;;GRGX;;;BU)";
                 CompletionChannel.CheckTaskAcl(good);
                 foreach (var bad in new string[] {"O:BUG:BAD:(A;;FA;;;BA)","O:BAG:BAD:(A;;GW;;;BU)"}) {

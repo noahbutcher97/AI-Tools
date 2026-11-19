@@ -27,7 +27,7 @@ $dirs = [Collections.Generic.List[string]]::new()
 
 function Register-CheckTask([string]$Name, [string]$Sid, [int]$Type, [string]$Arguments) {
     $definition = $scheduler.NewTask(0)
-    $definition.RegistrationInfo.URI = $taskUri
+    $definition.RegistrationInfo.Description = $taskUri
     $definition.Principal.UserId = $Sid
     $definition.Principal.LogonType = $Type
     $definition.Principal.RunLevel = 0
@@ -82,13 +82,18 @@ try {
         $check = $folder.GetTask($checkName)
         if ([DateTime]::UtcNow -ge $end) { throw 'Qualification timed out.' }
     } while ($check.State -in @(2,4) -or $check.LastTaskResult -eq 267011)
-    if ($check.LastTaskResult -ne 0) { throw ('Qualification failed with task result ' + $check.LastTaskResult) }
+    if ($check.LastTaskResult -ne 0) {
+        $workerResult = $folder.GetTask($workerName).LastTaskResult
+        throw ("Qualification failed. Broker result {0}, worker result {1}." -f $check.LastTaskResult,$workerResult)
+    }
     'Authenticated worker check passed across distinct Windows principals.'
 } finally {
     $registered.Reverse()
     foreach ($name in $registered) {
         $t = $folder.GetTask($name)
-        if ($t.Definition.RegistrationInfo.URI -ne $taskUri) { throw 'Task ownership changed during qualification.' }
+        if ($t.Definition.RegistrationInfo.Description -ne $taskUri -or $t.Definition.Actions.Item(1).Path -ne $image) {
+            throw 'Task ownership changed during qualification.'
+        }
         if ($t.State -in @(2,4)) { $t.Stop(0) }
         $folder.DeleteTask($name, 0)
     }

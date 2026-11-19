@@ -18,6 +18,8 @@ internal static class CompletionChannel {
     private static readonly string Root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar);
     private static readonly UTF8Encoding Utf8 = new UTF8Encoding(false, true);
     private static readonly string Image = Path.Combine(Root, "CompletionChannel.exe");
+    // Task Scheduler retains only the exit code for a noninteractive action.
+    private static int failureStage = 1;
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeClientProcessId(SafePipeHandle handle, out uint pid);
@@ -110,11 +112,13 @@ internal static class CompletionChannel {
     }
 
     private static void Serve(SecurityIdentifier broker, SecurityIdentifier worker, Stream requests, Stream replies) {
+        failureStage = 10;
         string nonce = Guid.NewGuid().ToString("N");
         using (var pipe = OpenServer("CrossAgentRelay-" + nonce, broker, worker)) {
             dynamic scheduler = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service", true));
             scheduler.Connect();
             dynamic task = scheduler.GetFolder("\\").GetTask(TaskName);
+            failureStage = 11;
             CheckTaskAcl((string)task.GetSecurityDescriptor(7));
             dynamic def = task.Definition;
             if (!worker.Equals(Sid((string)def.Principal.UserId)) || def.Principal.LogonType != 3 ||
@@ -124,21 +128,28 @@ internal static class CompletionChannel {
             if (action.Type != 0 || !String.Equals((string)action.Path, Image, StringComparison.OrdinalIgnoreCase) ||
                     action.Arguments != "worker $(Arg0)" || !String.Equals((string)action.WorkingDirectory, Root, StringComparison.OrdinalIgnoreCase))
                 throw new UnauthorizedAccessException();
+            failureStage = 12;
             dynamic running = task.Run(nonce);
+            failureStage = 13;
             var pending = pipe.BeginWaitForConnection(null, null);
             using (var wait = pending.AsyncWaitHandle) {
                 if (!wait.WaitOne(7000)) throw new TimeoutException();
                 pipe.EndWaitForConnection(pending);
             }
+            failureStage = 14;
             CheckClient(pipe, worker, delegate { running.Refresh(); return running.State == 4 ? (uint)running.EnginePID : 0u; });
+            failureStage = 15;
             Exchange(requests, pipe, pipe, replies);
         }
     }
 
     private static void Work(string nonce, SecurityIdentifier broker) {
+        failureStage = 30;
         Guid parsed;
         if (!Guid.TryParseExact(nonce, "N", out parsed) || parsed.ToString("N") != nonce) throw new ArgumentException();
+        failureStage = 31;
         using (var pipe = Connect("CrossAgentRelay-" + nonce, broker)) {
+            failureStage = 32;
             var info = new ProcessStartInfo(Path.Combine(Root, "runtime", "node.exe"), "completion-worker.mjs");
             info.WorkingDirectory = Path.Combine(Root, "relay");
             info.UseShellExecute = false;
@@ -154,6 +165,7 @@ internal static class CompletionChannel {
             }
             info.EnvironmentVariables["PATH"] = Path.Combine(Root,"provider") + ";" + Environment.SystemDirectory;
             using (var child = Process.Start(info)) {
+                failureStage = 33;
                 try { Exchange(pipe, child.StandardInput.BaseStream, child.StandardOutput.BaseStream, pipe); }
                 finally {
                     child.StandardInput.Close();
@@ -188,6 +200,6 @@ internal static class CompletionChannel {
                 else throw new UnauthorizedAccessException();
             }
             return 0;
-        } catch { Console.Error.WriteLine("Completion channel unavailable."); return 1; }
+        } catch { Console.Error.WriteLine("Completion channel unavailable."); return failureStage; }
     }
 }
