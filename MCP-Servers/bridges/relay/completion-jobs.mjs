@@ -98,9 +98,9 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   function currentJobs(ids, state) {
     return ids.map(active).filter(job => job?.state === state);
   }
-  async function inspectProof(jobs) {
+  async function inspectProof(jobs, signal) {
     const first = jobs[0];
-    const proof = await status(first.handle);
+    const proof = await status(first.handle, { signal });
     if (proof.to !== first.recipient || !["pending", "delivered"].includes(proof.state)) return "proof_unavailable";
     if (proof.state === "delivered") {
       transaction(() => {
@@ -114,7 +114,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   async function dispatchJobs(ids, signal) {
     if (signal?.aborted) return "stopped";
     const observing = currentJobs(ids, "observing");
-    if (observing.length) return inspectProof(observing);
+    if (observing.length) return inspectProof(observing, signal);
     const jobs = transaction(() => {
       const ready = currentJobs(ids, "ready");
       for (const job of ready) db.prepare("UPDATE jobs SET state='dispatching' WHERE id=?").run(job.id);
@@ -147,7 +147,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       });
     }
     const saved = currentJobs(jobs.map(job => job.id), "observing");
-    if (saved.length && !signal?.aborted) return inspectProof(saved);
+    if (saved.length && !signal?.aborted) return inspectProof(saved, signal);
     return publicState(first.id);
   }
 

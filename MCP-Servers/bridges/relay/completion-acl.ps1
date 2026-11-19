@@ -53,7 +53,25 @@ function Get-CompletionRoot {
         }
         Assert-BrokerAcl $file.FullName $trusted -PrivateState
     }
-    $root
+    $installed = Test-Path -LiteralPath (Join-Path $root 'CompletionChannel.exe')
+    $enabled = $false
+    if ($installed) {
+        foreach ($name in @('CompletionChannel.exe','relay','runtime','runtime/node.exe','provider','provider/claude.exe','worker-cwd')) {
+            Assert-BrokerAcl (Join-Path $root $name) $admin
+        }
+        foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'relay') -File -Force) {
+            Assert-BrokerAcl $file.FullName $admin
+        }
+        if (@(Get-ChildItem -LiteralPath (Join-Path $root 'worker-cwd') -Force).Count) { throw 'Worker directory must be empty' }
+        $flag = Join-Path $root 'completion-worker.json'
+        if (Test-Path -LiteralPath $flag) {
+            Assert-BrokerAcl $flag $admin
+            $setting = Get-Content -LiteralPath $flag -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($setting.v -ne 1 -or $setting.enabled -isnot [bool]) { throw 'Invalid worker setting' }
+            $enabled = $setting.enabled
+        }
+    }
+    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled} | ConvertTo-Json -Compress
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

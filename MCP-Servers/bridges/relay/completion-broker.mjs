@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { openCompletionJobs } from "./completion-jobs.mjs";
 import { prepareJobRequest } from "./completion-protocol.mjs";
+import { sessionDelivery } from "./completion-session.mjs";
 import { exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 
 const PORT = 44197;
@@ -158,15 +159,22 @@ export async function startCompletionBroker(root, { port, delivery } = {}) {
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   try {
-    if (process.argv.length !== 2 || process.platform !== "win32") throw new Error();
+    const checkOnly = process.argv.length === 3 && process.argv[2] === "--check-worker";
+    if ((!checkOnly && process.argv.length !== 2) || process.platform !== "win32") throw new Error();
     const shell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
     const verifier = fileURLToPath(new URL("./completion-acl.ps1", import.meta.url));
-    const root = execFileSync(shell, ["-NoProfile", "-NonInteractive", "-File", verifier], {
+    const checked = JSON.parse(execFileSync(shell, ["-NoProfile", "-NonInteractive", "-File", verifier], {
       encoding: "utf8", timeout: 5000, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-    if (!path.isAbsolute(root)) throw new Error();
-    const broker = await startCompletionBroker(root);
-    for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
+    }));
+    if (!path.isAbsolute(checked.root)) throw new Error();
+    if (checkOnly) {
+      if (!checked.installed || !await sessionDelivery(checked.root).check()) throw new Error();
+      console.log("Authenticated desktop worker ready.");
+    } else {
+      const delivery = checked.enabled === true ? sessionDelivery(checked.root) : undefined;
+      const broker = await startCompletionBroker(checked.root, { delivery });
+      for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
+    }
   } catch {
     console.error("Completion broker unavailable. Check protected installation, storage and local listener.");
     process.exitCode = 1;
