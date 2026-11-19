@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import fs from "node:fs";
@@ -21,7 +21,11 @@ import { runProvider } from "../../MCP-Servers/bridges/relay/provider-process.mj
 const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
-if (process.argv.length !== (fromShell ? 4 : 3)) throw Error("Unexpected qualification argument");
+const installed = process.argv[3] === "--installed";
+const exchangeDir = installed ? process.argv[4] : null;
+if (process.argv.length !== (installed ? 5 : fromShell ? 4 : 3)) throw Error("Unexpected qualification argument");
+if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
+    fs.readdirSync(exchangeDir).length)) throw Error("Supply an empty private trial directory");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-resume-"));
 const workspace = path.join(root, "workspace");
 fs.mkdirSync(workspace);
@@ -93,7 +97,7 @@ async function startProvider() {
   await call("initialize", { clientInfo: { name: "relay_qualification", version: "1" }, capabilities: { experimentalApi: true } });
   return p;
 }
-try {
+async function runTrial() {
   provider = await startProvider();
   const started = await provider.call("thread/start", { ...params, threadSource: "user" });
   id = started.thread.id;
@@ -109,6 +113,30 @@ try {
   assert.equal(end, "completed");
   const targets = async () => (await discoverTargets({ scope: "all" })).targets.filter(t => t.id === id);
   const original = await until(async () => (await targets()).find(t => t.addressable), 8000, "Original thread unavailable");
+  if (installed) {
+    // The administrator authorizes the exact returned thread and independently
+    // checks the installed broker's proof before allowing the writer to close.
+    const write = (name, value) => {
+      const temp = path.join(exchangeDir, name + ".tmp");
+      fs.writeFileSync(temp, JSON.stringify(value), { flag: "wx", mode: 0o600 });
+      fs.renameSync(temp, path.join(exchangeDir, name));
+    };
+    write("target.json", { id, model });
+    await until(() => fs.existsSync(path.join(exchangeDir, "authorized")), 300000, "Trial grant was not ready");
+    const cli = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/cli.mjs", import.meta.url));
+    const env = { ...process.env, CODEX_THREAD_ID: id };
+    delete env.CODEX_SESSION_ID;
+    delete env.CLAUDE_CODE_SESSION_ID;
+    const result = spawnSync(process.execPath, [cli, "run", "--", process.execPath, "-e", "process.exit(23)"], {
+      cwd: workspace, env, input: "", encoding: "utf8", timeout: 15000, windowsHide: true,
+    });
+    assert.equal(result.status, 0, "The installed broker did not authorize the public CLI launch");
+    const job = JSON.parse(result.stdout);
+    assert.equal(job.state, "started");
+    write("job.json", { id: job.id });
+    await until(() => fs.existsSync(path.join(exchangeDir, "finished")), 150000, "Installed delivery was not confirmed");
+    return;
+  }
   const file = path.join(root, "jobs.sqlite");
   await initializeCompletionJobs(file);
   let submissions = 0;
@@ -172,6 +200,10 @@ try {
   await until(async () => (await store.dispatch(grant.id)) === "delivered", 45000, "No consumed status message after resume");
   assert.equal(submissions, 1);
   console.log("Original command exited offline. The resumed thread consumed one status notice.");
+}
+
+try {
+  await runTrial();
 } finally {
   if (id && provider) {
     try { await provider.call("thread/archive", { threadId: id }); } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
