@@ -38,6 +38,12 @@ Administrators own the installed code and configuration under the system Program
 
 A retry with the same package uses the private installation record and verifies registered task identities and actions. If an interrupted installation has an assigned broker account but no broker task, setup needs a fresh credential for registration. After approving a password reset for that dedicated account, repeat Apply with `-RenewBrokerPassword`. Setup checks the installation tag and account SID before resetting the password. Existing registered tasks reuse their S4U registration. Setup preserves existing owner policy, live job data and unrelated entries. An initialized but missing job database stops installation. A different distribution digest needs a reviewed upgrade procedure.
 
+## Request one grant at broker startup
+
+A broker build supporting policy version 2 can publish one job grant at startup under its existing service account. An administrator writes the private policy atomically and restarts the broker. Set `grants` to one Codex entry with `id`, `provider` set to `codex`, and `scope` set to `thread-status`. Set `startupRun.id` to the same raw ID and `startupRun.expiresAt` to the approved UTC deadline in ISO format with milliseconds. The top-level fields are `v` (2), `grants`, and `startupRun`. Provider dispatch still follows the independent worker setting.
+
+After acquiring its exclusive listener the broker issues one capability through the existing private handoff. Repeating the same request across restarts recovers the same capability and consumed state. An incompatible earlier batch for this instance causes startup to fail. The receiver rechecks the current policy and deadline on claim, completion and dispatch. An empty version 1 policy revokes authority. Existing version 1 grants keep their explicit provisioning behavior.
+
 ## Deactivate and retain state
 
 ```text

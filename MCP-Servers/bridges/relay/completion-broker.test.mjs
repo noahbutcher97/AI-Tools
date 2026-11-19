@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { listenForJobReports, loadJobPolicy, reportJob, startCompletionBroker } from "./completion-broker.mjs";
+import { listenForJobReports, loadJobPolicy, provisionRun, reportJob, startCompletionBroker } from "./completion-broker.mjs";
 import { prepareJobRequest } from "./completion-protocol.mjs";
 import { initializeCompletionJobs, openCompletionJobs } from "./completion-jobs.mjs";
 import { digest } from "./delivery-protocol.mjs";
@@ -54,6 +54,62 @@ test("one wrapper claims a job and a restarted broker acknowledges an identical 
   await reportJob(grant, "complete", ended, { port });
   await assert.rejects(reportJob(grant, "complete", { code: 0, signal: null }, { port }));
   await assert.rejects(reportJob(grant, "claim", null, { port }));
+});
+
+test("one approved Codex startup grant survives restart and obeys the current policy", async t => {
+  const f = await fixture(t);
+  const dir = path.join(f.root, "completion-grants");
+  fs.mkdirSync(dir);
+  const grants = [{ id: target.id, provider: "codex", scope: "thread-status" }];
+  const expiresAt = new Date(Date.now() + 60000).toISOString();
+  const config = { v: 2, grants, startupRun: { id: target.id, expiresAt } };
+  fs.writeFileSync(f.policyFile, JSON.stringify(config));
+  const port = await f.restart();
+  const [file] = fs.readdirSync(dir);
+  const first = fs.readFileSync(path.join(dir, file), "utf8");
+  const batch = JSON.parse(first);
+  assert.equal(batch.grants.length, 1);
+  assert.equal(batch.session, target.id);
+  assert.equal(batch.validUntil, Date.parse(expiresAt));
+  await f.restart(port);
+  assert.equal(fs.readFileSync(path.join(dir, file), "utf8"), first);
+  assert.equal(f.store.subscriptions().subscriptions.length, 1);
+  await assert.rejects(provisionRun(f.root, target.id, "2", expiresAt));
+  await assert.rejects(provisionRun(f.root, target.id, "1", new Date(Date.now() + 120000).toISOString()));
+  const event = { session: target.id, provider: "codex" };
+  await assert.rejects(reportJob(batch.grants[0], "claim_run", { session: target.id }, { port }));
+  await reportJob(batch.grants[0], "claim_run", event, { port });
+  await assert.rejects(reportJob(batch.grants[0], "claim_run", event, { port }));
+  fs.writeFileSync(f.policyFile, JSON.stringify({ v: 1, grants: [] }));
+  await assert.rejects(reportJob(batch.grants[0], "complete", ended, { port }));
+  fs.writeFileSync(f.policyFile, JSON.stringify({ ...config, startupRun: { id: target.id, expiresAt: new Date(0).toISOString() } }));
+  await f.restart(port);
+  await assert.rejects(reportJob(batch.grants[0], "complete", ended, { port }));
+});
+
+test("startup issuance requires one matching thread-status grant and a free listener", async t => {
+  const f = await fixture(t);
+  const dir = path.join(f.root, "completion-grants");
+  fs.mkdirSync(dir);
+  const port = await f.restart();
+  assert.deepEqual(fs.readdirSync(dir), []);
+  const row = { id: target.id, provider: "codex", scope: "thread-status" };
+  const request = { id: target.id, expiresAt: new Date(Date.now() + 60000).toISOString() };
+  for (const policy of [
+    { v: 1, grants: [row], startupRun: request },
+    { v: 2, grants: [], startupRun: request },
+    { v: 2, grants: [row, row], startupRun: request },
+    { v: 2, grants: [{ id: target.id, provider: "claude", instance }], startupRun: request },
+    { v: 2, grants: [row], startupRun: { ...request, count: 2 } },
+    { v: 2, grants: [row], startupRun: { ...request, id: "00000000-0000-4000-8000-000000000002" } },
+  ]) {
+    fs.writeFileSync(f.policyFile, JSON.stringify(policy));
+    await assert.rejects(startCompletionBroker(f.root, { port: 0 }));
+  }
+  fs.writeFileSync(f.policyFile, JSON.stringify({ v: 2, grants: [row], startupRun: request }));
+  await assert.rejects(startCompletionBroker(f.root, { port }));
+  assert.deepEqual(f.store.subscriptions().subscriptions, []);
+  assert.deepEqual(fs.readdirSync(dir), []);
 });
 
 test("a separate wrapper process reports its child's actual exit status over the local listener", async t => {

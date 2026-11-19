@@ -114,35 +114,61 @@ function readJobPolicy(root) {
     if (n !== stat.size) throw new Error("invalid job policy");
     policy = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n)));
   } finally { fs.closeSync(fd); }
-  const valid = exactKeys(policy, ["v", "grants"]) && policy.v === 1 && Array.isArray(policy.grants) &&
+  const automatic = policy?.v === 2;
+  const valid = (automatic ? exactKeys(policy, ["v", "grants", "startupRun"]) :
+    exactKeys(policy, ["v", "grants"]) && policy.v === 1) && Array.isArray(policy.grants) &&
     policy.grants.length <= 128 && policy.grants.every(g => matches(UUID, g?.id) && (
       (exactKeys(g, ["id", "provider", "instance"]) && g.provider === "claude" && matches(/^[a-f0-9]{64}$/, g.instance)) ||
       (exactKeys(g, ["id", "provider", "scope"]) && g.provider === "codex" && g.scope === "thread-status")
     ));
   if (!valid) throw new Error("invalid job policy");
-  return policy.grants.map(g => g.provider === "codex" ? { ...g, instance: threadStatusBinding(g.id) } : g);
+  const grants = policy.grants.map(g => g.provider === "codex" ? { ...g, instance: threadStatusBinding(g.id) } : g);
+  if (!automatic) return { grants, startup: null };
+  const startup = policy.startupRun;
+  if (!exactKeys(startup, ["id", "expiresAt"]) || !matches(UUID, startup.id) ||
+      typeof startup.expiresAt !== "string" || !Number.isFinite(Date.parse(startup.expiresAt)) ||
+      new Date(startup.expiresAt).toISOString() !== startup.expiresAt ||
+      grants.length !== 1 || grants[0].provider !== "codex" || grants[0].id !== startup.id) throw new Error("invalid startup run grant");
+  return { grants: Date.parse(startup.expiresAt) > Date.now() ? grants : [], startup };
 }
 
 export function loadJobPolicy(root) {
   return (id, provider, instance) => {
     try {
-      return readJobPolicy(root).some(g => g.id === id && g.provider === provider && g.instance === instance);
+      return readJobPolicy(root).grants.some(g => g.id === id && g.provider === provider && g.instance === instance);
     } catch { return false; }
   };
 }
 
-export async function provisionRun(root, session, count, expiry) {
+function authorizedRun(root, session, count, expiry, requireStartup) {
   const validUntil = Date.parse(expiry);
   if (!matches(UUID, session) || !matches(/^[1-8]$/, count) || !Number.isFinite(validUntil) ||
       new Date(validUntil).toISOString() !== expiry || validUntil <= Date.now()) throw new Error("invalid grant request");
-  const authorized = readJobPolicy(root).filter(g => g.id === session);
+  const { grants, startup } = readJobPolicy(root);
+  if ((requireStartup && !startup) || (startup && (startup.id !== session || count !== "1" || expiry !== startup.expiresAt))) {
+    throw new Error("startup grant parameters changed");
+  }
+  const authorized = grants.filter(g => g.id === session);
   if (authorized.length !== 1) throw new Error("an exclusive authorized instance is required");
+  return authorized[0];
+}
+
+function publishApprovedRun(root, store, session, count, expiry, requireStartup) {
+  const grant = authorizedRun(root, session, count, expiry, requireStartup);
+  return store.provision(session, grant.instance, Number(count), Date.parse(expiry), (binding, hash, pending) => {
+    const current = authorizedRun(root, session, count, expiry, requireStartup);
+    if (current.instance !== binding || current.provider !== grant.provider) throw new Error("grant binding changed");
+    publishRunHandoff(root, binding, hash, pending);
+  }, grant.provider);
+}
+
+export async function provisionRun(root, session, count, expiry) {
+  authorizedRun(root, session, count, expiry, false);
   const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
     permits: loadJobPolicy(root),
   });
   try {
-    return store.provision(session, authorized[0].instance, Number(count), validUntil,
-      (binding, hash, pending) => publishRunHandoff(root, binding, hash, pending), authorized[0].provider);
+    return publishApprovedRun(root, store, session, count, expiry, false);
   } finally { store.close(); }
 }
 
@@ -157,8 +183,15 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
     send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
   });
   let listener;
-  try { listener = await listenForJobReports(store.acceptFrame, { port }); }
-  catch (err) { store.close(); throw err; }
+  try {
+    listener = await listenForJobReports(store.acceptFrame, { port });
+    const { startup, grants } = readJobPolicy(root);
+    if (startup && grants.length) publishApprovedRun(root, store, startup.id, "1", startup.expiresAt, true);
+  } catch (err) {
+    await listener?.close();
+    store.close();
+    throw err;
+  }
   const controller = new AbortController();
   const { signal } = controller;
   const startedAt = new Date().toISOString();
