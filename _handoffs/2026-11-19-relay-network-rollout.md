@@ -24,6 +24,6 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Resume here
 
-The second desktop completed trial cleanup. On the initiating desktop the trial recorded proof and its session output directory is empty. Windows canceled elevation for the final Task Scheduler check. The protected trial directory and temporary task still require cleanup. When the owner is ready for the Windows prompt, verify the tagged session task finished successfully and run the qualification script's Cleanup stage for that trial in the same elevated operation. Verify both the task and the trial directory are gone. The recorded delivery proof is sufficient.
+Both desktops completed the CLI trial cleanup. On the initiating desktop a single elevated operation verified the tagged session task exited successfully, removed the trial, and confirmed the temporary tasks and directory were absent.
 
 Next qualify `relay_watch` in a real Codex session under approval policy `never`. Both configurations currently have a per-tool approval entry for `relay_send`; the scan found none for `relay_watch`. The installed schedule evidence above used the CLI.
