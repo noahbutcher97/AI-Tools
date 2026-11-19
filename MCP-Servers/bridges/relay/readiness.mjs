@@ -16,11 +16,13 @@ const date = value => typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\
   Number.isFinite(Date.parse(value));
 const stamp = ms => new Date(ms).toISOString();
 
-function buildFingerprint() {
-  const root = fileURLToPath(new URL(".", import.meta.url));
+export function buildFingerprint(root = fileURLToPath(new URL(".", import.meta.url))) {
   const files = fs.readdirSync(root).filter(name => name === "package-lock.json" ||
     (name.endsWith(".mjs") && !name.endsWith(".test.mjs"))).sort();
-  return digest(JSON.stringify(files.map(name => [name, digest(fs.readFileSync(path.join(root, name)))])));
+  return digest(JSON.stringify(files.map(name => {
+    const source = fs.readFileSync(path.join(root, name), "utf8").replaceAll("\r\n", "\n");
+    return [name, digest(source)];
+  })));
 }
 export const loadedBuild = buildFingerprint();
 const setupFields = ["hostPins", "relayKey", "receivePolicy", "providerImage", "receiptStore"];

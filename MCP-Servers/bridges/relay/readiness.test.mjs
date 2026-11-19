@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseArgs } from "./client.mjs";
-import { checkReadiness, fleetReadiness, loadedBuild, providerAuth, readReadiness, validRecord } from "./readiness.mjs";
+import { buildFingerprint, checkReadiness, fleetReadiness, loadedBuild, providerAuth, readReadiness, validRecord } from "./readiness.mjs";
 
 function setup(t) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-health-"));
@@ -30,6 +30,17 @@ test("provider status returns only sign-in and actual expiry fields", async () =
     assert.deepEqual(args, ["fixture","login","status"]); return { code: 0, stderr: "Logged in using fixture" };
   } }), { state: "signed_in", expiresAt: null, expiry: "not_exposed" });
   assert.equal((await providerAuth("codex", { resolve, run: async () => ({ code: 1, stderr: "Not logged in" }) })).state, "signed_out");
+});
+
+test("the fleet compares identical source across checkout line endings", t => {
+  const { profile } = setup(t);
+  const file = path.join(profile, "fixture.mjs");
+  fs.writeFileSync(file, "export default 1;\n");
+  const first = buildFingerprint(profile);
+  fs.writeFileSync(file, "export default 1;\r\n");
+  assert.equal(buildFingerprint(profile), first);
+  fs.writeFileSync(file, "export default 2;\r\n");
+  assert.notEqual(buildFingerprint(profile), first);
 });
 
 test("plain doctor writes a dated record, remote reads never launch or publish private data", async t => {
