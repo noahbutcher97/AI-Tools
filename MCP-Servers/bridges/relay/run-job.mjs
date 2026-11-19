@@ -2,15 +2,13 @@ import { fork, spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import { reportJob } from "./completion-broker.mjs";
-import { exactKeys, matches, UUID } from "./delivery-protocol.mjs";
+import { matches, UUID } from "./delivery-protocol.mjs";
+import { availableGrant, validRunGrant } from "./run-handoff.mjs";
 
 export class RunInputError extends Error {}
 
-function validGrant(grant) {
-  return exactKeys(grant, ["id", "capability"]) && matches(UUID, grant.id) && matches(/^[0-9a-f]{64}$/, grant.capability);
-}
-
-export async function readRunGrant(input) {
+export async function readRunGrant(input, onEmpty) {
+  if (input.isTTY && onEmpty) return onEmpty();
   if (input.isTTY) throw new RunInputError("A private job grant is required on stdin.");
   const timer = setTimeout(() => input.destroy(new Error("grant timeout")), 3000);
   try {
@@ -21,8 +19,9 @@ export async function readRunGrant(input) {
       if (size > 256) throw new Error();
       chunks.push(Buffer.from(chunk));
     }
+    if (size === 0 && onEmpty) return onEmpty();
     const grant = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    if (!validGrant(grant)) throw new Error();
+    if (!validRunGrant(grant)) throw new Error();
     return grant;
   } catch { throw new RunInputError("A private job grant is required on stdin."); }
   finally { clearTimeout(timer); }
@@ -38,7 +37,7 @@ export function validCommand(argv) {
 export async function observeCommand({ grant, session, argv, port }, notify, {
   report = reportJob, launch = spawn, pause = delay, connected = () => true,
 } = {}) {
-  if (!validGrant(grant) || !matches(UUID, session) || !validCommand(argv)) return notify("not_started");
+  if (!validRunGrant(grant) || !matches(UUID, session) || !validCommand(argv)) return notify("not_started");
   try { await report(grant, "claim_run", { session }, { port }); }
   catch { return notify("not_started"); }
   async function finish(op, event) {
@@ -65,10 +64,14 @@ export async function observeCommand({ grant, session, argv, port }, notify, {
   return finish("complete", outcome);
 }
 
-export async function startRun(argv, identity, input, { port } = {}) {
+export async function startRun(argv, identity, input, options = {}) {
+  const { port } = options;
   if (!validCommand(argv)) throw new RunInputError("Use relay run -- <executable> [args...].");
   if (identity?.provider !== "claude" || !matches(UUID, identity.id)) throw new RunInputError("Run is unavailable in this session.");
-  const grant = await readRunGrant(input);
+  const grant = await readRunGrant(input, async () => {
+    try { return await availableGrant(identity.id, reportJob, options); }
+    catch { throw new RunInputError("No usable pre-issued job grant for this session."); }
+  });
   // Keep the bearer out of argv, the child environment and the command's stdin.
   const worker = fork(fileURLToPath(import.meta.url), [], { detached: true, windowsHide: true, execArgv: [],
     stdio: ["ignore", "ignore", "ignore", "ipc"] });

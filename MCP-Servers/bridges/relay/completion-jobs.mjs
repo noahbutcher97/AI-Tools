@@ -6,6 +6,10 @@ import { jobMac, sameMac, validExit, validJobFrame } from "./completion-protocol
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
 
 const COOLDOWN_MS = 10000;
+const HANDOFF_TABLE = `CREATE TABLE grant_handoffs (
+  instance TEXT PRIMARY KEY, count INTEGER NOT NULL, valid_until INTEGER NOT NULL,
+  hash TEXT NOT NULL, pending TEXT
+) WITHOUT ROWID`;
 
 // This database belongs to the broker. Installation supplies the protected
 // directory. No CLI, SSH frame or MCP request can select a path or issue grants.
@@ -18,16 +22,17 @@ export async function initializeCompletionJobs(file) {
     db.exec(`CREATE TABLE jobs (
       id TEXT PRIMARY KEY, token_hash BLOB NOT NULL, recipient TEXT NOT NULL,
       provider TEXT NOT NULL, instance TEXT NOT NULL, valid_until INTEGER NOT NULL,
-      state TEXT NOT NULL, code INTEGER, signal TEXT, handle TEXT,
+      state TEXT NOT NULL, code INTEGER, signal TEXT, handle TEXT, run_only INTEGER NOT NULL DEFAULT 0,
       next_check INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, last_notice INTEGER
     ) WITHOUT ROWID;
     CREATE INDEX jobs_due ON jobs(state,next_check,id);
     CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
-    PRAGMA application_id=1128943426; PRAGMA user_version=2`);
+    ${HANDOFF_TABLE};
+    PRAGMA application_id=1128943426; PRAGMA user_version=3`);
   } finally { db.close(); }
 }
 
-function instanceOf(target) {
+export function instanceOf(target) {
   if (!matches(UUID, target.id) || !target.addressable) throw new Error("unaddressable session");
   if (target.kind === "claude" && Number.isSafeInteger(target.pid) && target.pid > 0 &&
       Number.isSafeInteger(target.startedAt) && target.startedAt > 0) {
@@ -55,7 +60,8 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         CREATE INDEX jobs_due ON jobs(state,next_check,id);
         CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
         PRAGMA user_version=2`);
-    } else if (version !== 2) throw new Error("invalid job store");
+    } else if (version !== 2 && version !== 3) throw new Error("invalid job store");
+    if (version < 3) db.exec(HANDOFF_TABLE + "; ALTER TABLE jobs ADD COLUMN run_only INTEGER NOT NULL DEFAULT 0; PRAGMA user_version=3");
     db.exec("COMMIT");
   } catch (error) { db.close(); throw error; }
   const row = db.prepare("SELECT * FROM jobs WHERE id=?");
@@ -170,6 +176,15 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       return jobs.map(job => job.id);
     });
   }
+  function issueBound(session, binding, validUntil, runOnly = false) {
+    if (!Number.isSafeInteger(validUntil) || validUntil <= now()) throw new Error("invalid grant expiry");
+    if (!matches(UUID, session) || !matches(/^[a-f0-9]{64}$/, binding) ||
+        permits(session, "claude", binding) !== true) throw new Error("job denied");
+    const id = randomUUID(), capability = randomBytes(32).toString("hex");
+    db.prepare("INSERT INTO jobs(id,token_hash,recipient,provider,instance,valid_until,state,run_only) VALUES(?,?,?,?,?,?,'waiting',?)")
+      .run(id, Buffer.from(digest(capability), "hex"), session, "claude", binding, validUntil, Number(runOnly));
+    return { id, capability };
+  }
   return {
     close: () => db.close(),
     subscriptions() {
@@ -181,20 +196,34 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
     },
     // Broker-only. The caller of issue must already hold an owner grant to
     // notify this exact instance. Observing a live ID does not supply one.
-    issue(target, validUntil) {
-      if (!Number.isSafeInteger(validUntil) || validUntil <= now()) throw new Error("invalid grant expiry");
-      const binding = instanceOf(target);
-      if (permits(target.id, target.kind, binding) !== true) throw new Error("job denied");
-      const id = randomUUID(), capability = randomBytes(32).toString("hex");
-      db.prepare("INSERT INTO jobs(id,token_hash,recipient,provider,instance,valid_until,state) VALUES(?,?,?,?,?,?,'waiting')")
-        .run(id, Buffer.from(digest(capability), "hex"), target.id, target.kind, binding, validUntil);
-      return { id, capability };
+    issue(target, validUntil) { return issueBound(target.id, instanceOf(target), validUntil); },
+    provision(session, binding, count, validUntil, publish) {
+      if (!Number.isInteger(count) || count < 1 || count > 8 || !Number.isSafeInteger(validUntil) ||
+          validUntil <= now() || !matches(UUID, session) || !matches(/^[a-f0-9]{64}$/, binding) ||
+          permits(session, "claude", binding) !== true) throw new Error("handoff denied");
+      const batch = transaction(() => {
+        const existing = db.prepare("SELECT * FROM grant_handoffs WHERE instance=?").get(binding);
+        if (existing) {
+          if (existing.count !== count || existing.valid_until !== validUntil) throw new Error("handoff already allocated");
+          return existing;
+        }
+        const grants = Array.from({ length: count }, () => issueBound(session, binding, validUntil, true));
+        const pending = JSON.stringify({ v: 1, session, instance: binding, validUntil, grants });
+        const hash = digest(pending);
+        db.prepare("INSERT INTO grant_handoffs VALUES(?,?,?,?,?)").run(binding, count, validUntil, hash, pending);
+        return { pending, hash };
+      });
+      publish(binding, batch.hash, batch.pending);
+      db.prepare("UPDATE grant_handoffs SET pending=NULL WHERE instance=? AND hash=?").run(binding, batch.hash);
+      return { count, validUntil };
     },
     revoke(id) { db.prepare("UPDATE jobs SET state='revoked', handle=NULL WHERE id=?").run(id); },
     // The wrapper can report a termination once. It cannot select a recipient,
     // supply text, ask for proof, or manage the grant.
     complete(id, capability, event) {
-      recordOutcome(authorize(id, capability), event, "waiting");
+      const job = authorize(id, capability);
+      if (job.run_only) throw new Error("run claim required");
+      recordOutcome(job, event, "waiting");
     },
     // Only this operation is exposed to wrappers. Authenticate before the
     // protected policy lookup. Sign acknowledgements after the durable write.
@@ -204,9 +233,14 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       if (!key || !sameMac(frame.mac, jobMac(key, frame, "request"))) throw new Error("job denied");
       const job = active(frame.id);
       if (!job) throw new Error("job denied");
-      if (frame.op === "claim" || frame.op === "claim_run") {
-        if (frame.op === "claim_run" && (job.provider !== "claude" || job.recipient !== frame.event.session)) {
+      if (frame.op === "available_run" || frame.op === "claim" || frame.op === "claim_run") {
+        if (frame.op === "claim" && job.run_only) throw new Error("run claim required");
+        if (frame.op !== "claim" && (job.provider !== "claude" || job.recipient !== frame.event.session)) {
           throw new Error("run grant mismatch");
+        }
+        if (frame.op === "available_run") {
+          if (job.state !== "waiting") throw new Error("grant unavailable");
+          return { ack: jobMac(key, frame, "ack") };
         }
         const claimed = db.prepare("UPDATE jobs SET state='claimed' WHERE id=? AND state='waiting' AND valid_until>?")
           .run(frame.id, now());

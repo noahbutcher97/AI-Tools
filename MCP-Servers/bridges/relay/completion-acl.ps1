@@ -29,6 +29,25 @@ function Assert-BrokerAcl {
     }
 }
 
+function Assert-GrantDirectory {
+    param([string]$Path, [string[]]$Authorities, [string]$SessionSid)
+    Assert-BrokerAcl $Path $Authorities -Readers @($SessionSid)
+    $sidType = [Security.Principal.SecurityIdentifier]
+    $rules = (Get-Acl -LiteralPath $Path).GetAccessRules($true, $true, $sidType)
+    # Require an inheritable DACL for newly published files. A directory with
+    # only effective rules can leave a new file to the creator's default DACL.
+    $reads = @($rules | Where-Object {
+        $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -eq $SessionSid -and
+        ($_.InheritanceFlags -band [Security.AccessControl.InheritanceFlags]::ObjectInherit) -and
+        ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadData)
+    })
+    if (-not $reads.Count) { throw 'Grant files require an inherited desktop read rule' }
+    foreach ($item in Get-ChildItem -LiteralPath $Path -Force) {
+        if ($item.PSIsContainer) { throw 'Unexpected grant directory' }
+        Assert-BrokerAcl $item.FullName $Authorities -Readers @($SessionSid)
+    }
+}
+
 function Get-CompletionRoot {
     $root = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'CrossAgentRelay'
     $admin = @('S-1-5-18', 'S-1-5-32-544',
@@ -80,7 +99,14 @@ function Get-CompletionRoot {
         Assert-BrokerAcl $healthPath $trusted -Readers @($agentSid.Value)
         foreach ($item in Get-ChildItem -LiteralPath $healthPath -Force) { Assert-BrokerAcl $item.FullName $trusted -Readers @($agentSid.Value) }
     }
-    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health} | ConvertTo-Json -Compress
+    $grantPath = Join-Path $root 'completion-grants'
+    $handoff = Test-Path -LiteralPath $grantPath -PathType Container
+    if ($handoff) {
+        # Bearers may be read only by the assigned local user and the authorities.
+        if ($agentSid.Value -notmatch '^S-1-5-21-(\d+-){3}\d+$') { throw 'Expected a session account SID' }
+        Assert-GrantDirectory $grantPath $trusted $agentSid.Value
+    }
+    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health; handoff=$handoff} | ConvertTo-Json -Compress
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

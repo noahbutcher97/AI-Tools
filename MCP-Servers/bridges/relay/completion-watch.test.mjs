@@ -167,7 +167,8 @@ test("watcher recovers the original handle automatically and cannot overlap a st
 test("an old job database preserves pending work during upgrade", async t => {
   const f = await fixture(t);
   const db = new DatabaseSync(f.file);
-  db.exec(`DROP INDEX jobs_due; DROP INDEX jobs_last_notice; ALTER TABLE jobs DROP COLUMN attempts;
+  db.exec(`DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only;
+    DROP INDEX jobs_due; DROP INDEX jobs_last_notice; ALTER TABLE jobs DROP COLUMN attempts;
     ALTER TABLE jobs DROP COLUMN next_check; ALTER TABLE jobs DROP COLUMN last_notice; PRAGMA user_version=1`);
   db.prepare("INSERT INTO jobs(id,token_hash,recipient,provider,instance,valid_until,state,handle) VALUES(?,?,?,?,?,?,?,?)")
     .run(other.id, Buffer.alloc(32), first.id, "claude", "instance", 90000, "observing", "original");

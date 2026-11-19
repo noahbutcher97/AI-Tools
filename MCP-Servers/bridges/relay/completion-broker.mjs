@@ -10,6 +10,7 @@ import { prepareJobRequest } from "./completion-protocol.mjs";
 import { sessionDelivery } from "./completion-session.mjs";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { writeHeartbeat } from "./watcher-health.mjs";
+import { publishRunHandoff } from "./run-handoff.mjs";
 
 const PORT = 44197;
 const MAX_BYTES = 768;
@@ -101,26 +102,46 @@ function underRoot(root, name) {
 
 // The service launcher provisions the directory ACLs before startup. The
 // policy is replaced atomically by the separate policy authority.
+function readJobPolicy(root) {
+  const file = underRoot(root, "completion-policy.json");
+  const fd = fs.openSync(file, "r");
+  let policy;
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > 32768) throw new Error("invalid job policy");
+    const bytes = Buffer.alloc(32769);
+    const n = fs.readSync(fd, bytes);
+    if (n !== stat.size) throw new Error("invalid job policy");
+    policy = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n)));
+  } finally { fs.closeSync(fd); }
+  const valid = exactKeys(policy, ["v", "grants"]) && policy.v === 1 && Array.isArray(policy.grants) &&
+    policy.grants.length <= 128 && policy.grants.every(g => exactKeys(g, ["id", "provider", "instance"]) &&
+      matches(UUID, g.id) && g.provider === "claude" && matches(/^[a-f0-9]{64}$/, g.instance));
+  if (!valid) throw new Error("invalid job policy");
+  return policy.grants;
+}
+
 export function loadJobPolicy(root) {
   return (id, provider, instance) => {
     try {
-      const file = underRoot(root, "completion-policy.json");
-      const fd = fs.openSync(file, "r");
-      let policy;
-      try {
-        const stat = fs.fstatSync(fd);
-        if (!stat.isFile() || stat.size > 32768) return false;
-        const bytes = Buffer.alloc(32769);
-        const n = fs.readSync(fd, bytes);
-        if (n !== stat.size) return false;
-        policy = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n)));
-      } finally { fs.closeSync(fd); }
-      return exactKeys(policy, ["v", "grants"]) && policy.v === 1 && Array.isArray(policy.grants) &&
-        policy.grants.length <= 128 && policy.grants.every(g => exactKeys(g, ["id", "provider", "instance"]) &&
-          matches(UUID, g.id) && g.provider === "claude" && matches(/^[a-f0-9]{64}$/, g.instance)) &&
-        policy.grants.some(g => g.id === id && g.provider === provider && g.instance === instance);
+      return readJobPolicy(root).some(g => g.id === id && g.provider === provider && g.instance === instance);
     } catch { return false; }
   };
+}
+
+export async function provisionRun(root, session, count, expiry) {
+  const validUntil = Date.parse(expiry);
+  if (!matches(UUID, session) || !matches(/^[1-8]$/, count) || !Number.isFinite(validUntil) ||
+      new Date(validUntil).toISOString() !== expiry || validUntil <= Date.now()) throw new Error("invalid grant request");
+  const authorized = readJobPolicy(root).filter(g => g.id === session);
+  if (authorized.length !== 1) throw new Error("an exclusive authorized instance is required");
+  const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
+    permits: loadJobPolicy(root),
+  });
+  try {
+    return store.provision(session, authorized[0].instance, Number(count), validUntil,
+      (binding, hash, pending) => publishRunHandoff(root, binding, hash, pending));
+  } finally { store.close(); }
 }
 
 export async function startCompletionBroker(root, { port, delivery, publishHealth = false } = {}) {
@@ -178,14 +199,19 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
   try {
     const checkOnly = process.argv.length === 3 && process.argv[2] === "--check-worker";
-    if ((!checkOnly && process.argv.length !== 2) || process.platform !== "win32") throw new Error();
+    const provision = process.argv.length === 6 && process.argv[2] === "--provision-run";
+    if ((!checkOnly && !provision && process.argv.length !== 2) || process.platform !== "win32") throw new Error();
     const shell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
     const verifier = fileURLToPath(new URL("./completion-acl.ps1", import.meta.url));
     const checked = JSON.parse(execFileSync(shell, ["-NoProfile", "-NonInteractive", "-File", verifier], {
       encoding: "utf8", timeout: 5000, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     }));
     if (!path.isAbsolute(checked.root)) throw new Error();
-    if (checkOnly) {
+    if (provision) {
+      if (checked.handoff !== true) throw new Error();
+      const result = await provisionRun(checked.root, ...process.argv.slice(3));
+      console.log(JSON.stringify(result));
+    } else if (checkOnly) {
       if (!checked.installed || !await sessionDelivery(checked.root).check()) throw new Error();
       console.log("Authenticated desktop worker ready.");
     } else {

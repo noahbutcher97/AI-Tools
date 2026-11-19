@@ -176,3 +176,48 @@ test("Windows state ACL rejects an inherited read grant outside the broker autho
   });
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("Windows handoff directory requires inherited session read and rejects extra readers and writers", {
+  skip: process.platform !== "win32",
+}, t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "relay-grant-acl-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const script = `
+    . $env:RELAY_FIXTURE_SCRIPT
+    $dir = $env:RELAY_FIXTURE_DIR
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $acl = Get-Acl -LiteralPath $dir
+    $authorities = @($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value, $me.Value)
+    $reader = [Security.Principal.SecurityIdentifier]::new('S-1-5-21-1-2-3-1001')
+    $everyone = [Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+    function Rule($sid, $rights) {
+        [Security.AccessControl.FileSystemAccessRule]::new($sid,$rights,'ContainerInherit,ObjectInherit','None','Allow')
+    }
+    function Denied {
+        try { Assert-GrantDirectory $dir $authorities $reader.Value } catch { return }
+        throw 'A handoff with an unsafe ACL was accepted'
+    }
+    $acl = [IO.Directory]::GetAccessControl($dir, [Security.AccessControl.AccessControlSections]::Access)
+    $acl.SetAccessRuleProtection($true, $false)
+    $acl.AddAccessRule((Rule $me 'FullControl'))
+    [IO.Directory]::SetAccessControl($dir,$acl)
+    Denied
+    $acl.AddAccessRule((Rule $reader 'Read'))
+    [IO.Directory]::SetAccessControl($dir,$acl)
+    $file = Join-Path $dir 'fixture'
+    [IO.File]::WriteAllText($file,'')
+    Assert-GrantDirectory $dir $authorities $reader.Value
+    $childAcl = [IO.File]::GetAccessControl($file)
+    $childAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($everyone,'Read','Allow'))
+    [IO.File]::SetAccessControl($file,$childAcl)
+    Denied
+    [IO.File]::Delete($file)
+    $acl.AddAccessRule((Rule $reader 'Write'))
+    [IO.Directory]::SetAccessControl($dir,$acl)
+    Denied`;
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+    env: { ...process.env, RELAY_FIXTURE_DIR: dir, RELAY_FIXTURE_SCRIPT: fileURLToPath(new URL("./completion-acl.ps1", import.meta.url)) },
+    windowsHide: true, encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
