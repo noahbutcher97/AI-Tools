@@ -102,17 +102,20 @@ function underRoot(root, name) {
 
 // The service launcher provisions the directory ACLs before startup. The
 // policy is replaced atomically by the separate policy authority.
-function readJobPolicy(root) {
+function readJobPolicy(root, includeRevision = false) {
   const file = underRoot(root, "completion-policy.json");
   const fd = fs.openSync(file, "r");
   let policy;
+  let revision;
   try {
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.size > 32768) throw new Error("invalid job policy");
     const bytes = Buffer.alloc(32769);
     const n = fs.readSync(fd, bytes);
     if (n !== stat.size) throw new Error("invalid job policy");
-    policy = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n)));
+    const contents = bytes.subarray(0, n);
+    policy = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(contents));
+    if (includeRevision) revision = digest(contents);
   } finally { fs.closeSync(fd); }
   const automatic = policy?.v === 2;
   const valid = (automatic ? exactKeys(policy, ["v", "grants", "startupRun"]) :
@@ -123,13 +126,13 @@ function readJobPolicy(root) {
     ));
   if (!valid) throw new Error("invalid job policy");
   const grants = policy.grants.map(g => g.provider === "codex" ? { ...g, instance: threadStatusBinding(g.id) } : g);
-  if (!automatic) return { grants, startup: null };
+  if (!automatic) return { grants, startup: null, revision };
   const startup = policy.startupRun;
   if (!exactKeys(startup, ["id", "expiresAt"]) || !matches(UUID, startup.id) ||
       typeof startup.expiresAt !== "string" || !Number.isFinite(Date.parse(startup.expiresAt)) ||
       new Date(startup.expiresAt).toISOString() !== startup.expiresAt ||
       grants.length !== 1 || grants[0].provider !== "codex" || grants[0].id !== startup.id) throw new Error("invalid startup run grant");
-  return { grants: Date.parse(startup.expiresAt) > Date.now() ? grants : [], startup };
+  return { grants: Date.parse(startup.expiresAt) > Date.now() ? grants : [], startup, revision };
 }
 
 export function loadJobPolicy(root) {
@@ -198,10 +201,15 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
   function publish(mode) {
     try {
       let policyRevision = null;
-      const file = underRoot(root, "completion-policy.json");
-      if (fs.statSync(file).size <= 32768) policyRevision = digest(fs.readFileSync(file));
+      let projection = { partial: true, subscriptions: [] };
+      let policy;
+      try { policy = readJobPolicy(root, true); } catch { /* Unavailable authority discloses no subscriptions. */ }
+      if (policy) {
+        policyRevision = policy.revision;
+        projection = store.authorizedSubscriptions(policy.grants);
+      }
       writeHeartbeat(root, { v: 1, pid: process.pid, startedAt, heartbeat: new Date().toISOString(), mode, policyRevision,
-        ...store.subscriptions() });
+        ...projection });
     } catch { /* A missing or stale heartbeat remains visible to doctor. */ }
   }
   const mode = delivery ? "watching" : "reports_only";

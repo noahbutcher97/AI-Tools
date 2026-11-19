@@ -188,6 +188,13 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       return jobs.map(job => job.id);
     });
   }
+  function projectSubscriptions(scope, ...params) {
+    const rows = db.prepare(`SELECT id, recipient AS target, 'job_exit' AS condition,
+      CASE state WHEN 'dispatching' THEN 'unknown' ELSE state END AS state FROM jobs
+      WHERE valid_until>? AND state IN ('waiting','claimed','ready','dispatching','observing')
+      ${scope} ORDER BY id LIMIT 33`).all(now(), ...params);
+    return { partial: rows.length > 32, subscriptions: rows.slice(0,32) };
+  }
   function issueBound(session, provider, binding, validUntil, runOnly = false) {
     if (!Number.isSafeInteger(validUntil) || validUntil <= now()) throw new Error("invalid grant expiry");
     if (!matches(UUID, session) || !matches(/^[a-f0-9]{64}$/, binding) ||
@@ -199,12 +206,11 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   }
   return {
     close: () => db.close(),
-    subscriptions() {
-      const rows = db.prepare(`SELECT id, recipient AS target, 'job_exit' AS condition,
-        CASE state WHEN 'dispatching' THEN 'unknown' ELSE state END AS state FROM jobs
-        WHERE valid_until>? AND state IN ('waiting','claimed','ready','dispatching','observing')
-        ORDER BY id LIMIT 33`).all(now());
-      return { partial: rows.length > 32, subscriptions: rows.slice(0,32) };
+    subscriptions: () => projectSubscriptions(""),
+    authorizedSubscriptions(grants) {
+      if (!Array.isArray(grants)) throw new Error("missing subscription authority");
+      return projectSubscriptions(`AND (recipient,provider,instance) IN (
+        SELECT value->>'$.id',value->>'$.provider',value->>'$.instance' FROM json_each(?))`, JSON.stringify(grants));
     },
     // Broker-only. The caller of issue must already hold an owner grant to
     // notify this exact instance. Observing a live ID does not supply one.

@@ -20,6 +20,8 @@ test("doctor sees only the broker's bounded projection and detects a stale heart
   fs.writeFileSync(path.join(root,"completion-policy.json"), JSON.stringify(policy));
   const jobs = await openCompletionJobs(file, { permits: () => true });
   const grants = Array.from({ length: 35 }, () => jobs.issue(target, Date.now()+60000));
+  const replacement = { ...target, startedAt: target.startedAt + 1 };
+  const authorizedGrant = jobs.issue(replacement, Date.now()+60000);
   jobs.close();
   const broker = await startCompletionBroker(root,{ port: 0, publishHealth: true });
   t.after(async () => { await broker.close(); fs.rmSync(root,{ recursive: true, force: true }); });
@@ -38,8 +40,26 @@ test("doctor sees only the broker's bounded projection and detects a stale heart
   assert.equal(readWatcher(root,tick+15001).state, "stale");
   assert.equal(readWatcher(root,tick-1).state, "stale");
   assert.equal(validWatcherObservation({ ...obs, state: "watching" },tick), false);
+  // Keep the raw ID and change the instance. A projection filtered by ID alone
+  // would still expose the old jobs or let them exhaust the projection limit.
+  const nextPolicy = { v: 1, grants: [{ id: target.id, provider: target.kind,
+    instance: digest(JSON.stringify([target.id, target.pid, replacement.startedAt])) }] };
+  fs.writeFileSync(path.join(root,"completion-policy.json"), JSON.stringify(nextPolicy));
   await broker.close();
-  assert.equal(readWatcher(root).state, "stopped");
+  const final = readWatcher(root);
+  assert.equal(final.state, "stopped");
+  assert.equal(final.record.policyRevision, digest(JSON.stringify(nextPolicy)));
+  assert.equal(final.record.partial, false);
+  assert.deepEqual(final.record.subscriptions, [{ id: authorizedGrant.id, target: target.id, condition: "job_exit", state: "waiting" }]);
+  const resumed = await startCompletionBroker(root, { port: 0, publishHealth: true });
+  try {
+    assert.deepEqual(readWatcher(root).record.subscriptions, final.record.subscriptions);
+    fs.writeFileSync(path.join(root, "completion-policy.json"), "{");
+  } finally { await resumed.close(); }
+  const unavailable = readWatcher(root).record;
+  assert.deepEqual(unavailable.subscriptions, []);
+  assert.equal(unavailable.partial, true);
+  assert.equal(unavailable.policyRevision, null);
 });
 
 test("a missing, oversized or overbroad record returns only unavailable", t => {
