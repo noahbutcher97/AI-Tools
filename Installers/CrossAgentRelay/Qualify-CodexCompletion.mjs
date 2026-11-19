@@ -24,7 +24,8 @@ const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
 const schedule = process.argv[3] === "--schedule";
-const installed = process.argv[3] === "--installed";
+const installedSchedule = process.argv[3] === "--installed-schedule";
+const installed = installedSchedule || process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
 if (process.argv.length !== (installed ? 5 : fromShell || schedule ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
@@ -180,13 +181,27 @@ async function runTrial() {
     const env = { ...process.env, CODEX_THREAD_ID: id };
     delete env.CODEX_SESSION_ID;
     delete env.CLAUDE_CODE_SESSION_ID;
-    const result = spawnSync(process.execPath, [cli, "run", "--", process.execPath, "-e", "process.exit(23)"], {
+    const command = installedSchedule ? ["watch", "--notify", id, fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
+      ["run", "--", process.execPath, "-e", "process.exit(23)"];
+    const result = spawnSync(process.execPath, [cli, ...command], {
       cwd: workspace, env, input: "", encoding: "utf8", timeout: 15000, windowsHide: true,
     });
-    assert.equal(result.status, 0, "The installed broker did not authorize the public CLI launch");
+    assert.equal(result.status, 0, "The installed broker did not confirm the public CLI request");
     const job = JSON.parse(result.stdout);
-    assert.equal(job.state, "started");
-    write("job.json", { id: job.id });
+    if (installedSchedule) {
+      assert.equal(job.state, "subscribed");
+      await provider.close();
+      await until(async () => (await targets()).length === 0, 8000, "Original writer did not close");
+      provider = await startProvider();
+      const resumed = await provider.call("thread/resume", { ...params, threadId: id, excludeTurns: true });
+      assert.equal(resumed.thread.id, id);
+      assert.equal(resumed.model, model);
+      await until(async () => (await targets()).some(t => t.addressable), 8000, "Resumed writer unavailable");
+      write("resumed.json", { id });
+    } else {
+      assert.equal(job.state, "started");
+      write("job.json", { id: job.id });
+    }
     await until(() => fs.existsSync(path.join(signals, "finished")), 150000, "Installed delivery was not confirmed");
     return;
   }
@@ -263,7 +278,7 @@ try {
   }
   for (const p of providers) await p.close();
   if (installed) {
-    for (const name of ["target.json", "target.json.tmp", "job.json", "job.json.tmp"]) {
+    for (const name of ["target.json", "target.json.tmp", "job.json", "job.json.tmp", "resumed.json", "resumed.json.tmp"]) {
       fs.rmSync(path.join(exchangeDir, name), { force: true });
     }
   }

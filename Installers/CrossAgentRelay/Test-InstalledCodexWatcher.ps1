@@ -6,7 +6,8 @@ param(
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ExpectedPackage,
     [string]$SessionScript,
     [guid]$Target,
-    [switch]$RotateBrokerPassword
+    [switch]$RotateBrokerPassword,
+    [switch]$Schedule
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
@@ -85,6 +86,7 @@ function Get-TrialOutcome($database,$sessionId) {
 }
 
 if ($MyInvocation.InvocationName -eq '.') { return }
+if ($Schedule -and $RotateBrokerPassword) { throw 'Schedule issuance uses the running broker identity' }
 $record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
 $account = Get-LocalUser -Name $accountName
 if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
@@ -117,7 +119,8 @@ if ($Stage -eq 'Start') {
         ![IO.File]::Exists($SessionScript)) { throw 'Expected the qualification runner' }
     New-AccessDirectory $trial "(A;OICI;GRGX;;;$desktopSid)"
     New-AccessDirectory $exchange "(A;OICI;0x1301bf;;;$desktopSid)"
-    $argsText = '"'+$SessionScript+'" "'+$providerImage+'" --installed "'+$exchange+'"'
+    $modeFlag = if ($Schedule) { '--installed-schedule' } else { '--installed' }
+    $argsText = '"'+$SessionScript+'" "'+$providerImage+'" '+$modeFlag+' "'+$exchange+'"'
     $task = Register-TrialTask $runner $desktopSid 3 $argsText $null
     $null = $task.Run($null)
     return
@@ -146,6 +149,12 @@ $resultFile = Join-Path $trial 'result.txt'
 $expires = [DateTime]::UtcNow.AddMinutes(4).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
 $trialPolicy = @{v=1;grants=@(@{id=$id;provider='codex';scope='thread-status'})}
 if (!$RotateBrokerPassword) { $trialPolicy.v=2; $trialPolicy.startupRun=@{id=$id;expiresAt=$expires} }
+if ($Schedule) {
+    $condition = $TrialId.ToString('D')
+    $startsAt = [DateTime]::UtcNow.AddSeconds(30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $trialPolicy = @{v=3;grants=@();schedules=@(@{condition=$condition;target=$id;provider='codex';scope='thread-schedule';
+        intervalSeconds=86400;startsAt=$startsAt;expiresAt=$expires})}
+}
 $approved = $trialPolicy | ConvertTo-Json -Depth 4 -Compress
 $policyChanged = $false
 $flagChanged = $false
@@ -171,11 +180,27 @@ try {
   else process.stdout.write(['waiting','claimed','ready','observing','dispatching'].includes(rows[0].state) ? rows[0].state : 'invalid');
 } finally { db.close(); }
 '@
+    if ($Schedule) {
+        $source = @'
+const { DatabaseSync } = require('node:sqlite');
+const [file,condition] = process.argv.slice(2);
+const db = new DatabaseSync(file, {readOnly:true});
+try {
+  db.exec('PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
+  const row = db.prepare('SELECT state,cursor,retry_at FROM schedule_watches WHERE condition=?').get(condition);
+  if (!row) process.stdout.write('absent');
+  else if (row.state === 'waiting' && row.cursor === -1 && row.retry_at === 0) process.stdout.write('armed');
+  else if (row.state === 'waiting' && row.cursor === 0 && row.retry_at > 0) process.stdout.write('proved');
+  else process.stdout.write(['issued','waiting','observing','dispatching'].includes(row.state) ? row.state : 'invalid');
+} finally { db.close(); }
+'@
+    }
     if ([IO.File]::Exists($verifier)) { throw 'Trial already started' }
     [IO.File]::WriteAllText($verifier,$source,$utf)
     $db = Join-Path $root 'completion-state/jobs.sqlite'
     Assert-PlainPath $db
-    if ((Get-TrialOutcome $db $id) -cne 'absent') { throw 'Expected a new disposable target' }
+    $lookup = if ($Schedule) { $condition } else { $id }
+    if ((Get-TrialOutcome $db $lookup) -cne 'absent') { throw 'Expected a new disposable target' }
     Set-ApprovedText $policyFile $empty $approved
     $policyChanged = $true
     if ($RotateBrokerPassword) {
@@ -196,14 +221,28 @@ try {
         } while ($task.State -in 2,4 -or $task.LastTaskResult -eq 267011)
         if ($task.LastTaskResult -ne 0) { throw 'Broker declined grant provisioning' }
     }
+    if ($Schedule) {
+        Restart-TrialBroker 'reports_only'
+        if ((Get-TrialOutcome $db $lookup) -cne 'issued') { throw 'Expected a new schedule grant' }
+        [IO.File]::WriteAllText((Join-Path $trial 'authorized'),$condition,$utf)
+        $end = [DateTime]::UtcNow.AddSeconds(75)
+        $resumed = Join-Path $exchange 'resumed.json'
+        while (!(Test-Path -LiteralPath $resumed)) {
+            if ([DateTime]::UtcNow -gt $end) { throw 'Disposable writer did not resume' }
+            Start-Sleep -Milliseconds 250
+        }
+        if ((Get-TrialOutcome $db $lookup) -cne 'armed') { throw 'The first scheduled tick must follow activation' }
+    }
     Set-ApprovedText $flagFile $off $on
     $flagChanged = $true
     Restart-TrialBroker 'watching'
-    if ((Get-TrialOutcome $db $id) -cne 'waiting') { throw 'Expected exactly one waiting job for the trial thread' }
-    [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
+    if (!$Schedule) {
+        if ((Get-TrialOutcome $db $id) -cne 'waiting') { throw 'Expected exactly one waiting job for the trial thread' }
+        [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
+    }
     $end=[DateTime]::UtcNow.AddSeconds(90)
     do {
-        $state=Get-TrialOutcome $db $id
+        $state=Get-TrialOutcome $db $lookup
         if ($state -eq 'invalid') { throw 'Invalid trial outcome' }
         if ($state -eq 'proved') { break }
         if ([DateTime]::UtcNow -gt $end) { throw "Transcript proof timed out ($state)" }
