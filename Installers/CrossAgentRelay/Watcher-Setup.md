@@ -46,10 +46,10 @@ After acquiring its exclusive listener the broker issues one capability through 
 
 ## Qualify installed Codex completion
 
-`Test-InstalledCodexWatcher.ps1` exercises the version 1 installation with a temporary delivery window. Use an administrator-controlled copy beside the reviewed installer. Each stage takes the same fresh `-TrialId` and reviewed `-ExpectedPackage`. Start with empty grants, an idle interactive worker, and disabled delivery.
+`Test-InstalledCodexWatcher.ps1` exercises the installed broker with a temporary delivery window. Use an administrator-controlled copy beside the reviewed installer. Each stage takes the same fresh `-TrialId` and reviewed `-ExpectedPackage`. Start with empty grants, an idle interactive worker, and disabled delivery.
 
 1. Run `-Stage Start -SessionScript <absolute-path-to-Qualify-CodexCompletion.mjs>`. A non-elevated interactive task starts a disposable read-only Codex thread at low effort. Its private trial directory contains `session/target.json`. Confirm the exact raw ID, requested model and unique addressable thread in the disposable workspace.
-2. With approval to rotate the dedicated broker password and enable delivery temporarily, run `-Stage Run -Target <confirmed-raw-id> -RotateBrokerPassword`. The fixed provisioning task runs under the broker SID, issues one grant with a four-minute expiry and releases the ordinary CLI runner. Success requires one matching job with exit code 23 and the broker's transcript-proven delivered state.
+2. Run `-Stage Run -Target <confirmed-raw-id>`. The broker reads a version 2 startup request, issues one grant with a four-minute expiry and releases the ordinary CLI runner. Older installations can use the version 1 provisioning task by explicitly passing `-RotateBrokerPassword` with approval to rotate the dedicated password. Success requires one matching job with exit code 23 and the broker's transcript-proven delivered state.
 3. The supervisor restores empty policy and reports-only mode on success or ordinary failure. The runner archives its thread. Verify a fresh heartbeat and successful session-task exit before `-Stage Cleanup` removes the remaining trial artifacts. If the host shut down during the delivery window, restore the protected empty policy and disabled worker setting, restart the broker and verify its mode before cleanup. The job store retains its delivery record.
 
 ## Review and apply a broker-only update

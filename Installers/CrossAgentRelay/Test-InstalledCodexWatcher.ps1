@@ -136,15 +136,17 @@ if ($Stage -eq 'Cleanup') {
     [IO.Directory]::Delete($trial,$false)
     return
 }
-if (!$RotateBrokerPassword -or !$Target -or $Target -eq [guid]::Empty) { throw 'Run requires a pinned trial target and approval for credential rotation' }
+if (!$Target -or $Target -eq [guid]::Empty) { throw 'Run requires a pinned trial target' }
 $id = $Target.ToString('D')
 $empty = '{"v":1,"grants":[]}'
 $off = '{"v":1,"enabled":false}'
 $on = '{"v":1,"enabled":true}'
-$approved = '{"v":1,"grants":[{"id":"'+$id+'","provider":"codex","scope":"thread-status"}]}'
 $verifier = Join-Path $trial 'verify.cjs'
 $resultFile = Join-Path $trial 'result.txt'
 $expires = [DateTime]::UtcNow.AddMinutes(4).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+$trialPolicy = @{v=1;grants=@(@{id=$id;provider='codex';scope='thread-status'})}
+if (!$RotateBrokerPassword) { $trialPolicy.v=2; $trialPolicy.startupRun=@{id=$id;expiresAt=$expires} }
+$approved = $trialPolicy | ConvertTo-Json -Depth 4 -Compress
 $policyChanged = $false
 $flagChanged = $false
 $createdTask = $false
@@ -174,27 +176,30 @@ try {
     $db = Join-Path $root 'completion-state/jobs.sqlite'
     Assert-PlainPath $db
     if ((Get-TrialOutcome $db $id) -cne 'absent') { throw 'Expected a new disposable target' }
-    $pw = New-BrokerPassword
-    try {
-        Set-LocalUser -SID $account.SID -Password $pw
-        $argsText = '"'+$brokerModule+'" --provision-run '+$id+' 1 '+$expires
-        $credential = [pscredential]::new($account.Name,$pw)
-        $task = Register-TrialTask $issuer $record.brokerSid 2 $argsText $credential.GetNetworkCredential().Password
-        $createdTask = $true
-    } finally { $pw.Dispose() }
     Set-ApprovedText $policyFile $empty $approved
     $policyChanged = $true
-    $null = $task.Run($null)
-    $end = [DateTime]::UtcNow.AddSeconds(30)
-    do {
-        Start-Sleep -Milliseconds 250
-        $task=$folder.GetTask($issuer)
-        if ([DateTime]::UtcNow -gt $end) { throw 'Grant provisioning timed out' }
-    } while ($task.State -in 2,4 -or $task.LastTaskResult -eq 267011)
-    if ($task.LastTaskResult -ne 0) { throw 'Broker declined grant provisioning' }
+    if ($RotateBrokerPassword) {
+        $pw = New-BrokerPassword
+        try {
+            Set-LocalUser -SID $account.SID -Password $pw
+            $argsText = '"'+$brokerModule+'" --provision-run '+$id+' 1 '+$expires
+            $credential = [pscredential]::new($account.Name,$pw)
+            $task = Register-TrialTask $issuer $record.brokerSid 2 $argsText $credential.GetNetworkCredential().Password
+            $createdTask = $true
+        } finally { $pw.Dispose() }
+        $null = $task.Run($null)
+        $end = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            Start-Sleep -Milliseconds 250
+            $task=$folder.GetTask($issuer)
+            if ([DateTime]::UtcNow -gt $end) { throw 'Grant provisioning timed out' }
+        } while ($task.State -in 2,4 -or $task.LastTaskResult -eq 267011)
+        if ($task.LastTaskResult -ne 0) { throw 'Broker declined grant provisioning' }
+    }
     Set-ApprovedText $flagFile $off $on
     $flagChanged = $true
     Restart-TrialBroker 'watching'
+    if ((Get-TrialOutcome $db $id) -cne 'waiting') { throw 'Expected exactly one waiting job for the trial thread' }
     [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
     $end=[DateTime]::UtcNow.AddSeconds(90)
     do {
