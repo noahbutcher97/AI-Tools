@@ -53,7 +53,7 @@ function Assert-Protected([string]$p) {
     }
 }
 
-function Read-Package([string]$dir) {
+function Read-Package([string]$dir,[switch]$AllowLegacy) {
     $file = Join-Path $dir 'package.json'
     Assert-PlainPath $file
     if ((Get-Item -LiteralPath $file).Length -gt 8192) { throw 'Oversize package manifest' }
@@ -64,9 +64,11 @@ function Read-Package([string]$dir) {
     if ($actual -cne $PackageDigest) { throw 'The package has a different digest from the reviewed plan' }
     $meta = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
     $files = @{}
-    if ($meta.v -ne 1 -or $meta.files.Count -ne $members.Count) { throw 'Unexpected package version or size' }
+    $expected = $members
+    if ($AllowLegacy -and $meta.files.Count -eq ($members.Count-1)) { $expected = @($members | Where-Object { $_ -cne 'relay/schedule-watch.mjs' }) }
+    if ($meta.v -ne 1 -or $meta.files.Count -ne $expected.Count) { throw 'Unexpected package version or size' }
     foreach ($row in $meta.files) {
-        if ($row.Count -ne 2 -or $row[0] -cnotin $members -or $row[1] -cnotmatch '^[0-9a-f]{64}$' -or
+        if ($row.Count -ne 2 -or $row[0] -cnotin $expected -or $row[1] -cnotmatch '^[0-9a-f]{64}$' -or
             $files.ContainsKey($row[0])) { throw 'Invalid package member' }
         $src = Join-Path $dir $row[0]
         Assert-PlainPath $src

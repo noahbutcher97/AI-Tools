@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
 import { buildWatcherPackage, verifyWatcherPackage, packageFiles } from "./watcher-package.mjs";
 
 test("watcher package contains a complete protected import closure and an empty job database", async t => {
@@ -37,6 +38,18 @@ test("watcher package contains a complete protected import closure and an empty 
   fs.writeFileSync(path.join(out, "relay", "package.json"), "{}");
   await assert.rejects(verifyWatcherPackage(out, digest), /Unexpected/);
   fs.unlinkSync(path.join(out, "relay", "package.json"));
+  const legacy = path.join(temp, "legacy");
+  fs.cpSync(out, legacy, { recursive: true });
+  fs.unlinkSync(path.join(legacy, "relay", "schedule-watch.mjs"));
+  const old = JSON.parse(fs.readFileSync(path.join(legacy, "package.json"), "utf8"));
+  old.files = old.files.filter(([member]) => member !== "relay/schedule-watch.mjs");
+  const oldManifest = JSON.stringify(old);
+  const oldDigest = createHash("sha256").update(oldManifest).digest("hex");
+  fs.writeFileSync(path.join(legacy, "package.json"), oldManifest);
+  await assert.rejects(verifyWatcherPackage(legacy, oldDigest));
+  assert.equal(await buildWatcherPackage(path.join(temp, "schedules"), {
+    base: legacy, baseDigest: oldDigest, changedMember: "schedules",
+  }), digest);
   fs.writeFileSync(path.join(out,"provider","codex.exe"), "changed");
   await assert.rejects(verifyWatcherPackage(out, digest));
   fs.copyFileSync(image, path.join(out,"provider","codex.exe"));

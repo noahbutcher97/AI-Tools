@@ -170,6 +170,43 @@ Invoke-BrokerUpdate $hashes $next | Out-Null
 Must ((Get-Content $journal -Raw|ConvertFrom-Json).package -ceq $NextDigest -and
     (Get-FileHash $state).Hash -eq $beforeHash -and $script:registered.Count -eq 2) 'Interrupted update lost state'
 $PackageDigest=$NextDigest
+& {
+    $Component='Schedules'
+    $PreviousDigest='1'*64
+    $NextDigest=$Digest
+    $NextPackage=$Bundle
+    $previous=@{}+$hashes
+    $previous.Remove('relay/schedule-watch.mjs')
+    $unexpected=@{}+$hashes
+    $unexpected['provider/codex.exe']='2'*64
+    Denied { Assert-BrokerDelta $previous $unexpected } 'Unexpected schedule package change'
+    Assert-BrokerDelta $previous $hashes
+    $root=Join-Path $FixtureRoot 'migration'
+    $live=Join-Path $root 'relay'
+    $null=[IO.Directory]::CreateDirectory($live)
+    foreach ($name in $previous.Keys | Where-Object { $_.StartsWith('relay/') }) {
+        [IO.File]::Copy((Join-Path $Bundle $name),(Join-Path $root $name))
+    }
+    $journal=Join-Path $root 'fixture.json'
+    $record=[pscustomobject]@{package=$PreviousDigest;brokerSid=$script:fixtureSid.Value}
+    $Operation='Plan'
+    Update-ScheduleModules $previous $hashes $record | Out-Null
+    Must (@(Get-ChildItem $root).Count -eq 1) 'Schedule plan wrote to disk'
+    $Operation='Apply'
+    $script:failOnce=$true
+    Denied { Update-ScheduleModules $previous $hashes $record } 'Fixture heartbeat absent'
+    Assert-ModuleTree $live $previous
+    Must ($record.package -eq $PreviousDigest) 'Failed schedule migration changed journal'
+    # Simulate interruption between the two same-parent directory renames.
+    $backup=Join-Path $root ('schedule-previous-'+$PreviousDigest)
+    if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($backup)) -ne [IO.Path]::GetFullPath($root) -or
+        [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($live)) -ne [IO.Path]::GetFullPath($root)) { throw 'Invalid fixture directory' }
+    [IO.Directory]::Move($live,$backup)
+    Update-ScheduleModules $previous $hashes $record | Out-Null
+    Assert-ModuleTree $live $hashes
+    Assert-ModuleTree $backup $previous
+    Must ($record.package -eq $NextDigest) 'Recovered schedule package missing journal'
+}
 [IO.File]::Delete($state)
 Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
 . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage $Digest

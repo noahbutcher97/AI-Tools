@@ -20,6 +20,9 @@ export const packageFiles = Object.freeze([
   ...sources.map(name => "relay/" + name),
   "CompletionChannel.exe", "runtime/node.exe", "provider/codex.exe", "provider/claude.exe", "initial/jobs.sqlite",
 ].sort());
+const scheduleMembers = ["client","completion-broker","completion-jobs","completion-protocol","completion-session",
+  "run-handoff","schedule-watch","watcher-health"].map(name => "relay/" + name + ".mjs");
+const addedMember = "relay/schedule-watch.mjs";
 
 async function fileHash(file, dest) {
   const handle = await fs.promises.open(file, "r");
@@ -60,11 +63,12 @@ function manifest(entries) {
 
 // An expected digest comes from the reviewed plan, never from the bundle.
 // Recheck each file again in the protected destination before executing it.
-export async function verifyWatcherPackage(root, expected) {
+export async function verifyWatcherPackage(root, expected, { allowLegacy = false } = {}) {
   if (!/^[a-f0-9]{64}$/.test(expected)) throw Error("Invalid package digest");
+  const members = allowLegacy && !fs.existsSync(path.join(root, addedMember)) ? packageFiles.filter(m => m !== addedMember) : packageFiles;
   for (const dir of ["", "relay", "runtime", "provider", "initial"]) {
     const prefix = dir ? dir + "/" : "";
-    const allowed = new Set([...packageFiles, "package.json"].filter(member => member.startsWith(prefix))
+    const allowed = new Set([...members, "package.json"].filter(member => member.startsWith(prefix))
       .map(member => member.slice(prefix.length).split("/")[0]));
     const directory = path.join(root, dir);
     if (path.relative(directory, fs.realpathSync.native(directory)) !== "") throw Error("Unexpected package directory");
@@ -76,7 +80,7 @@ export async function verifyWatcherPackage(root, expected) {
   const metadata = canonicalFile(root, "package.json");
   if (fs.statSync(metadata).size > 8192) throw Error("Invalid package manifest");
   const entries = [];
-  for (const member of packageFiles) entries.push([member, await fileHash(canonicalFile(root, member))]);
+  for (const member of members) entries.push([member, await fileHash(canonicalFile(root, member))]);
   const checked = manifest(entries);
   if (checked.digest !== expected || fs.readFileSync(metadata, "utf8") !== checked.body) throw Error("Package verification failed");
   return checked.digest;
@@ -99,16 +103,17 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
   changedMember = "relay/completion-broker.mjs" }) {
   if (!path.isAbsolute(out)) throw Error("Expected an absolute package destination");
   const inputs = new Map(sources.map(name => ["relay/" + name, path.join(bridge, name)]));
+  const changed = new Set(changedMember === "schedules" ? scheduleMembers : [changedMember]);
   let priorEntries;
   if (base !== undefined) {
-    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs"].includes(changedMember)) throw Error("Unsupported broker package member");
+    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","schedules"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
-    await verifyWatcherPackage(base, baseDigest);
+    await verifyWatcherPackage(base, baseDigest, { allowLegacy: changedMember === "schedules" });
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
     if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
     priorEntries = new Map(JSON.parse(bytes).files);
     for (const member of packageFiles) {
-      if (member !== changedMember) inputs.set(member, canonicalFile(base, member));
+      if (!changed.has(member)) inputs.set(member, canonicalFile(base, member));
     }
   } else {
     for (const [member, file] of [["runtime/node.exe", node], ["provider/codex.exe", codex], ["provider/claude.exe", claude]]) {
@@ -138,7 +143,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       } else {
         const hash = await fileHash(inputs.get(member), file);
         created.push(file);
-        if (priorEntries && member !== changedMember && priorEntries.get(member) !== hash) throw Error("Base member changed");
+        if (priorEntries && !changed.has(member) && priorEntries.get(member) !== hash) throw Error("Base member changed");
         entries.push([member, hash]);
       }
     }
@@ -169,8 +174,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const [mode, out, ...rest] = process.argv.slice(2);
     if (mode === "build" && rest.length === 2) {
       console.log(await buildWatcherPackage(out, { node: process.execPath, codex: rest[0], claude: rest[1] }));
-    } else if (["stage-broker","stage-jobs"].includes(mode) && rest.length === 2) {
-      const changedMember = mode === "stage-jobs" ? "relay/completion-jobs.mjs" : "relay/completion-broker.mjs";
+    } else if (["stage-broker","stage-jobs","stage-schedules"].includes(mode) && rest.length === 2) {
+      const changedMember = { "stage-broker": "relay/completion-broker.mjs", "stage-jobs": "relay/completion-jobs.mjs",
+        "stage-schedules": "schedules" }[mode];
       console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1], changedMember }));
     } else if (mode === "verify" && rest.length === 1) {
       console.log(await verifyWatcherPackage(out, rest[0]));
