@@ -1098,6 +1098,7 @@ export async function sendMessage(options = {}) {
   } = options;
 
   const fail = (cause, detail, kind) => {
+    if (dryRun) return { ok: false, cause, detail, to };
     const written = spool(spoolPath, spoolFallbackPath, { now, to, kind, cause, detail, message });
     return { ok: false, cause, detail, to, spooled: written.path, spoolError: written.error };
   };
@@ -1105,7 +1106,10 @@ export async function sendMessage(options = {}) {
   // Discovery is run here rather than accepting a listing from the caller: a
   // listing that is seconds old is already stale on both sides.
   const { targets } = await discoverTargets({ ...discovery, codexHome, openDb, now, scope: "all" });
-  const target = targets.find((t) => t.id === to || (t.name && t.name === to));
+  const exact = targets.filter((t) => t.id === to);
+  const matches = exact.length ? exact : targets.filter((t) => t.name === to);
+  if (matches.length > 1) return fail(SEND_CAUSES.NOT_ADDRESSABLE, "ambiguous session address");
+  const target = matches[0];
   // Resolved against the same live listing, so the header can tell the
   // recipient whether the claimed sender corresponds to anything reachable.
   const originTarget = resolveOrigin(identity?.id || origin, targets);
@@ -1133,7 +1137,7 @@ export async function sendMessage(options = {}) {
   // something watching for it. Recorded once per new key to the spool, which is
   // human-readable and never agent-drained. Never blocks a send: an unfamiliar
   // field is a thing to look at, not a reason to refuse.
-  const freshKeys = newHostKeys(buildHostMetadata(identity?.host).kept);
+  const freshKeys = dryRun ? [] : newHostKeys(buildHostMetadata(identity?.host).kept);
   if (freshKeys.length > 0) {
     spool(spoolPath, spoolFallbackPath, {
       now,
@@ -1154,6 +1158,17 @@ export async function sendMessage(options = {}) {
         "claude targets need the delegate: SendMessage is an in-session tool, not a shell command",
         target.kind,
       );
+    }
+    if (!target.addressable || !target.name) {
+      return fail(SEND_CAUSES.NOT_ADDRESSABLE, "target lacks a delivery name or endpoint", target.kind);
+    }
+    // SendMessage consumes the current name, even when the caller selected an ID.
+    const current = readClaudeTargets(discovery.claudeSessionsDir ?? defaultClaudeSessionsDir(),
+      now, discovery.readFile ?? fs.readFileSync, []);
+    const named = current.filter((row) => row.name === target.name);
+    if (named.length !== 1 || named[0].id !== target.id || named[0].pid !== target.pid ||
+        named[0].startedAt !== target.startedAt || !named[0].addressable) {
+      return fail(SEND_CAUSES.NOT_ADDRESSABLE, "target binding changed or is ambiguous", target.kind);
     }
     return relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew });
   }
