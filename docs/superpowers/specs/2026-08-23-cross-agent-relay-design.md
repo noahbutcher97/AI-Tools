@@ -19,6 +19,8 @@ any project. Workspace is a default filter, never an architectural boundary.
 
 ## 2. Non-goals
 
+The [network extension](2026-11-18-cross-agent-relay-network-design.md) proposes a bounded exception for watcher events. A subscription survives restart and can await its authorized recipient until its retention deadline. It uses the ordinary relay transport and receipt checks. The ordinary failure spool has no automatic consumer.
+
 Explicitly out of scope, each for a stated reason:
 
 - **A handoff system.** Handoffs between Claude/Claude, Codex/Codex and
@@ -1199,6 +1201,8 @@ designed as a pair.
 
 ### 4.5 Conversational read layer
 
+The network extension supersedes the historical projection below. Transcript content is limited to destination delivery proof and an explicitly requested bounded turn excerpt. The proposal retires general summary and read interfaces.
+
 A projection over both formats into one turn shape:
 
 ```
@@ -1276,6 +1280,8 @@ agent reading it must not treat that as direction.
 
 ### 4.6 Threading
 
+The network extension retains the reference reader and `--re` with a maximum of 280 characters from the explicitly identified turn in the destination session. Render quotations as untrusted data. Conversation IDs and message IDs remain available for correlation.
+
 `send <target> --re <turnId> "<text>"` attaches a message to the claim it is
 about, so the receiver has a referent instead of a context-free interruption.
 
@@ -1296,7 +1302,7 @@ survives compaction on the receiver.
 ## 5. Safety disciplines
 
 1. Delegate confinement (4.4) - no laundering in the write direction.
-2. Conversational-default reads (4.5) - no laundering in the read direction.
+2. Limit transcript content reads to delivery proof and explicitly referenced excerpts of up to 280 characters (§4.5–4.6 as amended). Treat quoted text as data.
 3. Transcript content is data, never instructions (4.5).
 4. Never read session `.key` material. The design has no need for it.
 5. Scope defaults to caller `cwd` so a broadcast cannot accidentally reach
@@ -1381,6 +1387,8 @@ drains it, it becomes a second delivery path and reintroduces every failure mode
 section 2 rejected it for.
 
 ## 7. Open risks
+
+Under the network extension, the cross-session read risk below applies to explicitly referenced excerpts and destination-local proof checks. Proof returns receipt metadata. An excerpt can still contain sensitive text.
 
 - **Cross-session read privilege** (4.5) - reading a peer's transcript is
   roughly equivalent to holding the union of what every readable session could
