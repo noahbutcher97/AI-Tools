@@ -24,17 +24,20 @@ const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
 const schedule = process.argv[3] === "--schedule";
-const installedSchedule = process.argv[3] === "--installed-schedule";
+const checkMcp = process.argv[3] === "--mcp-watch";
+const installedMcp = process.argv[3] === "--installed-mcp-schedule";
+const installedSchedule = installedMcp || process.argv[3] === "--installed-schedule";
 const installed = installedSchedule || process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
-if (process.argv.length !== (installed ? 5 : fromShell || schedule ? 4 : 3)) throw Error("Unexpected qualification argument");
+if (process.argv.length !== (installed ? 5 : fromShell || schedule || checkMcp ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
     fs.readdirSync(exchangeDir).length)) throw Error("Supply an empty private trial directory");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-resume-"));
 const workspace = path.join(root, "workspace");
 fs.mkdirSync(workspace);
 const model = "gpt-6-luna";
-const params = { model, cwd: workspace, sandbox: fromShell ? "workspace-write" : "read-only", approvalPolicy: "never",
+const mcpWorkspace = fileURLToPath(new URL("../../", import.meta.url));
+const params = { model, cwd: checkMcp || installedMcp ? mcpWorkspace : workspace, sandbox: fromShell ? "workspace-write" : "read-only", approvalPolicy: "never",
   config: { model_reasoning_effort: "low" } };
 const sessionName = "relay-check-" + randomUUID();
 let provider, store, listener, id;
@@ -49,10 +52,18 @@ async function until(check, ms, reason) {
   throw Error(reason);
 }
 async function startProvider() {
-  const child = spawn(image, ["app-server"], { cwd: root, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
+  const args = ["app-server"];
+  const env = { ...process.env };
+  if (checkMcp || installedMcp) {
+    args.push("-c", 'mcp_servers.relay.tools.relay_watch.approval_mode="approve"');
+    args.push("-c", 'mcp_servers.relay.enabled_tools=["relay_watch"]');
+    for (const name of ["CODEX_THREAD_ID","CODEX_SESSION_ID","CLAUDE_CODE_SESSION_ID"]) delete env[name];
+  }
+  const child = spawn(image, args, { cwd: checkMcp || installedMcp ? mcpWorkspace : root, env, windowsHide: true, stdio: ["pipe", "pipe", "ignore"] });
   const closed = once(child, "close");
   const inbox = new Map(), turns = new Map(), shellResults = [];
   const diagnostics = new Map();
+  const watchCalls = [];
   const lines = createInterface({ input: child.stdout });
   lines.on("line", line => {
     const msg = JSON.parse(line);
@@ -62,7 +73,17 @@ async function startProvider() {
       const { turnId, item } = msg.params;
       const evidence = diagnostics.get(turnId) ?? { items: [], refusalReported: false, shellUnavailableReported: false };
       evidence.items.push(item.type);
+      if (item.type === "mcpToolCall" && item.server === "relay" && item.tool === "relay_watch") {
+        const text = item.result?.content?.find(c => c.type === "text")?.text;
+        let result;
+        try { result = JSON.parse(text); } catch { /* No structured relay result. */ }
+        watchCalls.push({ turnId, to: item.arguments?.target, condition: item.arguments?.condition, result });
+      }
       if (item.type === "agentMessage") {
+        if (checkMcp || installedMcp) {
+          evidence.toolAbsent ||= /unavailable|do not have|don't have|not (?:available|exposed|listed)|no (?:relay|tool)|cannot access/i.test(item.text);
+          evidence.approval ||= /approval|permission/i.test(item.text);
+        }
         evidence.refusalReported ||= /EXECUTION_REFUSED|refused|rejected|denied|blocked by policy/i.test(item.text);
         evidence.shellUnavailableReported ||= /SHELL_UNAVAILABLE/i.test(item.text);
       }
@@ -91,7 +112,7 @@ async function startProvider() {
       return result.result;
     } finally { inbox.delete(index); }
   }
-  const p = { call, turns, shellResults, diagnostics, async close() {
+  const p = { call, turns, shellResults, diagnostics, watchCalls, async close() {
     if (child.exitCode !== null || child.signalCode !== null) return;
     child.stdin.end();
     const timer = setTimeout(() => child.kill(), 5000);
@@ -100,6 +121,32 @@ async function startProvider() {
   providers.push(p);
   await call("initialize", { clientInfo: { name: "relay_qualification", version: "1" }, capabilities: { experimentalApi: true } });
   return p;
+}
+async function callWatch(condition, expected) {
+  const effective = await provider.call("config/read", { cwd: mcpWorkspace, includeLayers: false });
+  assert.equal(effective.config?.mcp_servers?.relay?.tools?.relay_watch?.approval_mode, "approve",
+    "The qualification server did not load the scoped tool approval");
+  const inventory = await provider.call("mcpServerStatus/list", { threadId: id, limit: 100 });
+  const relay = inventory.data?.find(server => server.name === "relay");
+  assert.ok(relay?.tools && Object.values(relay.tools).some(tool => tool.name === "relay_watch"),
+    "The thread's MCP inventory does not include relay_watch");
+  const argumentsJson = JSON.stringify({ target: id, condition });
+  const prompt = "This is a disposable relay qualification. Invoke the registered MCP tool mcp__relay__relay_watch exactly once. " +
+    "Use functions.exec if the provider exposes tools through code mode: text(await tools.mcp__relay__relay_watch(" +
+    argumentsJson + ")). For a directly exposed tool, use the same arguments. Do not use the shell. " +
+    "If the tool is missing, reply TOOL_UNAVAILABLE. Otherwise finish after the tool returns.";
+  const turn = await provider.call("turn/start", { threadId: id, input: [
+    { type: "mention", name: "relay", path: "mcp://relay" }, { type: "text", text: prompt, text_elements: [] },
+  ] });
+  assert.equal(await until(() => provider.turns.get(turn.turn.id), 90000, "MCP turn did not finish"), "completed");
+  const calls = provider.watchCalls.filter(c => c.turnId === turn.turn.id);
+  assert.equal(calls.length, 1, "Expected one relay_watch tool event. Observed item types: " +
+    JSON.stringify(provider.diagnostics.get(turn.turn.id)));
+  const call = calls[0];
+  assert.equal(call.to, id);
+  assert.equal(call.condition, condition);
+  assert.deepEqual(call.result, expected === "subscribed" ? { ok: true, state: expected, condition, target: id } :
+    { ok: false, state: expected });
 }
 async function runTrial() {
   provider = await startProvider();
@@ -112,6 +159,12 @@ async function runTrial() {
     assert.equal(started.approvalPolicy, "never");
   }
   await provider.call("thread/name/set", { threadId: id, name: sessionName });
+  if (checkMcp || installedMcp) assert.equal(started.approvalPolicy, "never");
+  if (checkMcp) {
+    await callWatch(randomUUID(), "unconfirmed");
+    console.log("The installed MCP tool received the calling thread identity and declined an unissued condition.");
+    return;
+  }
   const seed = await provider.call("turn/start", { threadId: id, input: [{ type: "text", text: "Reply only OK.", text_elements: []}] });
   const end = await until(() => provider.turns.get(seed.turn.id), 90000, "Seed turn did not finish");
   assert.equal(end, "completed");
@@ -183,13 +236,18 @@ async function runTrial() {
     delete env.CLAUDE_CODE_SESSION_ID;
     const command = installedSchedule ? ["watch", "--notify", id, fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
       ["run", "--", process.execPath, "-e", "process.exit(23)"];
-    const result = spawnSync(process.execPath, [cli, ...command], {
-      cwd: workspace, env, input: "", encoding: "utf8", timeout: 15000, windowsHide: true,
-    });
-    assert.equal(result.status, 0, "The installed broker did not confirm the public CLI request");
-    const job = JSON.parse(result.stdout);
+    let job;
+    if (installedMcp) {
+      await callWatch(command.at(-1), "subscribed");
+    } else {
+      const result = spawnSync(process.execPath, [cli, ...command], {
+        cwd: workspace, env, input: "", encoding: "utf8", timeout: 15000, windowsHide: true,
+      });
+      assert.equal(result.status, 0, "The installed broker did not confirm the public CLI request");
+      job = JSON.parse(result.stdout);
+    }
     if (installedSchedule) {
-      assert.equal(job.state, "subscribed");
+      if (!installedMcp) assert.equal(job.state, "subscribed");
       await provider.close();
       await until(async () => (await targets()).length === 0, 8000, "Original writer did not close");
       provider = await startProvider();

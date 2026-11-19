@@ -26,4 +26,6 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 Both desktops completed the CLI trial cleanup. On the initiating desktop a single elevated operation verified the tagged session task exited successfully, removed the trial, and confirmed the temporary tasks and directory were absent.
 
-Next qualify `relay_watch` in a real Codex session under approval policy `never`. Both configurations currently have a per-tool approval entry for `relay_send`; the scan found none for `relay_watch`. The installed schedule evidence above used the CLI.
+The first MCP check on the initiating desktop used approval policy `never` with a per-process approval for `relay_watch`. The registered tool was listed and the setting was loaded, but the copied provider executable produced no tool call. With the matching executable in the regular client installation, a disposable low-effort model called the real tool and the relay declined the unissued condition. The regular client has its code-mode host alongside it. This comparison does not isolate the individual dependency.
+
+Next run the positive installed MCP schedule trial with the regular client as the originating session. Keep its per-tool approval scoped to the qualification process. Permanent provider setup belongs to H.

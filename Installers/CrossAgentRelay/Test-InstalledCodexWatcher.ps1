@@ -7,7 +7,10 @@ param(
     [string]$SessionScript,
     [guid]$Target,
     [switch]$RotateBrokerPassword,
-    [switch]$Schedule
+    [switch]$Schedule,
+    [switch]$Mcp,
+    [string]$McpClientImage,
+    [ValidatePattern('^[a-f0-9]{64}$')][string]$McpClientDigest
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
@@ -93,8 +96,20 @@ function Get-TrialOutcome($database,$sessionId) {
     } finally { $process.Dispose() }
 }
 
+function Assert-McpClient($image,$digest) {
+    if (!$image -or ![IO.Path]::IsPathRooted($image) -or [IO.Path]::GetFileName($image) -ine 'codex.exe') {
+        throw 'Expected an absolute Codex client executable'
+    }
+    Assert-PlainPath $image
+    $hostImage=Join-Path ([IO.Path]::GetDirectoryName($image)) 'codex-code-mode-host.exe'
+    if (![IO.File]::Exists($hostImage)) { throw 'MCP qualification requires the installed code-mode host' }
+    Assert-PlainPath $hostImage
+    if (!$digest -or (Get-FileHash -LiteralPath $image).Hash -ine $digest) { throw 'Client executable differs from the reviewed session client' }
+}
+
 if ($MyInvocation.InvocationName -eq '.') { return }
 if ($Schedule -and $RotateBrokerPassword) { throw 'Schedule issuance uses the running broker identity' }
+if ($Mcp -and !$Schedule) { throw 'The MCP trial requires a schedule' }
 $record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
 $account = Get-LocalUser -Name $accountName
 if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
@@ -125,9 +140,15 @@ if ($Stage -eq 'Start') {
     if (!$SessionScript -or ![IO.Path]::IsPathRooted($SessionScript) -or
         [IO.Path]::GetFileName($SessionScript) -cne 'Qualify-CodexCompletion.mjs' -or
         ![IO.File]::Exists($SessionScript)) { throw 'Expected the qualification runner' }
+    if ($Mcp) {
+        Assert-McpClient $McpClientImage $McpClientDigest
+        # The desktop session task runs the regular client under the session
+        # account. The protected worker keeps its own installed queue image.
+        $providerImage=$McpClientImage
+    }
     New-AccessDirectory $trial "(A;OICI;GRGX;;;$desktopSid)"
     New-AccessDirectory $exchange "(A;OICI;0x1301bf;;;$desktopSid)"
-    $modeFlag = if ($Schedule) { '--installed-schedule' } else { '--installed' }
+    $modeFlag = if ($Mcp) { '--installed-mcp-schedule' } elseif ($Schedule) { '--installed-schedule' } else { '--installed' }
     $argsText = '"'+$SessionScript+'" "'+$providerImage+'" '+$modeFlag+' "'+$exchange+'"'
     $task = Register-TrialTask $runner $desktopSid 3 $argsText $null
     $null = $task.Run($null)
@@ -159,7 +180,8 @@ $trialPolicy = @{v=1;grants=@(@{id=$id;provider='codex';scope='thread-status'})}
 if (!$RotateBrokerPassword) { $trialPolicy.v=2; $trialPolicy.startupRun=@{id=$id;expiresAt=$expires} }
 if ($Schedule) {
     $condition = $TrialId.ToString('D')
-    $startsAt = [DateTime]::UtcNow.AddSeconds(30).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    $leadSeconds = if ($Mcp) { 75 } else { 30 }
+    $startsAt = [DateTime]::UtcNow.AddSeconds($leadSeconds).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     $trialPolicy = @{v=3;grants=@();schedules=@(@{condition=$condition;target=$id;provider='codex';scope='thread-schedule';
         intervalSeconds=86400;startsAt=$startsAt;expiresAt=$expires})}
 }
@@ -233,7 +255,7 @@ try {
         Restart-TrialBroker 'reports_only'
         if ((Get-TrialOutcome $db $lookup) -cne 'issued') { throw 'Expected a new schedule grant' }
         [IO.File]::WriteAllText((Join-Path $trial 'authorized'),$condition,$utf)
-        $end = [DateTime]::UtcNow.AddSeconds(75)
+        $end = [DateTime]::UtcNow.AddSeconds($leadSeconds+45)
         $resumed = Join-Path $exchange 'resumed.json'
         while (!(Test-Path -LiteralPath $resumed)) {
             if ([DateTime]::UtcNow -gt $end) { throw 'Disposable writer did not resume' }

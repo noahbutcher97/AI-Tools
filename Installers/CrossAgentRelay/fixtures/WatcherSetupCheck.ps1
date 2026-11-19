@@ -211,6 +211,16 @@ $PackageDigest=$NextDigest
 Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
 . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage $Digest
 & {
+    $image=Join-Path $FixtureRoot 'codex.exe'
+    [IO.File]::WriteAllText($image,'fixture')
+    $hash=(Get-FileHash -LiteralPath $image).Hash
+    Denied { Assert-McpClient 'codex.exe' $hash } 'Expected an absolute Codex client executable'
+    Denied { Assert-McpClient $image $hash } 'MCP qualification requires the installed code-mode host'
+    [IO.File]::WriteAllText((Join-Path $FixtureRoot 'codex-code-mode-host.exe'),'fixture')
+    Denied { Assert-McpClient $image ('0'*64) } 'Client executable differs from the reviewed session client'
+    Assert-McpClient $image $hash
+}
+& {
     $root=Join-Path $FixtureRoot 'restore'
     $null=[IO.Directory]::CreateDirectory((Join-Path $root 'completion-health'))
     $policyFile=Join-Path $root 'policy'
