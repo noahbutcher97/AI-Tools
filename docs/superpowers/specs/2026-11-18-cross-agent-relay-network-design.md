@@ -93,6 +93,8 @@ Run one watcher per machine for the designated owner profile. Use the platform�
 | Session goes idle or finishes a turn | Use local provider registry and turn metadata or the same restricted remote state projection. Persist a provider observation cursor. Expose only supported signals. An offline interval or a first snapshot cannot create a synthetic transition. |
 | Schedule | Evaluate a typed UTC schedule with a minimum interval and a durable schedule cursor. Coalesce missed ticks on restart. |
 
+For private Git remotes the owner chose one read-only credential scoped to each approved repository. The grant binds the repository, ref, credential reference and recipient. Provision secrets outside the repository and independently of session requests. Anonymous HTTPS observations need no credential. Never consult the desktop user's ambient Git credential manager for a branch watch.
+
 An owner grant for a scheduled notice may explicitly bind to a local Codex raw thread across writer restarts. Its only allowed body is “A scheduled check is due. No reply is needed.” Keep the condition ID, schedule, paths and private content out of the notice. Job completion uses its own grant. A resumed writer still cannot receive the original writer's private tail.
 
 For file, branch and session-state watches, the owner permits one generic notice per explicitly granted watch to a new writer of the same raw Codex thread. The complete body is “A watched condition changed. No reply is needed.” Grant each watch separately and persist the reservation across restarts. The notice reveals no event type, resource name or content. An uncertain submission consumes the reservation pending proof. A new writer cannot receive any further notice under that grant.
