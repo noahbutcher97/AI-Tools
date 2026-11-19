@@ -259,8 +259,15 @@ try {
         } while ($task.State -in 2,4 -or $task.LastTaskResult -eq 267011)
         if ($task.LastTaskResult -ne 0) { throw 'Broker declined grant provisioning' }
     }
+    if ($Mcp) {
+        # Exercise MCP against an already watching broker, as it runs after
+        # logon. The CLI trial separately restarts the broker after activation.
+        Set-ApprovedText $flagFile $off $on
+        $flagChanged=$true
+        Restart-TrialBroker 'watching'
+    }
     if ($Schedule) {
-        Restart-TrialBroker 'reports_only'
+        if (!$Mcp) { Restart-TrialBroker 'reports_only' }
         if ((Get-TrialOutcome $db $lookup) -cne 'issued') { throw 'Expected a new schedule grant' }
         [IO.File]::WriteAllText((Join-Path $trial 'authorized'),$condition,$utf)
         $end = [DateTime]::UtcNow.AddSeconds($leadSeconds+45)
@@ -270,10 +277,13 @@ try {
             Start-Sleep -Milliseconds 250
         }
         if ((Get-TrialOutcome $db $lookup) -cne 'armed') { throw 'The first scheduled tick must follow activation' }
+        if ($Mcp -and [DateTime]::UtcNow -ge ([DateTimeOffset]::Parse($startsAt)).UtcDateTime) { throw 'The writer must resume before the first tick' }
     }
-    Set-ApprovedText $flagFile $off $on
-    $flagChanged = $true
-    Restart-TrialBroker 'watching'
+    if (!$Mcp) {
+        Set-ApprovedText $flagFile $off $on
+        $flagChanged = $true
+        Restart-TrialBroker 'watching'
+    }
     if (!$Schedule) {
         if ((Get-TrialOutcome $db $id) -cne 'waiting') { throw 'Expected exactly one waiting job for the trial thread' }
         [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)

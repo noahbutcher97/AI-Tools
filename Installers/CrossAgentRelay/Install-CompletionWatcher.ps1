@@ -235,7 +235,9 @@ function Start-VerifiedWatcher($broker) {
             }
         }
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw 'Watcher startup is unproven. Inspect the managed task and heartbeat before enabling delivery.'
+    $task = $folder.GetTask($brokerTask)
+    $bound = $beat -and (Test-BrokerInstance $scheduler $beat.pid)
+    throw ("Watcher startup is unproven. Task state {0}, last result {1}, matching heartbeat {2}." -f $task.State,$task.LastTaskResult,[bool]$bound)
 }
 
 function Invoke-WatcherSetup($scheduler,$folder) {
