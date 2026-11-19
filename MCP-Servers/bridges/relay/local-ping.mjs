@@ -48,23 +48,33 @@ export async function localStatus(handle, { profile = os.homedir(), verify = pro
     detail: "Transcript proof: " + state };
 }
 
-export async function localPing(to, { allowDelegate = false, profile = os.homedir(), send = sendMessage,
-  capture = captureCursor, verify = prove, onHandle = () => {}, waitMs = 2000 } = {}) {
-  if (!matches(UUID, to)) return { ok: false, cause: "invalid_target", detail: "A local delivery probe requires a raw session ID." };
+export function localPing(to, options) {
+  return sendProvedNotice(to, "Delivery probe " + randomUUID() + ". No reply is needed.", options);
+}
+
+// The caller supplies the notice and can durably reserve its handle before
+// submission. Recovery uses localStatus(handle), which never calls a provider.
+export async function sendProvedNotice(to, message, { allowDelegate = false, profile = os.homedir(), send = sendMessage,
+  capture = captureCursor, verify = prove, onHandle = () => {}, checkTarget = () => {}, deferProof = false, waitMs = 2000 } = {}) {
+  if (!matches(UUID, to)) return { ok: false, cause: "invalid_target", detail: "A proved notice requires a raw session ID." };
+  if (typeof message !== "string" || !message.trim()) return { ok: false, cause: "empty_notice", detail: "A proved notice needs a body." };
   let handle;
   const result = await send({
-    to, exactId: true, scope: "all", allowDelegate,
-    message: "Delivery probe " + randomUUID() + ". No reply is needed.",
+    to, exactId: true, scope: "all", allowDelegate, kind: "notice", message,
     beforeSubmit: async (target, text) => {
+      if (target.id !== to) throw new Error("target changed");
+      await checkTarget(target);
       const cursor = await capture(target, { profile });
-      handle = seal({ cursor, expected: digest(text) }, profile);
-      onHandle(handle);
+      const reserved = seal({ cursor, expected: digest(text) }, profile);
+      await onHandle(reserved, target);
+      handle = reserved;
     },
     runDelegate: invocation => runProvider(invocation.command, ["--model", "haiku", "--effort", "low", ...invocation.args],
       { stdin: invocation.stdin }),
   });
   if (!handle) return { ok: false, state: "dispatch_failed", cause: result.cause ?? "proof_unavailable",
-    detail: "Probe could not start. Check target eligibility and transcript availability." };
+    detail: "Notice could not start. Check the recipient, transcript and receipt storage." };
+  if (deferProof) return { ok: false, state: "pending", to, handle, dispatch: result.ok ? "accepted" : "unknown" };
   const deadline = performance.now() + waitMs;
   let status;
   do {
