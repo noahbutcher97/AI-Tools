@@ -122,7 +122,8 @@ async function runTrial() {
       fs.renameSync(temp, path.join(exchangeDir, name));
     };
     write("target.json", { id, model });
-    await until(() => fs.existsSync(path.join(exchangeDir, "authorized")), 300000, "Trial grant was not ready");
+    const signals = path.dirname(exchangeDir);
+    await until(() => fs.existsSync(path.join(signals, "authorized")), 300000, "Trial grant was not ready");
     const cli = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/cli.mjs", import.meta.url));
     const env = { ...process.env, CODEX_THREAD_ID: id };
     delete env.CODEX_SESSION_ID;
@@ -134,7 +135,7 @@ async function runTrial() {
     const job = JSON.parse(result.stdout);
     assert.equal(job.state, "started");
     write("job.json", { id: job.id });
-    await until(() => fs.existsSync(path.join(exchangeDir, "finished")), 150000, "Installed delivery was not confirmed");
+    await until(() => fs.existsSync(path.join(signals, "finished")), 150000, "Installed delivery was not confirmed");
     return;
   }
   const file = path.join(root, "jobs.sqlite");
