@@ -1,10 +1,12 @@
-import { spawn } from "node:child_process";
+import { runProvider } from "./provider-process.mjs";
+import { randomUUID } from "node:crypto";
+import { captureCursor, prove } from "./proof.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { codexQueueBlock, resolveCodexReference } from "./client.mjs";
 import { inventory, installationRoot } from "./fleet.mjs";
-import { exactKeys, HOST, UUID, matches, remoteEnvelope, requestDigest } from "./delivery-protocol.mjs";
+import { digest, exactKeys, HOST, UUID, matches, remoteEnvelope, requestDigest } from "./delivery-protocol.mjs";
 import { openReceipts } from "./receipts.mjs";
 
 function policyAllows(peer, id) {
@@ -32,50 +34,17 @@ async function queue(id, text) {
   const env = { HOME: profile, CODEX_HOME: path.join(profile, ".codex") };
   if (windows) Object.assign(env, { USERPROFILE: profile, SystemRoot: process.env.SystemRoot,
     PATH: path.join(process.env.SystemRoot, "System32") });
-  const child = spawn(binary, ["queue", "--thread", id, "--message", text], {
-    cwd: path.dirname(binary), env, shell: false, windowsHide: true, detached: !windows, stdio: ["ignore", "pipe", "ignore"],
+  const output = await runProvider(binary, ["queue", "--thread", id, "--message", text], {
+    cwd: path.dirname(binary), env, maxBytes: 8192,
   });
-  return new Promise(resolve => {
-    let done = false;
-    let stdout = "";
-    let size = 0;
-    function finish(state) {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      resolve(state);
-    }
-    function abort() {
-      if (done) return;
-      if (child.pid && child.exitCode === null) {
-        if (windows) {
-          const killer = spawn(path.join(env.SystemRoot, "System32", "taskkill.exe"), ["/PID", String(child.pid), "/T", "/F"],
-            { shell: false, windowsHide: true, stdio: "ignore" });
-          killer.on("error", () => child.kill());
-        } else {
-          try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill(); }
-        }
-      }
-      finish("unknown");
-    }
-    const timer = setTimeout(abort, 35000);
-    child.stdout.on("data", chunk => {
-      size += chunk.length;
-      if (size > 4096) abort();
-      else stdout += chunk.toString("utf8");
-    });
-    child.once("error", () => finish("provider_unavailable"));
-    child.once("close", code => {
-      const parts = /^Queued message ([a-f0-9-]{36}) for thread ([a-f0-9-]{36})\.?$/i.exec(stdout.trim());
-      finish(code === 0 && parts && matches(UUID, parts[1]) && parts[2] === id ? "queued" : "unknown");
-    });
-  });
+  const receipt = /^Queued message ([a-f0-9-]{36}) for thread ([a-f0-9-]{36})\.?$/i.exec(output.stdout.trim());
+  return output.code === 0 && receipt && matches(UUID, receipt[1]) && receipt[2] === id ? "queued" : "unknown";
 }
 
 export async function dispatchRemote(request, peer, {
   allowed = policyAllows, list = inventory, check = codexQueueBlock, reference = resolveCodexReference,
   available = providerPath, run = queue, receipts = () => openReceipts(path.join(installationRoot(), "receipts.sqlite")),
-  now = Date.now,
+  now = Date.now, capture = captureCursor, verify = prove,
 } = {}) {
   const id = request.to ?? null;
   if (!allowed(peer, id)) return "receive_denied";
@@ -83,15 +52,22 @@ export async function dispatchRemote(request, peer, {
   let reserved = false;
   let hash;
   try {
+    async function current(state) {
+      if (state !== "pending" && state !== "unknown") return state;
+      const proof = store.proof(peer, request.requestId);
+      if (!proof) return state;
+      if (!allowed(peer, proof.cursor.id)) return "receive_denied";
+      return verify(proof.cursor, proof.expected);
+    }
     if (request.op === "status") {
       store = await receipts();
-      return store.status(peer, request.requestId);
+      return await current(store.status(peer, request.requestId));
     }
-    if (request.op === "send") {
+    if (request.op === "send" || request.op === "ping") {
       store = await receipts();
       hash = requestDigest(request);
       const state = store.reserve(peer, request.requestId, hash, now());
-      if (state !== "reserved") return state;
+      if (state !== "reserved") return await current(state);
       reserved = true;
     }
     function finish(state) {
@@ -114,10 +90,20 @@ export async function dispatchRemote(request, peer, {
     if (blocked) return finish("unaddressable");
     if (request.op === "resolve") return "eligible";
     if (!allowed(peer, id)) return finish("receive_denied");
-    const text = remoteEnvelope(request, peer, quote);
+    const ping = request.op === "ping";
+    const payload = ping ? { ...request, kind: "notice", from: null, inReplyTo: null,
+      message: "Delivery probe " + randomUUID() + ". No reply is needed." } : request;
+    const text = remoteEnvelope(payload, peer, quote);
     // Windows quoting can double every character in the worst case. Leave room for the image path and fixed argv.
     if (text.length * 2 + 1024 > 32767) return finish("message_too_large");
-    return finish(await run(id, text));
+    if (ping) {
+      let cursor;
+      try { cursor = await capture(target); } catch { return finish("proof_unavailable"); }
+      store.saveProof(peer, request.requestId, cursor, digest(text));
+    }
+    const outcome = await run(id, text);
+    if (ping && outcome === "queued") return await current(finish("pending"));
+    return finish(outcome);
   } catch { return reserved ? "unknown" : "unavailable"; }
   finally { store?.close(); }
 }

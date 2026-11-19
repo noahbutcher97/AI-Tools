@@ -6,7 +6,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { newRequestId, parseAddress } from "./delivery-protocol.mjs";
 import { receive } from "./receive.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
@@ -140,6 +140,20 @@ test("a protocol mismatch with an older receiver stops before transmitting the b
   assert.equal(result.cause, "invalid_response");
   assert.equal(seen.length, 1);
   assert.equal(seen[0].message, undefined);
+});
+
+test("remote ping persists its pre-send cursor and status checks it without sending again", async t => {
+  const f = await fixture(t);
+  let landed = false, captures = 0;
+  f.adapters.capture = async target => { captures++; assert.equal(f.calls.length, 0); return { id: target.id }; };
+  f.adapters.verify = async (cursor, hash) => { assert.equal(cursor.id, id); assert.match(hash, /^[0-9a-f]{64}$/); return landed ? "delivered" : "pending"; };
+  const result = await pingTarget(address, f.api);
+  assert.equal(result.state, "pending");
+  landed = true;
+  assert.equal((await sendStatus(result.handle, f.api)).state, "delivered");
+  assert.equal(captures, 1);
+  assert.equal(f.calls.length, 1);
+  assert.match(f.calls[0].text, /No reply is needed/);
 });
 
 test("a restricted receive CLI with no grants denies even a well-formed delivery", { skip: process.platform !== "win32" }, t => {

@@ -31,7 +31,7 @@ export function validDeliveryFrame(r) {
   const common = ["v", "op", "requestId", "host"];
   if (r.op === "status") return exactKeys(r, common);
   if (!matches(ID, r.to)) return false;
-  if (r.op === "resolve") return exactKeys(r, [...common, "to"]);
+  if (r.op === "resolve" || r.op === "ping") return exactKeys(r, [...common, "to"]);
   return r.op === "send" && exactKeys(r, [...common, "to", "message", "from", "kind", "conversation", "inReplyTo", "re"]) &&
     typeof r.message === "string" && r.message.trim().length > 0 && Buffer.byteLength(r.message) <= 8192 &&
     (r.from === null || matches(ID, r.from)) && ["reply", "request", "notice"].includes(r.kind) &&

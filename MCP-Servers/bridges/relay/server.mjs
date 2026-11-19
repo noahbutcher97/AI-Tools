@@ -4,7 +4,7 @@ import { z } from "zod/v3";
 
 import { toolJsonResult } from "../../lib/tool-result.mjs";
 import { discoverTargets, formatTargets } from "./client.mjs";
-import { sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 
@@ -149,12 +149,15 @@ server.tool(
 
 server.tool(
   "relay_ping",
-  "Check a fleet's reachability or look up an existing cross-host dispatch receipt.",
-  { all_hosts: z.literal(true).optional(), status: z.string().optional() },
-  { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
-  async ({ all_hosts, status }) => {
-    if (Boolean(all_hosts) === Boolean(status)) return toolJsonResult({ ok: false, cause: "invalid_ping_mode" });
-    try { return toolJsonResult(status ? await sendStatus(status) : await queryFleet("probe")); }
+  "Wake one target with a transcript-proved delivery probe, check a receipt, or check fleet reachability.",
+  { all_hosts: z.literal(true).optional(), status: z.string().optional(), target: z.string().optional() },
+  { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  async ({ all_hosts, status, target }) => {
+    if ([all_hosts, status, target].filter(Boolean).length !== 1) return toolJsonResult({ ok: false, cause: "invalid_ping_mode" });
+    try {
+      if (target) return toolJsonResult(await pingTarget(target, { allowDelegate: true }));
+      return toolJsonResult(status ? await sendStatus(status) : await queryFleet("probe"));
+    }
     catch { return toolJsonResult({ ok: false, cause: "directory_unavailable" }); }
   },
 );

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { buildHostMetadata, newHostKeys } from "./identity.mjs";
+import { runProvider } from "./provider-process.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
@@ -857,10 +858,7 @@ export function buildDelegateInvocation({ targetName, message, origin, originTar
 }
 
 async function defaultRunDelegate({ command, args, stdin }) {
-  const { spawnSync } = await import("node:child_process");
-  const result = spawnSync(command, args, { input: stdin, encoding: "utf8" });
-  if (result.error) throw result.error;
-  return { code: result.status ?? 1, stdout: result.stdout || "", stderr: result.stderr || "" };
+  return runProvider(command, args, { stdin });
 }
 
 // Outside the repository on purpose: a spool under the bridge directory would
@@ -907,18 +905,11 @@ export function resolveCodexCommand({
 
 export async function defaultRunQueue(threadId, text, {
   resolveCommand = resolveCodexCommand,
-  spawnSync = undefined,
+  run = runProvider,
 } = {}) {
-  spawnSync ??= (await import("node:child_process")).spawnSync;
   const resolved = resolveCommand();
   if (!resolved) throw new Error("No shell-free Codex launcher found on PATH; use a native codex.exe or an npm launcher with adjacent node_modules/@openai/codex/bin/codex.js");
-  const result = spawnSync(
-    resolved.command,
-    [...resolved.prefix, "queue", "--thread", threadId, "--message", text],
-    { encoding: "utf8", shell: false },
-  );
-  if (result.error) throw result.error;
-  return { code: result.status ?? 1, stdout: result.stdout || "", stderr: result.stderr || "" };
+  return run(resolved.command, [...resolved.prefix, "queue", "--thread", threadId, "--message", text]);
 }
 
 // Where the spool goes when the primary location cannot be written. Measured:
@@ -988,7 +979,7 @@ async function threadIsInStore(codexHome, id, openDb) {
 // Relay to a Claude session through the confined delegate. Success is reported
 // only against the confirmation token, never against exit status: the path
 // contains a model call and could in principle do something other than relay.
-async function relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew }) {
+async function relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew, beforeSubmit }) {
   let invocation;
   try {
     invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, identity, kind, conversation, messageId, inReplyTo, openedNew, recipient: target.id });
@@ -1002,6 +993,7 @@ async function relayViaDelegate({ target, message, origin, originTarget, identit
 
   let outcome;
   try {
+    if (beforeSubmit) await beforeSubmit(target, invocation.delivered);
     outcome = await runDelegate(invocation);
   } catch (err) {
     return fail(SEND_CAUSES.DELEGATE_FAILED, `delegate could not be invoked: ${err.message}`, target.kind);
@@ -1117,7 +1109,7 @@ export async function sendMessage(options = {}) {
   } = options;
 
   const fail = (cause, detail, kind) => {
-    if (dryRun) return { ok: false, cause, detail, to };
+    if (dryRun || options.beforeSubmit) return { ok: false, cause, detail, to };
     const written = spool(spoolPath, spoolFallbackPath, { now, to, kind, cause, detail, message });
     return { ok: false, cause, detail, to, spooled: written.path, spoolError: written.error };
   };
@@ -1189,7 +1181,7 @@ export async function sendMessage(options = {}) {
         named[0].startedAt !== target.startedAt || !named[0].addressable) {
       return fail(SEND_CAUSES.NOT_ADDRESSABLE, "target binding changed or is ambiguous", target.kind);
     }
-    return relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew });
+    return relayViaDelegate({ target, message, origin, originTarget, identity, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew, beforeSubmit: options.beforeSubmit });
   }
 
   if (target.kind !== "codex") {
@@ -1249,6 +1241,7 @@ export async function sendMessage(options = {}) {
 
   let outcome;
   try {
+    if (options.beforeSubmit) await options.beforeSubmit(target, stamped);
     outcome = await runQueue(target.id, stamped);
   } catch (err) {
     return fail(SEND_CAUSES.QUEUE_FAILED, `codex queue could not be invoked: ${err.message}`, target.kind);
@@ -1857,6 +1850,7 @@ export function parseArgs(argv = []) {
     options.to = args.shift();
   }
 
+  if (command === "ping" && args[0] && !args[0].startsWith("--")) options.to = args.shift();
   while (args.length) {
     const flag = args.shift();
     if (flag === "--status" && command === "ping" && !options.statusHandle && args[0] && !args[0].startsWith("--")) {
@@ -1871,7 +1865,9 @@ export function parseArgs(argv = []) {
       options.allHosts = true;
       continue;
     }
-    if (command === "ping" && flag !== "--json") throw new Error("ping requires --all-hosts");
+    if (command === "ping" && flag !== "--json" && !(flag === "--via-delegate" && options.to)) {
+      throw new Error("invalid ping option");
+    }
     if (BOOLEAN_FLAGS.has(flag)) {
       if (flag === "--json") options.json = true;
       else if (flag === "--via-delegate") options.viaDelegate = true;
@@ -1908,8 +1904,8 @@ export function parseArgs(argv = []) {
       options.cwd = value;
     }
   }
-  if (command === "ping" && Boolean(options.allHosts) === Boolean(options.statusHandle)) {
-    throw new Error("ping requires exactly one of --all-hosts or --status <handle>");
+  if (command === "ping" && [options.allHosts, options.statusHandle, options.to].filter(Boolean).length !== 1) {
+    throw new Error("ping requires one target, --all-hosts or --status <handle>");
   }
   return options;
 }

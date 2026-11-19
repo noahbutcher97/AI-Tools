@@ -10,7 +10,9 @@ export async function initializeReceipts(file) {
     db.exec(`CREATE TABLE receipts (
       peer TEXT NOT NULL, id TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL,
       created INTEGER NOT NULL, PRIMARY KEY(peer,id)
-    ) WITHOUT ROWID; PRAGMA user_version=1`);
+    ) WITHOUT ROWID;
+    CREATE TABLE proofs (peer TEXT NOT NULL, id TEXT NOT NULL, cursor TEXT NOT NULL, expected TEXT NOT NULL,
+      PRIMARY KEY(peer,id)) WITHOUT ROWID; PRAGMA user_version=2`);
   } finally { db.close(); }
 }
 
@@ -22,12 +24,19 @@ export async function openReceipts(file) {
   url.searchParams.set("mode", "rw");
   const db = new DatabaseSync(url.href);
   try {
-    if (db.prepare("PRAGMA user_version").get().user_version !== 1) throw new Error("unavailable");
+    if (db.prepare("PRAGMA user_version").get().user_version !== 2) throw new Error("unavailable");
     db.exec("PRAGMA busy_timeout=500; PRAGMA synchronous=FULL");
     const lookup = db.prepare("SELECT digest,state FROM receipts WHERE peer=? AND id=?");
     return {
       close: () => db.close(),
       status: (peer, id) => lookup.get(peer, id)?.state ?? "missing",
+      saveProof(peer, id, cursor, expected) {
+        db.prepare("INSERT INTO proofs VALUES(?,?,?,?)").run(peer, id, JSON.stringify(cursor), expected);
+      },
+      proof(peer, id) {
+        const row = db.prepare("SELECT cursor,expected FROM proofs WHERE peer=? AND id=?").get(peer, id);
+        return row && { cursor: JSON.parse(row.cursor), expected: row.expected };
+      },
       reserve(peer, id, hash, now) {
         db.exec("BEGIN IMMEDIATE");
         try {

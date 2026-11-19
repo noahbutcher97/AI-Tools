@@ -18,7 +18,7 @@
 // Claude session needs the delegate that Unit 3 adds.
 
 import { discoverTargets, formatTargets, parseArgs } from "./client.mjs";
-import { sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { receive } from "./receive.mjs";
@@ -53,8 +53,10 @@ async function main() {
     await runSend(options);
     return;
   }
-  if (options.statusHandle) {
-    const result = await sendStatus(options.statusHandle);
+  if (options.command === "ping" && !options.allHosts) {
+    const result = options.statusHandle ? await sendStatus(options.statusHandle) : await pingTarget(options.to, {
+      allowDelegate: options.viaDelegate, onHandle: handle => console.error("relay receipt " + handle),
+    });
     console.log(options.json ? JSON.stringify(result) : result.detail);
     process.exitCode = result.ok ? 0 : 1;
     return;

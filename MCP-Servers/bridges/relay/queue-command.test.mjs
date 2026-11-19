@@ -58,12 +58,11 @@ test("queue keeps multiline shell metacharacters in one unchanged argument witho
   let calls = 0;
   const result = await defaultRunQueue("synthetic-thread", message, {
     resolveCommand: () => ({ command, prefix: [js] }),
-    spawnSync(actualCommand, args, options) {
+    run(actualCommand, args) {
       calls++;
       assert.equal(actualCommand, command);
       assert.deepEqual(args, [js, "queue", "--thread", "synthetic-thread", "--message", message]);
-      assert.deepEqual(options, { encoding: "utf8", shell: false });
-      return { status: 0, stdout: "synthetic receipt", stderr: "" };
+      return { code: 0, stdout: "synthetic receipt", stderr: "" };
     },
   });
   assert.equal(calls, 1);
@@ -73,6 +72,6 @@ test("queue keeps multiline shell metacharacters in one unchanged argument witho
 test("batch-only resolution fails before invoking a process with recovery information", async () => {
   await assert.rejects(defaultRunQueue("synthetic-thread", "message", {
     resolveCommand: () => null,
-    spawnSync() { assert.fail("No process should start"); },
+    run() { assert.fail("No process should start"); },
   }), /No shell-free Codex launcher.*native codex\.exe.*npm launcher/);
 });
