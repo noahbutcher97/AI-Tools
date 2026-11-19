@@ -145,7 +145,7 @@ test("thread_source from the index filters subagents without opening a rollout",
   assert.deepEqual(targets.map((t) => t.id), [THREAD]);
 });
 
-test("a null thread_source falls back to the rollout rather than guessing a kind", needsStore, async () => {
+test("a null thread source leaves the ID unaddressable even when rollout content supplies a kind", needsStore, async t => {
   // 74 indexed rows have no thread_source. Treating null as "user" would offer
   // subagent internals as targets; treating it as "subagent" would hide real
   // sessions.
@@ -156,9 +156,16 @@ test("a null thread_source falls back to the rollout rather than guessing a kind
     { id: THREAD, cwd: "\\\\?\\D:\\Work\\Alpha", threadSource: null, rolloutPath: rolloutAtOddPath(home, THREAD, { thread_source: "subagent" }) },
   ]);
 
+  const opened = [];
+  const open = fs.openSync;
+  t.mock.method(fs, "openSync", function(file, ...args) {
+    if (typeof file === "string" && file.endsWith(".jsonl")) opened.push(file);
+    return open.call(this, file, ...args);
+  });
   const { targets } = await discover(home);
 
-  assert.deepEqual(targets, []);
+  assert.deepEqual(targets.map(t => [t.id, t.addressable]), [[THREAD, false]]);
+  assert.deepEqual(opened, []);
 });
 
 test("a locked thread absent from the index is reported, not silently dropped", needsStore, async () => {
@@ -174,7 +181,7 @@ test("a locked thread absent from the index is reported, not silently dropped", 
   assert.equal(warnings.length, 1);
 });
 
-test("an absent thread index degrades to the rollout scan instead of failing", needsStore, async () => {
+test("a missing index leaves the workspace unknown even when a rollout exists", needsStore, async () => {
   // Older Codex installs, or a machine where state_5 has not been created yet.
   const home = codexHome();
   lock(home);
@@ -187,5 +194,6 @@ test("an absent thread index degrades to the rollout scan instead of failing", n
   const { targets } = await discover(home);
 
   assert.equal(targets.length, 1);
-  assert.equal(targets[0].cwd, "D:\\Work\\Alpha");
+  assert.equal(targets[0].cwd, null);
+  assert.equal(targets[0].addressable, false);
 });

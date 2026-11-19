@@ -1,3 +1,4 @@
+import { addIndexedSession } from "./fixtures/session-index.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
@@ -278,22 +279,8 @@ function addLock(home, id) {
 // The rollout's first record. Only the handful of fields discovery reads are
 // written here; the real record also carries the full base instructions, which
 // is why the reader must not slurp the whole line-one payload blindly.
-function addRollout(home, id, meta = {}) {
-  const record = {
-    timestamp: "2026-08-23T15:08:20.957Z",
-    ordinal: 0,
-    type: "session_meta",
-    payload: {
-      session_id: id,
-      id,
-      cwd: "D:\\Work\\Alpha",
-      originator: "codex-tui",
-      thread_source: "user",
-      ...meta,
-    },
-  };
-  const file = path.join(home, "sessions", "2026", "08", "23", `rollout-2026-08-23T11-08-20-${id}.jsonl`);
-  fs.writeFileSync(file, `${JSON.stringify(record)}\n{"type":"response_item"}\n`);
+function addIndexedThread(home, id, meta = {}) {
+  if (DatabaseSync) addIndexedSession(DatabaseSync, home, id, meta.cwd ?? "D:\\Work\\Alpha", meta.thread_source ?? "user");
 }
 
 function addTurns(home, rows) {
@@ -314,7 +301,7 @@ const SUBAGENT_THREAD = "01a02f38-aea9-7fe1-9aa7-e8f246fb1dfa";
 // A live user thread that has taken one completed turn, two minutes ago.
 function liveUserThread(home, id = USER_THREAD, meta = {}) {
   addLock(home, id);
-  addRollout(home, id, meta);
+  addIndexedThread(home, id, meta);
   addTurns(home, [
     { threadId: id, turnId: "turn-1", ordinal: 1, status: "completed", startedAt: NOW_S - 180, completedAt: NOW_S - 120 },
   ]);
@@ -361,7 +348,7 @@ test("codex idleFor converts the store's seconds into milliseconds", needsStore,
 test("a codex thread whose latest turn is still running reports busy", needsStore, async () => {
   const home = codexHome();
   addLock(home, USER_THREAD);
-  addRollout(home, USER_THREAD);
+  addIndexedThread(home, USER_THREAD);
   addTurns(home, [
     { threadId: USER_THREAD, turnId: "t1", ordinal: 1, status: "completed", startedAt: NOW_S - 600, completedAt: NOW_S - 500 },
     { threadId: USER_THREAD, turnId: "t2", ordinal: 2, status: "inProgress", startedAt: NOW_S - 30 },
@@ -379,7 +366,7 @@ test("an interrupted codex turn leaves the thread idle, not failed", needsStore,
   // the human stopped the turn, which leaves an ordinary idle thread.
   const home = codexHome();
   addLock(home, USER_THREAD);
-  addRollout(home, USER_THREAD);
+  addIndexedThread(home, USER_THREAD);
   addTurns(home, [
     { threadId: USER_THREAD, turnId: "t1", ordinal: 1, status: "interrupted", startedAt: NOW_S - 300, completedAt: NOW_S - 240 },
   ]);
@@ -397,7 +384,7 @@ test("a codex subagent thread is not offered as a target", needsStore, async () 
   const home = codexHome();
   liveUserThread(home);
   addLock(home, SUBAGENT_THREAD);
-  addRollout(home, SUBAGENT_THREAD, {
+  addIndexedThread(home, SUBAGENT_THREAD, {
     thread_source: "subagent",
     session_id: USER_THREAD,
     parent_thread_id: USER_THREAD,
@@ -442,7 +429,7 @@ test("a codex thread with zero turns is listed as not yet addressable, not as se
   // confusing delivery error.
   const home = codexHome();
   addLock(home, USER_THREAD);
-  addRollout(home, USER_THREAD);
+  addIndexedThread(home, USER_THREAD);
   addTurns(home, []);
 
   const { targets } = await discoverCodex(home);
@@ -465,16 +452,13 @@ test("a live lock with no rollout is reported unaddressable rather than dropped"
   assert.equal(codex.addressable, false);
   assert.equal(codex.cwd, null);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /rollout/i);
+  assert.match(warnings[0], /provenance/i);
 });
 
-test("without the thread store, codex targets degrade to rollout-only instead of going dark", async () => {
-  // The store is the only part that needs node:sqlite. cwd, thread_source and
-  // the fact that a thread has run at all all come from the rollout, so losing
-  // sqlite costs turn counts and timing, not the whole Codex half.
+test("unreadable provider databases leave a visible ID with unknown workspace and provenance", async () => {
   const home = codexHome();
   addLock(home, USER_THREAD);
-  addRollout(home, USER_THREAD);
+  addIndexedThread(home, USER_THREAD);
   // The store file is present; what is missing is the runtime's ability to open
   // it, which is the Node 18 case the engines field allows.
   fs.writeFileSync(path.join(home, "thread_history_1.sqlite"), "");
@@ -487,11 +471,10 @@ test("without the thread store, codex targets degrade to rollout-only instead of
   const codex = targets.find((t) => t.kind === "codex");
 
   assert.equal(codex.id, USER_THREAD);
-  assert.equal(codex.cwd, "D:\\Work\\Alpha");
+  assert.equal(codex.cwd, null);
   assert.equal(codex.turns, null);
-  assert.equal(codex.addressable, true);
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /node:sqlite unavailable/);
+  assert.equal(codex.addressable, false);
+  assert.ok(warnings.some(w => w.includes("node:sqlite unavailable")));
 });
 
 test("a claude registry and a codex store are read in the same pass", needsStore, async () => {

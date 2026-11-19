@@ -69,7 +69,7 @@ export async function inventory(options = {}) {
       });
     });
   }
-  const { targets, warnings } = await discoverTargets({ scope: "all", ...options, indexOnly: true });
+  const { targets, warnings } = await discoverTargets({ scope: "all", ...options });
   const rows = [];
   let partial = warnings.length > 0;
   for (const row of targets) {

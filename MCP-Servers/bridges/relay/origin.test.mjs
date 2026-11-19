@@ -1,3 +1,4 @@
+import { addIndexedSession } from "./fixtures/session-index.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
@@ -301,10 +302,7 @@ const needsStore = { skip: DatabaseSync ? false : "node:sqlite unavailable on th
 
 function liveThread(home) {
   fs.writeFileSync(path.join(home, "thread-writer-locks", `${THREAD}.lock`), "");
-  fs.writeFileSync(
-    path.join(home, "sessions", "2026", "08", "23", `rollout-2026-08-23T11-08-20-${THREAD}.jsonl`),
-    `${JSON.stringify({ ordinal: 0, type: "session_meta", payload: { id: THREAD, session_id: THREAD, cwd: "D:\\Work\\Alpha", thread_source: "user" } })}\n`,
-  );
+  addIndexedSession(DatabaseSync, home, THREAD, "D:\\Work\\Alpha");
   const db = new DatabaseSync(path.join(home, "thread_history_1.sqlite"));
   db.exec(`CREATE TABLE IF NOT EXISTS thread_turns (thread_id TEXT NOT NULL, turn_id TEXT NOT NULL, rollout_ordinal INTEGER NOT NULL, status TEXT NOT NULL, error_json TEXT, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER, first_user_item_id TEXT, final_agent_item_id TEXT, rollout_byte_offset INTEGER, rollout_end_ordinal INTEGER, rollout_end_byte_offset INTEGER, PRIMARY KEY (thread_id, turn_id))`);
   db.prepare("insert into thread_turns (thread_id,turn_id,rollout_ordinal,status,started_at,completed_at) values (?,?,?,?,?,?)")

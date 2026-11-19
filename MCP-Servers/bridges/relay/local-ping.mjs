@@ -53,7 +53,7 @@ export async function localPing(to, { allowDelegate = false, profile = os.homedi
   if (!matches(UUID, to)) return { ok: false, cause: "invalid_target", detail: "A local delivery probe requires a raw session ID." };
   let handle;
   const result = await send({
-    to, exactId: true, scope: "all", indexOnly: true, allowDelegate,
+    to, exactId: true, scope: "all", allowDelegate,
     message: "Delivery probe " + randomUUID() + ". No reply is needed.",
     beforeSubmit: async (target, text) => {
       const cursor = await capture(target, { profile });

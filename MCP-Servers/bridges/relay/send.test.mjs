@@ -1,3 +1,4 @@
+import { addIndexedSession } from "./fixtures/session-index.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
@@ -43,16 +44,8 @@ function addLock(home, id) {
   fs.writeFileSync(path.join(home, "thread-writer-locks", `${id}.lock`), "");
 }
 
-function addRollout(home, id, meta = {}) {
-  const record = {
-    ordinal: 0,
-    type: "session_meta",
-    payload: { session_id: id, id, cwd: "D:\\Work\\Alpha", thread_source: "user", ...meta },
-  };
-  fs.writeFileSync(
-    path.join(home, "sessions", "2026", "08", "23", `rollout-2026-08-23T11-08-20-${id}.jsonl`),
-    `${JSON.stringify(record)}\n`,
-  );
+function addIndexedThread(home, id, meta = {}) {
+  if (DatabaseSync) addIndexedSession(DatabaseSync, home, id, meta.cwd ?? "D:\\Work\\Alpha", meta.thread_source ?? "user");
 }
 
 function addTurns(home, rows) {
@@ -67,7 +60,7 @@ function addTurns(home, rows) {
 
 function liveThread(home, id = THREAD) {
   addLock(home, id);
-  addRollout(home, id);
+  addIndexedThread(home, id);
   addTurns(home, [
     { threadId: id, turnId: "t1", ordinal: 1, status: "completed", startedAt: NOW_S - 180, completedAt: NOW_S - 120 },
   ]);
@@ -208,7 +201,7 @@ test("a thread that exits mid-flight is caught by the pre-flight re-check", need
 
 test("a disappeared target tells the caller to re-list rather than blaming the address", needsStore, async () => {
   const home = codexHome();
-  addRollout(home, DEAD_THREAD);
+  addIndexedThread(home, DEAD_THREAD);
   addTurns(home, [
     { threadId: DEAD_THREAD, turnId: "t1", ordinal: 1, status: "completed", startedAt: NOW_S - 900, completedAt: NOW_S - 800 },
   ]);
@@ -238,7 +231,7 @@ test("a live thread with no turns is refused locally with its reason", needsStor
   // Catching it from discovery gives the caller the actual reason instead.
   const home = codexHome();
   addLock(home, THREAD);
-  addRollout(home, THREAD);
+  addIndexedThread(home, THREAD);
   addTurns(home, []);
   const h = harness(home);
 
