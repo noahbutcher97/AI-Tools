@@ -38,8 +38,12 @@ export function parseDirectory(machine, entries) {
   return { local: machine.host, hosts: entries };
 }
 
+export function installationRoot() {
+  return process.platform === "win32" ? path.join(process.env.ProgramFiles, "CrossAgentRelay") : "/etc/cross-agent-relay";
+}
+
 export function loadDirectory() {
-  const root = process.platform === "win32" ? path.join(process.env.ProgramFiles, "CrossAgentRelay") : "/etc/cross-agent-relay";
+  const root = installationRoot();
   const read = (name) => JSON.parse(fs.readFileSync(path.join(root, name), "utf8"));
   return parseDirectory(read("machine.json"), read("hosts.json"));
 }
@@ -88,7 +92,7 @@ if (!isMainThread && parentPort && workerData?.relayInventoryWorker) {
 export function sshInvocation(entry) {
   const windows = process.platform === "win32";
   const command = windows ? path.join(process.env.SystemRoot, "System32", "OpenSSH", "ssh.exe") : "/usr/bin/ssh";
-  const root = windows ? path.join(process.env.ProgramFiles, "CrossAgentRelay") : "/etc/cross-agent-relay";
+  const root = installationRoot();
   const pins = path.join(root, "known_hosts").replaceAll("\\", "/");
   const identity = path.join(os.homedir(), ".cross-agent-relay", "ssh", "identity");
   return { command, args: [

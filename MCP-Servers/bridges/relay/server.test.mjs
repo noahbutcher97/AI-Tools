@@ -36,13 +36,22 @@ async function withClient(name, fn) {
   }
 }
 
-test("relay bridge registers its list and send tools", async () => {
+test("relay bridge registers discovery, send and receipt lookup", async () => {
   const names = await withClient("relay-registration", async (c) => {
     const { tools } = await c.listTools();
     return tools.map((t) => t.name).sort();
   });
 
-  assert.deepEqual(names, ["relay_list", "relay_send"]);
+  assert.deepEqual(names, ["relay_list", "relay_ping", "relay_send"]);
+});
+
+test("MCP refuses malformed host selectors and receipt handles before discovery", async () => {
+  await withClient("relay-routing", async c => {
+    const send = await c.callTool({ name: "relay_send", arguments: { to: "host-b:../other", message: "fixture" } });
+    assert.equal(JSON.parse(send.content[0].text).cause, "invalid_address");
+    const status = await c.callTool({ name: "relay_ping", arguments: { status: "host-b:missing" } });
+    assert.equal(JSON.parse(status.content[0].text).cause, "invalid_handle");
+  });
 });
 
 test("relay_list declares itself read-only so a host can auto-approve it", async () => {

@@ -17,7 +17,9 @@
 // reason: SendMessage is an in-session tool, so a shell-invocable path to a
 // Claude session needs the delegate that Unit 3 adds.
 
-import { discoverTargets, formatTargets, parseArgs, sendMessage } from "./client.mjs";
+import { discoverTargets, formatTargets, parseArgs } from "./client.mjs";
+import { sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { dispatchRemote } from "./remote-delivery.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { receive } from "./receive.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
@@ -33,7 +35,7 @@ process.on("warning", (warning) => {
 
 async function main() {
   if (process.argv[2] === "receive") {
-    const result = await receive(process.argv.slice(3), process.env.SSH_ORIGINAL_COMMAND, process.stdin, 3000, inventory);
+    const result = await receive(process.argv.slice(3), process.env.SSH_ORIGINAL_COMMAND, process.stdin, 3000, inventory, dispatchRemote);
     console.log(JSON.stringify(result));
     process.exitCode = result.ok ? 0 : 1;
     return;
@@ -49,6 +51,12 @@ async function main() {
 
   if (options.command === "send") {
     await runSend(options);
+    return;
+  }
+  if (options.statusHandle) {
+    const result = await sendStatus(options.statusHandle);
+    console.log(options.json ? JSON.stringify(result) : result.detail);
+    process.exitCode = result.ok ? 0 : 1;
     return;
   }
 
@@ -100,7 +108,7 @@ async function runSend(options) {
     return;
   }
 
-  const result = await sendMessage({
+  const result = await sendAddressed({
     to: options.to,
     message,
     dryRun: options.dryRun,
@@ -114,7 +122,8 @@ async function runSend(options) {
     conversation: options.conversation,
     kind: options.kind,
     inReplyTo: options.inReplyTo,
-  });
+    requestId: options.requestId,
+  }, { onHandle: handle => console.error("relay receipt " + handle) });
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));

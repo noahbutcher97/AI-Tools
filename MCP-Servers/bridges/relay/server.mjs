@@ -3,7 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod/v3";
 
 import { toolJsonResult } from "../../lib/tool-result.mjs";
-import { discoverTargets, formatTargets, sendMessage } from "./client.mjs";
+import { discoverTargets, formatTargets } from "./client.mjs";
+import { sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 
@@ -87,7 +88,9 @@ server.tool(
   "relay_send",
   "Send a message to another agent session. Codex targets are queued directly; Claude targets are relayed by a confined delegate that may use no tool but SendMessage.",
   {
-    to: z.string().describe("Target name (Claude session name) or Codex thread id, as reported by relay_list"),
+    to: z.string().describe("Local session ID or Claude name, or host:id on a configured machine."),
+    request_id: z.string().optional().describe("A UUIDv7 for a retryable cross-host send."),
+    re: z.string().optional().describe("Quote a bounded excerpt from this turn in the target session."),
     message: z.string().min(1).describe("Message body. Multi-line prose is preserved."),
     dry_run: z
       .boolean()
@@ -118,8 +121,8 @@ server.tool(
   // otherwise to dodge an approval prompt would be a lie told to the host's
   // safety layer. It is non-destructive — it adds a message, removes nothing.
   { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  async ({ to, message, dry_run = false, from, conversation, kind, in_reply_to }, extra) => {
-    const result = await sendMessage({
+  async ({ to, message, dry_run = false, from, conversation, kind, in_reply_to, request_id, re }, extra) => {
+    const result = await sendAddressed({
       to,
       message,
       dryRun: dry_run,
@@ -134,11 +137,25 @@ server.tool(
       conversation,
       kind,
       inReplyTo: in_reply_to,
+      requestId: request_id,
+      re,
       // RELAY_SPOOL relocates the failure spool. The registration tests set it
       // so a test run cannot append to the operator's real spool.
       ...(process.env.RELAY_SPOOL ? { spoolPath: process.env.RELAY_SPOOL } : {}),
     });
     return toolJsonResult(result);
+  },
+);
+
+server.tool(
+  "relay_ping",
+  "Check a fleet's reachability or look up an existing cross-host dispatch receipt.",
+  { all_hosts: z.literal(true).optional(), status: z.string().optional() },
+  { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  async ({ all_hosts, status }) => {
+    if (Boolean(all_hosts) === Boolean(status)) return toolJsonResult({ ok: false, cause: "invalid_ping_mode" });
+    try { return toolJsonResult(status ? await sendStatus(status) : await queryFleet("probe")); }
+    catch { return toolJsonResult({ ok: false, cause: "directory_unavailable" }); }
   },
 );
 

@@ -1069,6 +1069,22 @@ async function readQueueBacklog(codexHome, threadId, openDb, now, thresholdMs = 
   }
 }
 
+export async function codexQueueBlock(id, {
+  codexHome = defaultCodexHome(), openDb = defaultOpenDb, now = Date.now(), backlogThresholdMs = 30_000,
+} = {}) {
+  const backlog = await readQueueBacklog(codexHome, id, openDb, now, backlogThresholdMs);
+  if (backlog) return {
+    cause: SEND_CAUSES.NOT_CONSUMING,
+    detail: `that thread has ${backlog.count} undelivered message(s) pending, the oldest for ${formatDuration(backlog.oldestMs)}; ` +
+      "it is not consuming its queue, so this would join the backlog rather than arrive",
+  };
+  if (!fs.existsSync(path.join(codexHome, "thread-writer-locks", `${id}.lock`))) return {
+    cause: SEND_CAUSES.DISAPPEARED,
+    detail: "that session ended between listing and sending; re-list to see what is live now",
+  };
+  return null;
+}
+
 export async function sendMessage(options = {}) {
   const {
     to,
@@ -1110,7 +1126,7 @@ export async function sendMessage(options = {}) {
   // listing that is seconds old is already stale on both sides.
   const { targets } = await discoverTargets({ ...discovery, codexHome, openDb, now, scope: "all" });
   const exact = targets.filter((t) => t.id === to);
-  const matches = exact.length ? exact : targets.filter((t) => t.name === to);
+  const matches = exact.length || options.exactId ? exact : targets.filter((t) => t.name === to);
   if (matches.length > 1) return fail(SEND_CAUSES.NOT_ADDRESSABLE, "ambiguous session address");
   const target = matches[0];
   // Resolved against the same live listing, so the header can tell the
@@ -1202,27 +1218,8 @@ export async function sendMessage(options = {}) {
   // sufficient. This adds the one cheap signal that PROVES the opposite: a
   // message still undelivered past the wake threshold means the thread is not
   // draining its queue, whatever its lock says.
-  const backlog = await readQueueBacklog(codexHome, target.id, openDb, now, backlogThresholdMs);
-  if (backlog) {
-    return fail(
-      SEND_CAUSES.NOT_CONSUMING,
-      `that thread has ${backlog.count} undelivered message(s) pending, the oldest for ${formatDuration(backlog.oldestMs)}; ` +
-        `it is not consuming its queue, so this would join the backlog rather than arrive`,
-      target.kind,
-    );
-  }
-
-  // Pre-flight liveness, re-read immediately before invoking rather than
-  // inherited from the discovery above. `codex queue` returns exit 0 and a
-  // success string for a thread whose session has exited (spec 3.5), so no
-  // amount of output parsing can catch this afterwards. This is the only guard.
-  if (!fs.existsSync(path.join(codexHome, "thread-writer-locks", `${target.id}.lock`))) {
-    return fail(
-      SEND_CAUSES.DISAPPEARED,
-      "that session ended between listing and sending; re-list to see what is live now",
-      target.kind,
-    );
-  }
+  const blocked = await codexQueueBlock(target.id, { codexHome, openDb, now, backlogThresholdMs });
+  if (blocked) return fail(blocked.cause, blocked.detail, target.kind);
 
   if (dryRun) {
     return { ok: true, to, target, queuedId: null, conversation, messageId, detail: `would queue into ${target.id}` };
@@ -1784,7 +1781,12 @@ export async function resolveReference(options = {}) {
   const { target, error } = await resolveTargetForRead(options);
   if (error) return { ok: false, detail: error.detail };
   if (target.kind === "claude") return resolveClaudeReference(target, options, re, excerptLimit);
+  return resolveCodexReference(target.id, re, { codexHome, openDb, excerptLimit });
+}
 
+export async function resolveCodexReference(id, re, {
+  codexHome = defaultCodexHome(), openDb = defaultOpenDb, excerptLimit = 280,
+} = {}) {
   let db;
   try {
     db = await openStore(codexHome, openDb);
@@ -1795,9 +1797,9 @@ export async function resolveReference(options = {}) {
   try {
     const turn = db
       .prepare("select turn_id, status, started_at, completed_at from thread_turns where thread_id = ? and turn_id = ?")
-      .get(target.id, re);
+      .get(id, re);
     if (!turn) {
-      return { ok: false, detail: `no turn "${re}" found in thread ${target.id}; re-read the transcript for a current id` };
+      return { ok: false, detail: `no turn "${re}" found in thread ${id}; re-read the transcript for a current id` };
     }
 
     // The agent's own words are what a reply is almost always about, so the
@@ -1807,7 +1809,7 @@ export async function resolveReference(options = {}) {
       .prepare(
         "select item_json from thread_items where thread_id = ? and turn_id = ? and item_type = 'agentMessage' order by rollout_ordinal desc limit 1",
       )
-      .get(target.id, re);
+      .get(id, re);
     const full = row ? itemText(JSON.parse(row.item_json)) : "";
     if (!full) {
       return { ok: false, detail: `turn "${re}" has no conversational text, so there is nothing to quote` };
@@ -1857,6 +1859,14 @@ export function parseArgs(argv = []) {
 
   while (args.length) {
     const flag = args.shift();
+    if (flag === "--status" && command === "ping" && !options.statusHandle && args[0] && !args[0].startsWith("--")) {
+      options.statusHandle = args.shift();
+      continue;
+    }
+    if (flag === "--request-id" && command === "send" && !options.requestId && args[0] && !args[0].startsWith("--")) {
+      options.requestId = args.shift();
+      continue;
+    }
     if (flag === "--all-hosts" && (command === "ping" || command === "list")) {
       options.allHosts = true;
       continue;
@@ -1898,7 +1908,9 @@ export function parseArgs(argv = []) {
       options.cwd = value;
     }
   }
-  if (command === "ping" && !options.allHosts) throw new Error("ping requires --all-hosts");
+  if (command === "ping" && Boolean(options.allHosts) === Boolean(options.statusHandle)) {
+    throw new Error("ping requires exactly one of --all-hosts or --status <handle>");
+  }
   return options;
 }
 
