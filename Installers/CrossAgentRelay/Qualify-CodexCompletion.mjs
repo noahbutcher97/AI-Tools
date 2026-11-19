@@ -123,7 +123,10 @@ async function runTrial() {
     };
     write("target.json", { id, model });
     const signals = path.dirname(exchangeDir);
-    await until(() => fs.existsSync(path.join(signals, "authorized")), 300000, "Trial grant was not ready");
+    await until(() => {
+      if (fs.existsSync(path.join(signals, "finished"))) throw Error("Installed trial closed before authorization");
+      return fs.existsSync(path.join(signals, "authorized"));
+    }, 300000, "Trial grant was not ready");
     const cli = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/cli.mjs", import.meta.url));
     const env = { ...process.env, CODEX_THREAD_ID: id };
     delete env.CODEX_SESSION_ID;
@@ -210,6 +213,11 @@ try {
     try { await provider.call("thread/archive", { threadId: id }); } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();
+  if (installed) {
+    for (const name of ["target.json", "target.json.tmp", "job.json", "job.json.tmp"]) {
+      fs.rmSync(path.join(exchangeDir, name), { force: true });
+    }
+  }
   await listener?.close();
   store?.close();
   fs.rmSync(root, { recursive: true, force: true });

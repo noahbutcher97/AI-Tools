@@ -1,0 +1,203 @@
+# Run the three stages from an administrator-controlled copy beside the reviewed installer.
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][ValidateSet('Start','Run','Cleanup')][string]$Stage,
+    [Parameter(Mandatory)][guid]$TrialId,
+    [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ExpectedPackage,
+    [string]$SessionScript,
+    [guid]$Target,
+    [switch]$RotateBrokerPassword
+)
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
+$record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
+$account = Get-LocalUser -Name $accountName
+if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
+    $record.brokerSid -ne $account.SID.Value -or $account.Description -cne $record.tag -or
+    !$account.Enabled -or $record.sessionSid -ne $desktopSid -or $desktopSid -eq $record.brokerSid) { throw 'Installation mismatch' }
+$scheduler = New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$folder = $scheduler.GetFolder('\')
+$broker = $folder.GetTask($brokerTask)
+Assert-Protected $root
+Assert-Protected $journal
+Assert-RegisteredTask $broker $record
+Assert-RegisteredTask ($folder.GetTask($workerTask)) $record
+$tag = 'RelayWatcherTrial-' + $TrialId.ToString('N')
+$trial = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) $tag
+$exchange = Join-Path $trial 'session'
+$runner = $tag + '-Session'
+$issuer = $tag + '-Grant'
+$node = Join-Path $root 'runtime/node.exe'
+$providerImage = Join-Path $root 'provider/codex.exe'
+$brokerModule = Join-Path $root 'relay/completion-broker.mjs'
+$policyFile = Join-Path $root 'completion-policy.json'
+$flagFile = Join-Path $root 'completion-worker.json'
+foreach ($p in @($node,$providerImage,$brokerModule,$policyFile,$flagFile)) { Assert-Protected $p }
+$utf = [Text.UTF8Encoding]::new($false)
+
+function Register-TrialTask($name,$principal,$type,$arguments,$password) {
+    $def = $scheduler.NewTask(0)
+    $def.RegistrationInfo.Description = $tag
+    $def.Principal.UserId = $principal
+    $def.Principal.LogonType = $type
+    $def.Principal.RunLevel = 0
+    $def.Settings.ExecutionTimeLimit = 'PT12M'
+    $def.Settings.MultipleInstances = 2
+    $def.Settings.DisallowStartIfOnBatteries = $false
+    $def.Settings.StopIfGoingOnBatteries = $false
+    $def.Settings.Hidden = $true
+    $action = $def.Actions.Create(0)
+    $action.Path = $node
+    $action.WorkingDirectory = $root
+    $action.Arguments = $arguments
+    $acl = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)'
+    return $folder.RegisterTaskDefinition($name,$def,18,$principal,$password,$type,$acl)
+}
+
+function Remove-TrialTask($name) {
+    $task = @($folder.GetTasks(1) | Where-Object Name -eq $name)
+    if (!$task.Count) { return }
+    if ($task.Count -ne 1 -or $task[0].Definition.RegistrationInfo.Description -cne $tag -or
+        $task[0].Definition.Actions.Item(1).Path -ne $node) { throw 'Unexpected trial task' }
+    if ($task[0].State -in 2,4) { throw 'Trial task is still running' }
+    $folder.DeleteTask($name,0)
+}
+
+function Set-ApprovedText($file,$expected,$replacement) {
+    Assert-Protected $file
+    if ([IO.File]::ReadAllText($file) -cne $expected) { throw 'Configuration changed during trial' }
+    $temp = Join-Path $root ([guid]::NewGuid().ToString('N')+'.tmp')
+    try {
+        [IO.File]::WriteAllText($temp,$replacement,$utf)
+        [IO.File]::Replace($temp,$file,[System.Management.Automation.Language.NullString]::Value)
+    } finally { if ([IO.File]::Exists($temp)) { [IO.File]::Delete($temp) } }
+}
+
+function Restart-TrialBroker($expectedMode) {
+    $task = $folder.GetTask($brokerTask)
+    if ($task.State -in 2,4) { $task.Stop(0) }
+    $end = [DateTime]::UtcNow.AddSeconds(15)
+    while ($folder.GetTask($brokerTask).State -in 2,4) {
+        if ([DateTime]::UtcNow -gt $end) { throw 'Broker stop timed out' }
+        Start-Sleep -Milliseconds 150
+    }
+    Start-VerifiedWatcher ($folder.GetTask($brokerTask))
+    $beat = Get-Content -LiteralPath (Join-Path $root 'completion-health/watcher.json') -Raw | ConvertFrom-Json
+    if ($beat.mode -cne $expectedMode) { throw 'Unexpected watcher mode' }
+}
+
+if ($Stage -eq 'Start') {
+    if (!$SessionScript -or ![IO.Path]::IsPathRooted($SessionScript) -or
+        [IO.Path]::GetFileName($SessionScript) -cne 'Qualify-CodexCompletion.mjs' -or
+        ![IO.File]::Exists($SessionScript)) { throw 'Expected the qualification runner' }
+    New-AccessDirectory $trial "(A;OICI;GRGX;;;$desktopSid)"
+    New-AccessDirectory $exchange "(A;OICI;0x1301bf;;;$desktopSid)"
+    $argsText = '"'+$SessionScript+'" "'+$providerImage+'" --installed "'+$exchange+'"'
+    $task = Register-TrialTask $runner $desktopSid 3 $argsText $null
+    $null = $task.Run($null)
+    return
+}
+Assert-Protected $trial
+if ($Stage -eq 'Cleanup') {
+    Remove-TrialTask $issuer
+    Remove-TrialTask $runner
+    Assert-PlainPath $exchange
+    # The unelevated runner cleans its output. Never traverse its files for deletion.
+    [IO.Directory]::Delete($exchange,$false)
+    foreach ($name in @('authorized','finished','verify.cjs','result.txt')) {
+        $file = Join-Path $trial $name
+        if ([IO.File]::Exists($file)) { Assert-Protected $file; [IO.File]::Delete($file) }
+    }
+    [IO.Directory]::Delete($trial,$false)
+    return
+}
+if (!$RotateBrokerPassword -or !$Target -or $Target -eq [guid]::Empty) { throw 'Run requires a pinned trial target and approval for credential rotation' }
+$id = $Target.ToString('D')
+$empty = '{"v":1,"grants":[]}'
+$off = '{"v":1,"enabled":false}'
+$on = '{"v":1,"enabled":true}'
+$approved = '{"v":1,"grants":[{"id":"'+$id+'","provider":"codex","scope":"thread-status"}]}'
+$verifier = Join-Path $trial 'verify.cjs'
+$resultFile = Join-Path $trial 'result.txt'
+$expires = [DateTime]::UtcNow.AddMinutes(4).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+$policyChanged = $false
+$flagChanged = $false
+$createdTask = $false
+$lockPath = Join-Path $root 'watcher-install.lock'
+Assert-Protected $lockPath
+$lock = [IO.File]::Open($lockPath,'Open','ReadWrite','None')
+try {
+    if ([IO.File]::ReadAllText($flagFile) -cne $off -or [IO.File]::ReadAllText($policyFile) -cne $empty) {
+        throw 'Trial requires empty grants and reports-only mode'
+    }
+    # Query only status for this trial. No handle, transcript text or bearer leaves the store.
+    $source = @'
+const { DatabaseSync } = require('node:sqlite');
+const [file,id] = process.argv.slice(2);
+const db = new DatabaseSync(file, {readOnly:true});
+try {
+  db.exec('PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
+  const rows = db.prepare('SELECT state,code,signal,run_only,provider,handle IS NOT NULL AS reserved FROM jobs WHERE recipient=? LIMIT 2').all(id);
+  if (rows.length === 0) process.stdout.write('absent');
+  else if (rows.length !== 1 || !rows[0].run_only || rows[0].provider !== 'codex') process.stdout.write('invalid');
+  else if (rows[0].state === 'delivered' && rows[0].reserved && rows[0].code === 23 && rows[0].signal === null) process.stdout.write('proved');
+  else process.stdout.write(['waiting','claimed','ready','observing','dispatching'].includes(rows[0].state) ? rows[0].state : 'invalid');
+} finally { db.close(); }
+'@
+    if ([IO.File]::Exists($verifier)) { throw 'Trial already started' }
+    [IO.File]::WriteAllText($verifier,$source,$utf)
+    $env:NODE_OPTIONS=$null
+    $env:NODE_PATH=$null
+    $env:NODE_COMPILE_CACHE=$null
+    $env:NODE_NO_WARNINGS='1'
+    $db = Join-Path $root 'completion-state/jobs.sqlite'
+    Assert-PlainPath $db
+    Set-Location -LiteralPath $trial
+    if ((& $node $verifier $db $id) -cne 'absent' -or $LASTEXITCODE) { throw 'Expected a new disposable target' }
+    $pw = New-BrokerPassword
+    try {
+        Set-LocalUser -SID $account.SID -Password $pw
+        $argsText = '"'+$brokerModule+'" --provision-run '+$id+' 1 '+$expires
+        $credential = [pscredential]::new($account.Name,$pw)
+        $task = Register-TrialTask $issuer $record.brokerSid 2 $argsText $credential.GetNetworkCredential().Password
+        $createdTask = $true
+    } finally { $pw.Dispose() }
+    Set-ApprovedText $policyFile $empty $approved
+    $policyChanged = $true
+    $null = $task.Run($null)
+    $end = [DateTime]::UtcNow.AddSeconds(30)
+    do {
+        Start-Sleep -Milliseconds 250
+        $task=$folder.GetTask($issuer)
+        if ([DateTime]::UtcNow -gt $end) { throw 'Grant provisioning timed out' }
+    } while ($task.State -in 2,4 -or $task.LastTaskResult -eq 267011)
+    if ($task.LastTaskResult -ne 0) { throw 'Broker declined grant provisioning' }
+    Set-ApprovedText $flagFile $off $on
+    $flagChanged = $true
+    Restart-TrialBroker 'watching'
+    [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
+    $end=[DateTime]::UtcNow.AddSeconds(90)
+    do {
+        $state=& $node $verifier $db $id
+        if ($LASTEXITCODE -ne 0 -or $state -eq 'invalid') { throw 'Invalid trial outcome' }
+        if ($state -eq 'proved') { break }
+        if ([DateTime]::UtcNow -gt $end) { throw "Transcript proof timed out ($state)" }
+        Start-Sleep -Milliseconds 600
+    } while ($true)
+    [IO.File]::WriteAllText($resultFile,'proved',$utf)
+} catch {
+    [IO.File]::WriteAllText($resultFile,('failed at line '+$_.InvocationInfo.ScriptLineNumber+': '+$_.Exception.Message),$utf)
+    throw
+} finally {
+    try {
+        try { if ($policyChanged) { Set-ApprovedText $policyFile $approved $empty } }
+        finally {
+            if ($flagChanged) { Set-ApprovedText $flagFile $on $off; Restart-TrialBroker 'reports_only' }
+        }
+    } finally {
+        $lock.Dispose()
+        [IO.File]::WriteAllText((Join-Path $trial 'finished'),'',$utf)
+        if ($createdTask) { Remove-TrialTask $issuer }
+    }
+}
