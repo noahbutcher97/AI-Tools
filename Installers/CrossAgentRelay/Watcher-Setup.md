@@ -67,6 +67,8 @@ Run the updater beside the reviewed installer from an administrator-controlled d
 
 ## File observation upgrade
 
+Task Scheduler records a numeric result when the broker exits before its heartbeat. Codes 20–22 identify invocation, the protected ACL check and its timeout, respectively. Code 23 covers storage initialization or a standalone worker check. Codes 24–27 identify listener startup, policy loading, grant provisioning and an occupied listener, respectively.
+
 For an installation with schedule support, stage the file watcher with `watcher-package.mjs stage-files <new-directory> <previous-directory> <previous-digest>`. Run the same updater with `-Component Files` for Plan and Apply. It verifies the compiled metadata helper and its source along with the changed broker modules. The broker needs attribute access to the explicitly granted resource. File grants live in private configuration. The updater leaves filesystem permissions on watched resources alone.
 
 ## Deactivate and retain state

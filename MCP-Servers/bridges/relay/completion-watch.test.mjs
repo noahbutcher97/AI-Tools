@@ -148,7 +148,8 @@ test("watcher recovers the original handle automatically and cannot overlap a st
     throw new Error("fixture interrupted after reservation");
   }, status: assert.fail });
   const port = broker.port;
-  await assert.rejects(startCompletionBroker(f.root, { port, delivery: { send: assert.fail, status: assert.fail } }));
+  await assert.rejects(startCompletionBroker(f.root, { port, delivery: { send: assert.fail, status: assert.fail } }),
+    { code: "EADDRINUSE", relayStartupStage: 24 });
   await reportJob(job, "claim_run", { session: first.id }, { port });
   await reportJob(job, "complete", outcome, { port });
   await Promise.race([started, delay(5000, null, { ref: false }).then(() => { throw Error("watcher did not start"); })]);

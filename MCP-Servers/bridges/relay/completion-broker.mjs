@@ -203,14 +203,18 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
     schedules: { root, policy: () => readJobPolicy(root).schedules, sampleFile: (g, signal) => sampleFile(root, g, signal) },
   });
   let listener;
+  let startupStage = 24;
   try {
     listener = await listenForJobReports(store.acceptFrame, { port });
+    startupStage = 25;
     const { startup, grants } = readJobPolicy(root);
+    startupStage = 26;
     if (startup && grants.length) publishApprovedRun(root, store, startup.id, "1", startup.expiresAt, true);
     store.watches.provision();
   } catch (err) {
     await listener?.close();
     store.close();
+    err.relayStartupStage = startupStage;
     throw err;
   }
   const controller = new AbortController();
@@ -265,16 +269,19 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  let failureStage = 20;
   try {
     const checkOnly = process.argv.length === 3 && process.argv[2] === "--check-worker";
     const provision = process.argv.length === 6 && process.argv[2] === "--provision-run";
     if ((!checkOnly && !provision && process.argv.length !== 2) || process.platform !== "win32") throw new Error();
     const shell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
     const verifier = fileURLToPath(new URL("./completion-acl.ps1", import.meta.url));
+    failureStage = 21;
     const checked = JSON.parse(execFileSync(shell, ["-NoProfile", "-NonInteractive", "-File", verifier], {
       encoding: "utf8", timeout: 5000, windowsHide: true, stdio: ["ignore", "pipe", "pipe"],
     }));
     if (!path.isAbsolute(checked.root)) throw new Error();
+    failureStage = 23;
     if (provision) {
       if (checked.handoff !== true) throw new Error();
       const result = await provisionRun(checked.root, ...process.argv.slice(3));
@@ -287,8 +294,11 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       const broker = await startCompletionBroker(checked.root, { delivery, publishHealth: checked.health === true });
       for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
     }
-  } catch {
+  } catch (error) {
     console.error("Completion broker unavailable. Check protected installation, storage and local listener.");
-    process.exitCode = 1;
+    // The logon task retains only the process exit code. Never expose a path,
+    // policy value or raw child diagnostic to identify a failed startup stage.
+    process.exitCode = failureStage === 21 && error.code === "ETIMEDOUT" ? 22 :
+      error.code === "EADDRINUSE" ? 27 : error.relayStartupStage ?? failureStage;
   }
 }
