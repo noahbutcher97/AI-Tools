@@ -177,10 +177,18 @@ $PackageDigest=$NextDigest
     $NextPackage=$Bundle
     $previous=@{}+$hashes
     $previous.Remove('relay/schedule-watch.mjs')
+    foreach ($member in $fileAdditions) { $previous.Remove($member) }
     $unexpected=@{}+$hashes
     $unexpected['provider/codex.exe']='2'*64
     Denied { Assert-BrokerDelta $previous $unexpected } 'Unexpected schedule package change'
     Assert-BrokerDelta $previous $hashes
+    $Component='Files'
+    $scheduleBase=@{}+$hashes
+    foreach ($member in $fileAdditions) { $scheduleBase.Remove($member) }
+    Assert-BrokerDelta $scheduleBase $hashes
+    Denied { Assert-BrokerDelta $scheduleBase $unexpected } 'Unexpected file watch package change'
+    Denied { Assert-BrokerDelta $hashes $hashes } 'Expected the first file watch package migration'
+    $Component='Schedules'
     $root=Join-Path $FixtureRoot 'migration'
     $live=Join-Path $root 'relay'
     $null=[IO.Directory]::CreateDirectory($live)

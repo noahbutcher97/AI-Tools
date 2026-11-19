@@ -12,17 +12,21 @@ import { initializeCompletionJobs } from "../../MCP-Servers/bridges/relay/comple
 const modules = [
   "client", "completion-broker", "completion-jobs", "completion-protocol", "completion-session",
   "completion-worker", "delivery-protocol", "fleet", "identity", "local-ping", "proof",
-  "provider-process", "run-handoff", "schedule-watch", "watcher-health",
+  "provider-process", "run-handoff", "schedule-watch", "watcher-health", "file-watch",
 ];
 const bridge = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/", import.meta.url));
-const sources = [...modules.map(name => name + ".mjs"), "completion-acl.ps1", "CompletionChannel.cs"];
+const sources = [...modules.map(name => name + ".mjs"), "completion-acl.ps1", "CompletionChannel.cs", "FileObservation.cs"];
+const observationImage = "relay/FileObservation.exe";
+const fileAdditions = [observationImage, "relay/FileObservation.cs", "relay/file-watch.mjs"];
 export const packageFiles = Object.freeze([
   ...sources.map(name => "relay/" + name),
-  "CompletionChannel.exe", "runtime/node.exe", "provider/codex.exe", "provider/claude.exe", "initial/jobs.sqlite",
+  "CompletionChannel.exe", observationImage, "runtime/node.exe", "provider/codex.exe", "provider/claude.exe", "initial/jobs.sqlite",
 ].sort());
 const scheduleMembers = ["client","completion-broker","completion-jobs","completion-protocol","completion-session",
   "run-handoff","schedule-watch","watcher-health"].map(name => "relay/" + name + ".mjs");
 const addedMember = "relay/schedule-watch.mjs";
+const fileUpdates = ["completion-broker","completion-jobs","completion-protocol","completion-session","schedule-watch","watcher-health"]
+  .map(name => "relay/" + name + ".mjs");
 
 async function fileHash(file, dest) {
   const handle = await fs.promises.open(file, "r");
@@ -65,7 +69,9 @@ function manifest(entries) {
 // Recheck each file again in the protected destination before executing it.
 export async function verifyWatcherPackage(root, expected, { allowLegacy = false } = {}) {
   if (!/^[a-f0-9]{64}$/.test(expected)) throw Error("Invalid package digest");
-  const members = allowLegacy && !fs.existsSync(path.join(root, addedMember)) ? packageFiles.filter(m => m !== addedMember) : packageFiles;
+  const members = packageFiles.filter(m => !(allowLegacy &&
+    ((!fs.existsSync(path.join(root, addedMember)) && m === addedMember) ||
+     (!fs.existsSync(path.join(root, observationImage)) && fileAdditions.includes(m)))));
   for (const dir of ["", "relay", "runtime", "provider", "initial"]) {
     const prefix = dir ? dir + "/" : "";
     const allowed = new Set([...members, "package.json"].filter(member => member.startsWith(prefix))
@@ -88,30 +94,35 @@ export async function verifyWatcherPackage(root, expected, { allowLegacy = false
 
 // Create a new directory exclusively. On failure remove only files created in
 // this invocation, preserving anything unexpected in the staging directory.
-function compileChannel(out) {
+function compileHelper(out, member = "CompletionChannel.exe") {
   if (process.platform !== "win32") throw Error("The installed worker helper requires Windows");
   const framework = path.join(process.env.SystemRoot, "Microsoft.NET", "Framework64", "v4.0.30319");
   const assemblies = ["mscorlib", "System", "System.Core", "System.Web.Extensions", "Microsoft.CSharp"];
   const refs = assemblies.map(name => "/reference:" + path.join(framework, name + ".dll"));
   execFileSync(path.join(framework, "csc.exe"), ["/noconfig", "/nostdlib+", "/nologo", "/target:winexe", ...refs,
-    "/out:" + path.join(out, "CompletionChannel.exe"), path.join(out, "relay", "CompletionChannel.cs")],
+    "/out:" + path.join(out, member), path.join(out, "relay", path.basename(member, ".exe") + ".cs")],
   { cwd: out, windowsHide: true, timeout: 30000, stdio: "pipe",
     env: { SystemRoot: process.env.SystemRoot, TEMP: out, TMP: out, PATH: path.join(process.env.SystemRoot, "System32") } });
 }
 
-export async function buildWatcherPackage(out, { node, codex, claude, compile = compileChannel, base, baseDigest,
+export async function buildWatcherPackage(out, { node, codex, claude, compile = compileHelper, base, baseDigest,
   changedMember = "relay/completion-broker.mjs" }) {
   if (!path.isAbsolute(out)) throw Error("Expected an absolute package destination");
   const inputs = new Map(sources.map(name => ["relay/" + name, path.join(bridge, name)]));
-  const changed = new Set(changedMember === "schedules" ? scheduleMembers : [changedMember]);
+  const fileMigration = changedMember === "files" || changedMember === "schedules";
+  const changed = new Set(changedMember === "schedules" ? [...scheduleMembers, ...fileAdditions] :
+    changedMember === "files" ? [...fileUpdates, ...fileAdditions] : [changedMember]);
   let priorEntries;
   if (base !== undefined) {
-    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","schedules"].includes(changedMember)) throw Error("Unsupported broker package member");
+    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","schedules","files"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
-    await verifyWatcherPackage(base, baseDigest, { allowLegacy: changedMember === "schedules" });
+    await verifyWatcherPackage(base, baseDigest, { allowLegacy: fileMigration });
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
     if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
     priorEntries = new Map(JSON.parse(bytes).files);
+    if (changedMember === "files" && (!priorEntries.has(addedMember) || priorEntries.has(observationImage))) {
+      throw Error("Expected a schedule-only base package");
+    }
     for (const member of packageFiles) {
       if (!changed.has(member)) inputs.set(member, canonicalFile(base, member));
     }
@@ -136,6 +147,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       const file = path.join(out, member);
       if (fs.existsSync(file)) throw Error("Package member already exists");
       if (!base && member === "CompletionChannel.exe") continue;
+      if (member === observationImage && (!base || fileMigration)) continue;
       if (!base && member === "initial/jobs.sqlite") {
         await initializeCompletionJobs(file);
         created.push(file);
@@ -147,11 +159,11 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
         entries.push([member, hash]);
       }
     }
-    if (!base) {
-      compile(out);
-      const helper = canonicalFile(out, "CompletionChannel.exe");
+    for (const member of (!base ? ["CompletionChannel.exe", observationImage] : fileMigration ? [observationImage] : [])) {
+      compile(out, member);
+      const helper = canonicalFile(out, member);
       created.push(helper);
-      entries.push(["CompletionChannel.exe", await fileHash(helper)]);
+      entries.push([member, await fileHash(helper)]);
     }
     entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
     const output = manifest(entries);
@@ -174,9 +186,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const [mode, out, ...rest] = process.argv.slice(2);
     if (mode === "build" && rest.length === 2) {
       console.log(await buildWatcherPackage(out, { node: process.execPath, codex: rest[0], claude: rest[1] }));
-    } else if (["stage-broker","stage-jobs","stage-schedules"].includes(mode) && rest.length === 2) {
+    } else if (["stage-broker","stage-jobs","stage-schedules","stage-files"].includes(mode) && rest.length === 2) {
       const changedMember = { "stage-broker": "relay/completion-broker.mjs", "stage-jobs": "relay/completion-jobs.mjs",
-        "stage-schedules": "schedules" }[mode];
+        "stage-schedules": "schedules", "stage-files": "files" }[mode];
       console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1], changedMember }));
     } else if (mode === "verify" && rest.length === 1) {
       console.log(await verifyWatcherPackage(out, rest[0]));

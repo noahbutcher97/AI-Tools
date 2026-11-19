@@ -13,7 +13,7 @@ test("watcher package contains a complete protected import closure and an empty 
   const image = path.join(temp, "image");
   fs.writeFileSync(image, "fixture image");
   const out = path.join(temp, "bundle");
-  const compile = dir => fs.copyFileSync(image, path.join(dir, "CompletionChannel.exe"));
+  const compile = (dir, member) => fs.copyFileSync(image, path.join(dir, member));
   const digest = await buildWatcherPackage(out, { node: image, claude: image, codex: image, compile });
   assert.equal(await verifyWatcherPackage(out, digest), digest);
   for (const member of packageFiles.filter(p => p.endsWith(".mjs"))) {
@@ -40,15 +40,23 @@ test("watcher package contains a complete protected import closure and an empty 
   fs.unlinkSync(path.join(out, "relay", "package.json"));
   const legacy = path.join(temp, "legacy");
   fs.cpSync(out, legacy, { recursive: true });
-  fs.unlinkSync(path.join(legacy, "relay", "schedule-watch.mjs"));
+  const additions = ["relay/file-watch.mjs", "relay/FileObservation.cs", "relay/FileObservation.exe"];
+  for (const member of additions) fs.unlinkSync(path.join(legacy, member));
   const old = JSON.parse(fs.readFileSync(path.join(legacy, "package.json"), "utf8"));
+  old.files = old.files.filter(([member]) => !additions.includes(member));
+  const scheduleManifest = JSON.stringify(old);
+  fs.writeFileSync(path.join(legacy, "package.json"), scheduleManifest);
+  assert.equal(await buildWatcherPackage(path.join(temp, "files"), {
+    base: legacy, baseDigest: createHash("sha256").update(scheduleManifest).digest("hex"), changedMember: "files", compile,
+  }), digest);
+  fs.unlinkSync(path.join(legacy, "relay/schedule-watch.mjs"));
   old.files = old.files.filter(([member]) => member !== "relay/schedule-watch.mjs");
   const oldManifest = JSON.stringify(old);
   const oldDigest = createHash("sha256").update(oldManifest).digest("hex");
   fs.writeFileSync(path.join(legacy, "package.json"), oldManifest);
   await assert.rejects(verifyWatcherPackage(legacy, oldDigest));
   assert.equal(await buildWatcherPackage(path.join(temp, "schedules"), {
-    base: legacy, baseDigest: oldDigest, changedMember: "schedules",
+    base: legacy, baseDigest: oldDigest, changedMember: "schedules", compile,
   }), digest);
   fs.writeFileSync(path.join(out,"provider","codex.exe"), "changed");
   await assert.rejects(verifyWatcherPackage(out, digest));

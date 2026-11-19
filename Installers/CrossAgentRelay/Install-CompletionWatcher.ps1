@@ -23,6 +23,8 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $desktopSid = $identity.User.Value
 $members = @('CompletionChannel.exe','runtime/node.exe','provider/claude.exe','provider/codex.exe','initial/jobs.sqlite',
     'relay/CompletionChannel.cs','relay/completion-acl.ps1')
+$fileAdditions = @('relay/FileObservation.cs','relay/FileObservation.exe','relay/file-watch.mjs')
+$members += $fileAdditions
 foreach ($module in @('client','completion-broker','completion-jobs','completion-protocol','completion-session',
     'completion-worker','delivery-protocol','fleet','identity','local-ping','proof','provider-process','run-handoff','schedule-watch','watcher-health')) {
     $members += "relay/$module.mjs"
@@ -65,7 +67,12 @@ function Read-Package([string]$dir,[switch]$AllowLegacy) {
     $meta = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
     $files = @{}
     $expected = $members
-    if ($AllowLegacy -and $meta.files.Count -eq ($members.Count-1)) { $expected = @($members | Where-Object { $_ -cne 'relay/schedule-watch.mjs' }) }
+    if ($AllowLegacy -and $meta.files.Count -in @(($members.Count-3),($members.Count-4))) {
+        $expected = @($expected | Where-Object { $_ -cnotin $fileAdditions })
+    }
+    if ($AllowLegacy -and $meta.files.Count -eq ($expected.Count-1)) {
+        $expected = @($expected | Where-Object { $_ -cne 'relay/schedule-watch.mjs' })
+    }
     if ($meta.v -ne 1 -or $meta.files.Count -ne $expected.Count) { throw 'Unexpected package version or size' }
     foreach ($row in $meta.files) {
         if ($row.Count -ne 2 -or $row[0] -cnotin $expected -or $row[1] -cnotmatch '^[0-9a-f]{64}$' -or

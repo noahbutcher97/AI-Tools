@@ -7,20 +7,22 @@ import { randomUUID } from "node:crypto";
 import { parseArgs } from "./client.mjs";
 import { listenForJobReports, reportJob, startCompletionBroker } from "./completion-broker.mjs";
 import { initializeCompletionJobs, openCompletionJobs } from "./completion-jobs.mjs";
-import { scheduleNotice } from "./completion-protocol.mjs";
+import { changeNotice, scheduleNotice } from "./completion-protocol.mjs";
 import { readScheduleGrant } from "./run-handoff.mjs";
-import { scheduleBinding, validSchedule } from "./schedule-watch.mjs";
+import { fileBinding, scheduleBinding, validFileWatch, validSchedule } from "./schedule-watch.mjs";
 import { subscribeWatch } from "./watch-client.mjs";
 import { readWatcher } from "./watcher-health.mjs";
 
-async function fixture(t) {
+async function fixture(t, fileWatch = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-schedule-"));
   const file = path.join(root, "completion-state", "jobs.sqlite");
   for (const dir of ["completion-state","completion-grants","completion-health"]) fs.mkdirSync(path.join(root, dir));
   await initializeCompletionJobs(file);
   const target = randomUUID(), start = Date.now();
-  const g = { condition: randomUUID(), target, provider: "codex", scope: "thread-schedule",
-    startsAt: new Date(start).toISOString(), expiresAt: new Date(start + 86400000).toISOString(), intervalSeconds: 60 };
+  const common = { condition: randomUUID(), target, provider: "codex", expiresAt: new Date(start + 86400000).toISOString() };
+  const g = fileWatch ? { ...common, scope: "thread-file-change", volume: randomUUID(),
+    directory: "fixture", rootId: "b".repeat(48), file: "item" } : { ...common, scope: "thread-schedule",
+    startsAt: new Date(start).toISOString(), intervalSeconds: 60 };
   const session = { id: target, kind: "codex", addressable: true, pid: null, startedAt: null };
   const handle = "local-proof." + "a".repeat(48);
   const f = { root, file, start, now: start, g, session, handle, policy: [g], sends: 0, proofs: 0,
@@ -28,7 +30,7 @@ async function fixture(t) {
   let listener;
   f.send = async (to, body, options) => {
     assert.equal(to, target);
-    assert.equal(body, scheduleNotice);
+    assert.equal(body, fileWatch ? changeNotice : scheduleNotice);
     assert.equal(options.allowDelegate, false);
     await options.checkTarget(session);
     await options.onHandle(handle, session);
@@ -38,19 +40,104 @@ async function fixture(t) {
   f.restart = async () => {
     await listener?.close();
     f.store?.close();
-    f.store = await openCompletionJobs(file, { now: () => f.now, schedules: { root, policy: () => f.policy },
+    f.store = await openCompletionJobs(file, { now: () => f.now, schedules: { root, policy: () => f.policy,
+      sampleFile: fileWatch ? grant => f.sample(grant) : undefined },
       send: (...args) => f.send(...args), status: async h => { assert.equal(h, handle); f.proofs++; return f.proof; } });
     f.store.watches.provision();
     listener = await listenForJobReports(f.store.acceptFrame, { port: 0 });
   };
   t.after(async () => { await listener?.close(); f.store?.close(); fs.rmSync(root, { recursive: true, force: true }); });
   f.subscribe = (id = g.condition) => subscribeWatch(target, id, { id: target, provider: "codex" }, { root, port: listener.port });
-  f.observe = () => f.store.watches.dispatchDue();
+  f.observe = async () => { await f.store.watches.pollFiles(); return f.store.watches.dispatchDue(); };
   f.rows = () => f.store.watches.subscriptions(f.policy);
   f.report = (grant, op, event) => reportJob(grant, op, event, { port: listener.port });
   await f.restart();
   return f;
 }
+
+test("separately granted file changes coalesce and exhaust one fixed notice across writer resumes", async t => {
+  const f = await fixture(t, true);
+  const other = { ...f.g, condition: randomUUID(), file: "other" };
+  f.policy.push(other);
+  f.store.watches.provision();
+  let opens = 0;
+  let value = "a".repeat(48) + ":" + "0".repeat(16) + ":" + "1".repeat(16);
+  f.sample = () => { opens++; return value; };
+  await f.observe();
+  assert.equal(opens, 0);
+  for (const g of f.policy) assert.equal((await f.subscribe(g.condition)).state, "subscribed");
+  await f.observe();
+  assert.equal(opens, 2);
+  assert.equal(f.sends, 0);
+  await f.restart();
+  f.now += 10000;
+  value = "invalid";
+  await f.observe();
+  assert.equal(f.sends, 0);
+  f.now += 10000;
+  value = "c".repeat(48) + ":" + "0".repeat(16) + ":" + "1".repeat(16);
+  await f.observe();
+  assert.equal(f.sends, 1);
+  assert.deepEqual(f.rows().map(s => s.state), ["observing","observing"]);
+  await f.restart();
+  f.now += 10000;
+  f.proof = { to: f.to, state: "delivered" };
+  await f.observe();
+  assert.deepEqual(f.rows(), []);
+  const observed = opens;
+  await f.restart();
+  assert.equal((await f.subscribe()).ok, true);
+  f.now += 60000;
+  await f.observe();
+  assert.equal(opens, observed);
+  assert.equal(f.sends, 1);
+});
+
+test("a file watch rechecks the resource and target after sampling and rejects clock authority", async t => {
+  const f = await fixture(t, true);
+  for (const patch of [{ directory: ".." }, { file: "part/../item" }, { file: "a:b" }, { file: "item\\other" },
+    { file: "a//b" }, { volume: "other" }, { rootId: "missing" }, { body: "private" }]) {
+    assert.equal(validFileWatch({ ...f.g, ...patch }), false);
+  }
+  const grant = readScheduleGrant(f.root, fileBinding(f.to, f.g.condition), f.to, f.g.condition);
+  await assert.rejects(f.report(grant, "activate_schedule", { session: f.to }));
+  await assert.rejects(f.report(grant, "activate_file", { session: randomUUID() }));
+  await f.subscribe();
+  let opens = 0;
+  const fingerprint = "a".repeat(48) + ":" + "0".repeat(16) + ":" + "1".repeat(16);
+  f.sample = () => { opens++; return fingerprint; };
+  f.policy = [{ ...f.g, file: "changed" }];
+  await f.observe();
+  assert.equal(opens, 0);
+  f.policy = [f.g];
+  await f.observe();
+  assert.equal(opens, 1);
+  f.now += 10000;
+  f.sample = () => { opens++; f.policy = []; return fingerprint.replace(/^a/, "b"); };
+  await f.observe();
+  assert.equal(opens, 2);
+  assert.equal(f.sends, 0);
+  assert.deepEqual(f.rows(), []);
+});
+
+test("confirmed disappearance spends one notice and unavailable storage spends none", async t => {
+  const f = await fixture(t, true);
+  await f.subscribe();
+  f.sample = () => "a".repeat(48) + ":" + "0".repeat(16) + ":" + "1".repeat(16);
+  await f.observe();
+  f.sample = () => { throw Error("unavailable"); };
+  f.now += 10000;
+  await f.observe();
+  assert.equal(f.sends, 0);
+  f.sample = () => "absent";
+  f.now += 10000;
+  await f.observe();
+  assert.equal(f.sends, 1);
+  f.proof = { state: "delivered", to: f.to };
+  f.now += 10000;
+  await f.observe();
+  assert.deepEqual(f.rows(), []);
+});
 
 test("schedule activation sets a baseline and missed ticks share one proved wake across restart", async t => {
   const f = await fixture(t);
@@ -130,24 +217,26 @@ test("schedule worker rechecks policy before submission and keeps interrupted re
   assert.equal(f.proofs, 0);
 });
 
-test("reports-only broker accepts an activation and projects the schedule across restart", async t => {
-  const f = await fixture(t);
-  const record = path.join(f.root, "completion-policy.json");
-  fs.writeFileSync(record, JSON.stringify({ v: 3, grants: [], schedules: [f.g] }));
-  let service;
-  t.after(() => service?.close());
-  const launch = () => startCompletionBroker(f.root, { port: 0, publishHealth: true });
-  service = await launch();
-  const result = await subscribeWatch(f.to, f.g.condition, { provider: "codex", id: f.to }, { root: f.root, port: service.port });
-  assert.equal(result.ok, true);
-  await service.close();
-  service = await launch();
-  const health = readWatcher(f.root);
-  assert.equal(health.state, "reports_only");
-  assert.deepEqual(health.record.subscriptions, [{ id: f.g.condition, target: f.to, condition: "schedule", state: "waiting" }]);
-  await service.close();
-  fs.writeFileSync(record, JSON.stringify({ v: 1, grants: [] }));
-  service = await launch();
-  assert.deepEqual(readWatcher(f.root).record.subscriptions, []);
-  await service.close();
-});
+for (const kind of ["file", "schedule"]) {
+  test("reports-only broker projects an active " + kind + " across restart", async t => {
+    const f = await fixture(t, kind === "file");
+    const record = path.join(f.root, "completion-policy.json");
+    fs.writeFileSync(record, JSON.stringify(kind === "file" ? { v: 4, grants: [], schedules: [], files: [f.g] } : { v: 3, grants: [], schedules: [f.g] }));
+    let service;
+    t.after(() => service?.close());
+    const launch = () => startCompletionBroker(f.root, { port: 0, publishHealth: true, sampleFile: assert.fail });
+    service = await launch();
+    const result = await subscribeWatch(f.to, f.g.condition, { provider: "codex", id: f.to }, { root: f.root, port: service.port });
+    assert.equal(result.ok, true);
+    await service.close();
+    service = await launch();
+    const health = readWatcher(f.root);
+    assert.equal(health.state, "reports_only");
+    assert.deepEqual(health.record.subscriptions, [{ id: f.g.condition, target: f.to, condition: kind, state: "waiting" }]);
+    await service.close();
+    fs.writeFileSync(record, JSON.stringify({ v: 1, grants: [] }));
+    service = await launch();
+    assert.deepEqual(readWatcher(f.root).record.subscriptions, []);
+    await service.close();
+  });
+}

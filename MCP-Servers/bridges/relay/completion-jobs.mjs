@@ -254,7 +254,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
     // protected policy lookup. Sign acknowledgements after the durable write.
     acceptFrame(frame) {
       if (!validJobFrame(frame)) throw new Error("job denied");
-      if (frame.op === "activate_schedule") {
+      if (frame.op === "activate_schedule" || frame.op === "activate_file") {
         if (!watches) throw new Error("schedule unavailable");
         const key = watches.activate(frame, secret => sameMac(frame.mac, jobMac(secret, frame, "request")));
         return { ack: jobMac(key, frame, "ack") };

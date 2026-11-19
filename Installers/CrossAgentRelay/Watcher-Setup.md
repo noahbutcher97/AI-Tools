@@ -65,6 +65,10 @@ Update-CompletionBroker.ps1 -Operation Plan -PreviousPackage <previous-directory
 
 Run the updater beside the reviewed installer from an administrator-controlled directory. Plan checks both manifests, the installed code, task definitions and policy. After approving the new digest, run the same command with `-Operation Apply`. Apply takes the installation lock, checks for empty grants and disabled delivery, swaps the broker module atomically, restarts the scheduled task and verifies its heartbeat before recording the new digest. A startup failure restores the reviewed previous module. A retry reconciles an interrupted journal write. The existing job database, task principals, credentials and provider binaries are preserved.
 
+## File observation upgrade
+
+For an installation with schedule support, stage the file watcher with `watcher-package.mjs stage-files <new-directory> <previous-directory> <previous-digest>`. Run the same updater with `-Component Files` for Plan and Apply. It verifies the compiled metadata helper and its source along with the changed broker modules. The broker needs attribute access to the explicitly granted resource. File grants live in private configuration. The updater leaves filesystem permissions on watched resources alone.
+
 ## Deactivate and retain state
 
 ```text

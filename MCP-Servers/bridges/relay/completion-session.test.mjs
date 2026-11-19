@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { sessionDelivery, serveSession, completionText, frameIO } from "./completion-session.mjs";
 import { installedDelegate, installedQueue } from "./completion-worker.mjs";
-import { scheduleNotice } from "./completion-protocol.mjs";
+import { scheduleNotice, changeNotice } from "./completion-protocol.mjs";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const body = "Job " + id + " ended with exit code 23. No reply is needed.";
@@ -25,26 +25,28 @@ function exchanges(worker) {
   };
 }
 
-test("a schedule worker admits only the fixed body and a raw Codex thread", async () => {
-  let observed = target, submitted = 0, calls = 0;
-  const adapter = sessionDelivery("", exchanges({ status: assert.fail, send: async (to, text, opts) => {
-    calls++;
-    assert.equal(opts.allowDelegate, false);
-    assert.equal(text, scheduleNotice);
-    await opts.checkTarget(observed);
-    await opts.onHandle(handle, observed);
-    submitted++;
-    return { state: "pending" };
-  } }));
-  const options = { checkTarget() {}, onHandle() {} };
-  await assert.rejects(adapter.send(id, scheduleNotice + " extra", options));
-  assert.equal(calls, 0);
-  assert.equal((await adapter.send(id, scheduleNotice, options)).state, "dispatch_failed");
-  assert.equal(submitted, 0);
-  observed = { id, kind: "codex", name: id, pid: null, startedAt: null, addressable: true };
-  assert.equal((await adapter.send(id, scheduleNotice, options)).state, "pending");
-  assert.equal(submitted, 1);
-});
+for (const notice of [scheduleNotice, changeNotice]) {
+  test("worker confines fixed thread notice: " + notice, async () => {
+    let observed = target, submitted = 0, calls = 0;
+    const adapter = sessionDelivery("", exchanges({ status: assert.fail, send: async (to, text, opts) => {
+      calls++;
+      assert.equal(opts.allowDelegate, false);
+      assert.equal(text, notice);
+      await opts.checkTarget(observed);
+      await opts.onHandle(handle, observed);
+      submitted++;
+      return { state: "pending" };
+    } }));
+    const options = { checkTarget() {}, onHandle() {} };
+    await assert.rejects(adapter.send(id, notice + " extra", options));
+    assert.equal(calls, 0);
+    assert.equal((await adapter.send(id, notice, options)).state, "dispatch_failed");
+    assert.equal(submitted, 0);
+    observed = { id, kind: "codex", name: id, pid: null, startedAt: null, addressable: true };
+    assert.equal((await adapter.send(id, notice, options)).state, "pending");
+    assert.equal(submitted, 1);
+  });
+}
 
 test("authenticated worker check performs no provider or transcript operations", async () => {
   const adapter = sessionDelivery("", exchanges({ enabled: () => false, send: assert.fail, status: assert.fail }));

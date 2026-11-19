@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 // The caller supplies a volume GUID and paths from protected policy. Open the
@@ -85,6 +86,10 @@ public static class FileObservation {
                 GC.KeepAlive(parent);
                 if (result == 0 && !handle.IsInvalid) return handle;
                 if (handle != null) handle.Dispose();
+                // Only a missing name beneath the already verified root is an
+                // observation. A missing root, offline volume or ACL failure is unknown.
+                if (!directory && (result == unchecked((int)0xc0000034) ||
+                    result == unchecked((int)0xc000003a) || result == unchecked((int)0xc000000f))) return null;
                 throw new IOException();
             } finally { pinned.Free(); }
         } finally { Marshal.FreeHGlobal(text.Buffer); }
@@ -109,6 +114,7 @@ public static class FileObservation {
         using (var root = OpenRelative(drive, name, true)) {
             if (!String.Equals(Identity(root), rootId, StringComparison.Ordinal)) throw new IOException();
             using (var file = OpenRelative(root, leaf, false)) {
+                if (file == null) return "absent";
                 Information info;
                 if (!GetFileInformationByHandle(file, out info) || info.Links != 1 ||
                     (info.Attributes & (uint)(FileAttributes.ReparsePoint | FileAttributes.Directory | FileAttributes.Device)) != 0)
@@ -117,5 +123,21 @@ public static class FileObservation {
                     Identity(file), info.SizeHigh, info.SizeLow, info.WriteHigh, info.WriteLow);
             }
         }
+    }
+
+    public static int Main(string[] args) {
+        try {
+            if (args.Length != 0) return 1;
+            using (var input = Console.OpenStandardInput()) {
+                var bytes = new byte[8193];
+                int n = 0, take;
+                while (n < bytes.Length && (take = input.Read(bytes, n, bytes.Length - n)) > 0) n += take;
+                if (n == bytes.Length) return 1;
+                string[] parts = new UTF8Encoding(false, true).GetString(bytes, 0, n).Split('\n');
+                if (parts.Length != 4 || parts[2].Length != 48) return 1;
+                Console.Write(Sample(parts[0], parts[1], parts[2], parts[3]));
+                return 0;
+            }
+        } catch { return 1; }
     }
 }

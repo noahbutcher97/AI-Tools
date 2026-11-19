@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { publishRunHandoff } from "./run-handoff.mjs";
-import { scheduleNotice } from "./completion-protocol.mjs";
+import { changeNotice, scheduleNotice } from "./completion-protocol.mjs";
 
 const fields = ["condition", "target", "provider", "scope", "startsAt", "intervalSeconds", "expiresAt"];
 const date = s => typeof s === "string" && /^\d{4}-/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString() === s;
@@ -16,9 +16,29 @@ export function scheduleBinding(target, condition) {
   return digest(JSON.stringify(["schedule-activation-v1", target, condition]));
 }
 
+const fileFields = ["condition", "target", "provider", "scope", "volume", "directory", "rootId", "file", "expiresAt"];
+const fileScope = g => g.scope === "thread-file-change";
+function relativeName(name) {
+  if (typeof name !== "string" || !name.length || name.length > 1024) return false;
+  const parts = name.split("/");
+  return parts.length <= 32 && parts.every(p => p.length && p.length <= 255 && !/[. ]$/.test(p) &&
+    !/[<>:"\\|?*\u0000-\u001f]/.test(p));
+}
+export function validFileWatch(g) {
+  return exactKeys(g, fileFields) && matches(UUID, g.condition) && matches(UUID, g.target) &&
+    g.provider === "codex" && fileScope(g) && matches(/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/, g.volume) &&
+    matches(/^[a-f0-9]{48}$/, g.rootId) && relativeName(g.directory) && relativeName(g.file) && date(g.expiresAt);
+}
+export function fileBinding(target, condition) {
+  return digest(JSON.stringify(["file-change-activation-v1", target, condition]));
+}
+
 export const scheduleTable = `CREATE TABLE IF NOT EXISTS schedule_watches (
   condition TEXT PRIMARY KEY, revision TEXT NOT NULL, token_hash BLOB NOT NULL, pending TEXT, handoff_hash TEXT NOT NULL,
   state TEXT NOT NULL, cursor INTEGER, batch TEXT, handle TEXT, retry_at INTEGER NOT NULL DEFAULT 0
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS file_samples (
+  condition TEXT PRIMARY KEY, baseline TEXT, next_poll INTEGER NOT NULL
 ) WITHOUT ROWID`;
 
 function slot(g, at) {
@@ -27,22 +47,22 @@ function slot(g, at) {
 
 // All destinations, times and disclosure scopes come from the separate policy
 // authority. The database holds cursors and references to that authority.
-export function scheduleWatches(db, transaction, { policy, now, root, send, status }) {
+export function scheduleWatches(db, transaction, { policy, now, root, send, status, sampleFile }) {
   const lookup = db.prepare("SELECT * FROM schedule_watches WHERE condition=?");
   function current() {
     const grants = policy();
-    if (!Array.isArray(grants) || grants.length > 32 || !grants.every(validSchedule) ||
+    if (!Array.isArray(grants) || grants.length > 32 || !grants.every(g => validSchedule(g) || validFileWatch(g)) ||
         new Set(grants.map(g => g.condition)).size !== grants.length) throw new Error("invalid schedule authority");
     return grants.filter(g => Date.parse(g.expiresAt) > now());
   }
-  const revision = g => digest(JSON.stringify(fields.map(key => g[key])));
+  const revision = g => digest(JSON.stringify((fileScope(g) ? fileFields : fields).map(key => g[key])));
   function authorized(g) {
     const row = lookup.get(g.condition);
     return row?.revision === revision(g) ? row : undefined;
   }
   function provision() {
     for (const g of current()) {
-      const binding = scheduleBinding(g.target, g.condition);
+      const binding = (fileScope(g) ? fileBinding : scheduleBinding)(g.target, g.condition);
       const row = transaction(() => {
         const existing = lookup.get(g.condition);
         if (existing) return authorized(g);
@@ -63,19 +83,24 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
     const key = lookup.get(frame.id)?.token_hash;
     if (!key || !authenticate(key)) throw new Error("schedule activation denied");
     return transaction(() => {
-      const g = current().find(g => g.condition === frame.id && g.target === frame.event.session);
+      const g = current().find(g => g.condition === frame.id && g.target === frame.event.session &&
+        (frame.op === "activate_file") === fileScope(g));
       const row = g && authorized(g);
       if (!row || !Buffer.from(row.token_hash).equals(key)) throw new Error("schedule activation denied");
-      if (row.state === "issued") db.prepare("UPDATE schedule_watches SET state='waiting',cursor=? WHERE condition=?")
-        .run(slot(g, now()), g.condition);
+      if (row.state === "issued") {
+        if (fileScope(g)) db.prepare("INSERT INTO file_samples(condition,next_poll) VALUES(?,0)").run(g.condition);
+        db.prepare("UPDATE schedule_watches SET state='waiting',cursor=? WHERE condition=?")
+          .run(fileScope(g) ? -1 : slot(g, now()), g.condition);
+      }
       return row.token_hash;
     });
   }
   function subscriptions(grants) {
     return grants.filter(g => Date.parse(g.expiresAt) > now()).flatMap(g => {
       const row = authorized(g);
-      if (!row || row.state === "issued") return [];
-      return [{ id: g.condition, target: g.target, condition: "schedule", state: row.state === "dispatching" ? "unknown" : row.state }];
+      if (!row || ["issued","delivered"].includes(row.state)) return [];
+      return [{ id: g.condition, target: g.target, condition: fileScope(g) ? "file" : "schedule",
+        state: row.state === "dispatching" ? "unknown" : row.state }];
     });
   }
   function reserve() {
@@ -85,13 +110,15 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
     // tick cannot trigger another wake while the first outcome is unknown.
     const outstanding = new Set(candidates.filter(x => ["dispatching", "observing"].includes(x.row.state)).map(x => x.g.target));
     const due = candidates.filter(({ g, row }) => row.retry_at <= stamp && (row.state === "observing" ||
-      (!outstanding.has(g.target) && row.state === "waiting" && slot(g, stamp) > row.cursor)));
+      (!outstanding.has(g.target) && (fileScope(g) ? row.state === "ready" :
+        row.state === "waiting" && slot(g, stamp) > row.cursor))));
     if (!due.length) return null;
     due.sort((a,b) => a.row.retry_at - b.row.retry_at || a.g.condition.localeCompare(b.g.condition));
     const { g, row } = due[0];
     const proving = row.state === "observing";
     const batch = proving ? row.batch : randomUUID();
-    const members = due.filter(x => x.g.target === g.target && x.row.state === row.state && (!proving || x.row.batch === batch));
+    const members = due.filter(x => x.g.target === g.target && fileScope(x.g) === fileScope(g) &&
+      x.row.state === row.state && (!proving || x.row.batch === batch));
     for (const m of members) {
       db.prepare("UPDATE schedule_watches SET state=?,batch=?,retry_at=? WHERE condition=?")
         .run(proving ? "observing" : "dispatching", batch, stamp + 10000, m.g.condition);
@@ -117,8 +144,8 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
       const proof = await status(handle, { signal });
       if (proof.state === "delivered" && proof.to === target) transaction(() => {
         recheck("observing");
-        for (const { g } of members) db.prepare("UPDATE schedule_watches SET state='waiting',cursor=max(cursor,?),batch=NULL,handle=NULL WHERE condition=?")
-          .run(slot(g, now()), g.condition);
+        for (const { g } of members) db.prepare("UPDATE schedule_watches SET state=?,cursor=max(cursor,?),batch=NULL,handle=NULL WHERE condition=?")
+          .run(fileScope(g) ? "delivered" : "waiting", fileScope(g) ? 0 : slot(g, now()), g.condition);
       });
       return true;
     }
@@ -126,18 +153,47 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
       if (t.id !== target || t.kind !== "codex" || t.addressable !== true || t.pid !== null || t.startedAt !== null) throw new Error("schedule target changed");
       recheck("dispatching");
     }
-    const result = await send(target, scheduleNotice, { allowDelegate: false, deferProof: true, signal, checkTarget,
+    const isFile = fileScope(members[0].g);
+    const result = await send(target, isFile ? changeNotice : scheduleNotice, { allowDelegate: false, deferProof: true, signal, checkTarget,
       onHandle(h, t) {
         transaction(() => {
           checkTarget(t);
           if (!matches(/^local-proof\.[A-Za-z0-9_-]{39,8180}$/, h)) throw new Error("invalid schedule proof");
           for (const { g } of members) db.prepare("UPDATE schedule_watches SET state='observing',handle=?,cursor=max(cursor,?) WHERE condition=?")
-            .run(h, slot(g, work.observedAt), g.condition);
+            .run(h, isFile ? 0 : slot(g, work.observedAt), g.condition);
         });
       },
     });
-    if (result.state === "dispatch_failed") db.prepare("UPDATE schedule_watches SET state='waiting',batch=NULL WHERE batch=? AND state='dispatching'").run(batch);
+    if (result.state === "dispatch_failed") db.prepare("UPDATE schedule_watches SET state=?,batch=NULL WHERE batch=? AND state='dispatching'")
+      .run(isFile ? "ready" : "waiting", batch);
     return true;
   }
-  return { provision, activate, subscriptions, dispatchDue };
+  async function pollFiles(signal) {
+    if (!sampleFile || signal?.aborted) return;
+    const read = db.prepare("SELECT baseline,next_poll FROM file_samples WHERE condition=?");
+    for (const g of current().filter(fileScope)) {
+      function canObserve() {
+        signal?.throwIfAborted();
+        return current().some(fresh => fresh.condition === g.condition && revision(fresh) === revision(g)) &&
+          authorized(g)?.state === "waiting";
+      }
+      if (!canObserve()) continue;
+      const row = read.get(g.condition);
+      if (!row || row.next_poll > now()) continue;
+      const deadline = now() + 10000;
+      if (!db.prepare("UPDATE file_samples SET next_poll=? WHERE condition=? AND next_poll=?")
+        .run(deadline, g.condition, row.next_poll).changes) continue;
+      if (!canObserve()) continue;
+      let sample;
+      try { sample = await sampleFile(g, signal); } catch { continue; }
+      if (sample !== "absent" && !matches(/^[a-f0-9]{48}:[a-f0-9]{16}:[a-f0-9]{16}$/, sample)) continue;
+      transaction(() => {
+        if (!canObserve() || read.get(g.condition)?.next_poll !== deadline) return;
+        const hash = digest(sample);
+        if (row.baseline === null) db.prepare("UPDATE file_samples SET baseline=? WHERE condition=?").run(hash, g.condition);
+        else if (row.baseline !== hash) db.prepare("UPDATE schedule_watches SET state='ready' WHERE condition=?").run(g.condition);
+      });
+    }
+  }
+  return { provision, activate, subscriptions, dispatchDue, pollFiles };
 }

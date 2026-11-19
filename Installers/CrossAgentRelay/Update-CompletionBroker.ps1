@@ -4,7 +4,7 @@ param(
     [ValidateSet('Plan','Apply')][string]$Operation = 'Plan',
     [string]$PreviousPackage, [string]$PreviousDigest,
     [string]$NextPackage, [string]$NextDigest,
-    [ValidateSet('Broker','Jobs','Schedules')][string]$Component = 'Broker'
+    [ValidateSet('Broker','Jobs','Schedules','Files')][string]$Component = 'Broker'
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
@@ -16,10 +16,21 @@ function Get-ReviewedHashes($dir,$PackageDigest,[switch]$AllowLegacy) {
 }
 
 function Assert-BrokerDelta($previous,$next) {
+    if ($Component -eq 'Files') {
+        $allowed = @('completion-broker','completion-jobs','completion-protocol','completion-session','schedule-watch','watcher-health') | ForEach-Object { "relay/$_.mjs" }
+        foreach ($member in $fileAdditions) {
+            if ($previous.ContainsKey($member) -or !$next.ContainsKey($member)) { throw 'Expected the first file watch package migration' }
+        }
+        if (!$previous.ContainsKey('relay/schedule-watch.mjs')) { throw 'Expected a schedule package' }
+        foreach ($member in $members) {
+            if ($member -cnotin $fileAdditions -and $member -cnotin $allowed -and $previous[$member] -ne $next[$member]) { throw 'Unexpected file watch package change' }
+        }
+        return
+    }
     if ($Component -eq 'Schedules') {
         $allowed = @('client','completion-broker','completion-jobs','completion-protocol','completion-session','run-handoff','schedule-watch','watcher-health') | ForEach-Object { "relay/$_.mjs" }
         foreach ($member in $members) {
-            if ($member -cnotin $allowed -and $previous[$member] -ne $next[$member]) { throw 'Unexpected schedule package change' }
+            if ($member -cnotin $allowed -and $member -cnotin $fileAdditions -and $previous[$member] -ne $next[$member]) { throw 'Unexpected schedule package change' }
         }
         if ($previous.ContainsKey('relay/schedule-watch.mjs') -or !$next.ContainsKey('relay/schedule-watch.mjs')) {
             throw 'Expected the first schedule package migration'
@@ -79,8 +90,9 @@ function Assert-ModuleTree($directory,$hashes) {
 
 function Update-ScheduleModules($previous,$next,$record) {
     $live = Join-Path $root 'relay'
-    $stage = Join-Path $root ('schedule-stage-'+$NextDigest)
-    $backup = Join-Path $root ('schedule-previous-'+$PreviousDigest)
+    $kind = if ($Component -eq 'Files') { 'file' } else { 'schedule' }
+    $stage = Join-Path $root ($kind+'-stage-'+$NextDigest)
+    $backup = Join-Path $root ($kind+'-previous-'+$PreviousDigest)
     foreach ($dir in @($live,$stage,$backup)) {
         if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($dir)) -ne [IO.Path]::GetFullPath($root)) { throw 'Invalid module directory' }
         if (Test-Path -LiteralPath $dir) { Assert-Protected $dir }
@@ -94,7 +106,7 @@ function Update-ScheduleModules($previous,$next,$record) {
         else { Assert-ModuleTree $live $previous }
     }
     if ($Operation -eq 'Plan') {
-        [pscustomobject]@{previous=$PreviousDigest;next=$NextDigest;changed='schedule modules';delivery='reports_only'} | ConvertTo-Json -Compress
+        [pscustomobject]@{previous=$PreviousDigest;next=$NextDigest;changed=($kind+' modules');delivery='reports_only'} | ConvertTo-Json -Compress
         return
     }
     if (!$saved -or !$active) {
@@ -129,7 +141,7 @@ function Update-ScheduleModules($previous,$next,$record) {
         Save-Record $record
         throw
     }
-    'Schedule modules verified in reports-only mode.'
+    "$kind watch modules verified in reports-only mode."
 }
 
 function Invoke-BrokerUpdate($previous,$next) {
@@ -152,7 +164,7 @@ function Invoke-BrokerUpdate($previous,$next) {
     }
     foreach ($member in $members) {
         if ($member -eq 'initial/jobs.sqlite') { continue }
-        if ($Component -eq 'Schedules' -and $member.StartsWith('relay/')) { continue }
+        if ($Component -in @('Files','Schedules') -and $member.StartsWith('relay/')) { continue }
         $file = Join-Path $root $member
         Assert-Protected $file
         $hash = (Get-FileHash $file).Hash
@@ -161,7 +173,7 @@ function Invoke-BrokerUpdate($previous,$next) {
             if ($current -notin @($previous[$member],$next[$member])) { throw 'Unrecognized installed broker' }
         } elseif ($hash -ne $previous[$member]) { throw 'Installed package member differs' }
     }
-    if ($Component -eq 'Schedules') {
+    if ($Component -in @('Files','Schedules')) {
         Update-ScheduleModules $previous $next $record
         return
     }
@@ -190,7 +202,7 @@ function Invoke-BrokerUpdate($previous,$next) {
 
 if ($MyInvocation.InvocationName -eq '.') { return }
 if ($PSVersionTable.PSEdition -ne 'Desktop' -or ![Environment]::Is64BitProcess) { throw 'Use 64-bit Windows PowerShell' }
-$previous = Get-ReviewedHashes $PreviousPackage $PreviousDigest -AllowLegacy:($Component -eq 'Schedules')
+$previous = Get-ReviewedHashes $PreviousPackage $PreviousDigest -AllowLegacy:($Component -in @('Files','Schedules'))
 $next = Get-ReviewedHashes $NextPackage $NextDigest
 Assert-BrokerDelta $previous $next
 $scheduler = New-Object -ComObject Schedule.Service

@@ -11,7 +11,8 @@ import { sessionDelivery } from "./completion-session.mjs";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { writeHeartbeat } from "./watcher-health.mjs";
 import { publishRunHandoff } from "./run-handoff.mjs";
-import { validSchedule } from "./schedule-watch.mjs";
+import { validFileWatch, validSchedule } from "./schedule-watch.mjs";
+import { sampleInstalledFile } from "./file-watch.mjs";
 
 const PORT = 44197;
 const MAX_BYTES = 768;
@@ -119,8 +120,9 @@ function readJobPolicy(root, includeRevision = false) {
     if (includeRevision) revision = digest(contents);
   } finally { fs.closeSync(fd); }
   const automatic = policy?.v === 2;
-  const scheduled = policy?.v === 3;
-  if (scheduled && !(exactKeys(policy, ["v","grants","schedules"]) && Array.isArray(policy.schedules) &&
+  const hasFiles = policy?.v === 4;
+  const scheduled = policy?.v === 3 || hasFiles;
+  if (scheduled && !(exactKeys(policy, hasFiles ? ["v","grants","schedules","files"] : ["v","grants","schedules"]) && Array.isArray(policy.schedules) &&
       policy.schedules.length <= 32 && policy.schedules.every(validSchedule) &&
       new Set(policy.schedules.map(g => g.condition)).size === policy.schedules.length)) throw new Error("invalid schedule policy");
   const valid = (automatic ? exactKeys(policy, ["v", "grants", "startupRun"]) :
@@ -131,7 +133,16 @@ function readJobPolicy(root, includeRevision = false) {
     ));
   if (!valid) throw new Error("invalid job policy");
   const grants = policy.grants.map(g => g.provider === "codex" ? { ...g, instance: threadStatusBinding(g.id) } : g);
-  if (!automatic) return { grants, startup: null, schedules: scheduled ? policy.schedules : [], revision };
+  if (!automatic) {
+    let schedules = scheduled ? policy.schedules : [];
+    if (hasFiles) {
+      if (!Array.isArray(policy.files) || policy.files.length + schedules.length > 32 ||
+          !policy.files.every(validFileWatch)) throw new Error("invalid file authority");
+      schedules = [...schedules, ...policy.files];
+      if (new Set(schedules.map(g => g.condition)).size !== schedules.length) throw new Error("ambiguous condition");
+    }
+    return { grants, startup: null, schedules, revision };
+  }
   const startup = policy.startupRun;
   if (!exactKeys(startup, ["id", "expiresAt"]) || !matches(UUID, startup.id) ||
       typeof startup.expiresAt !== "string" || !Number.isFinite(Date.parse(startup.expiresAt)) ||
@@ -180,7 +191,7 @@ export async function provisionRun(root, session, count, expiry) {
   } finally { store.close(); }
 }
 
-export async function startCompletionBroker(root, { port, delivery, publishHealth = false } = {}) {
+export async function startCompletionBroker(root, { port, delivery, publishHealth = false, sampleFile = sampleInstalledFile } = {}) {
   // Only the trusted process launcher supplies these adapters. The production
   // broker account must never fall back to spawning a provider in its profile.
   if (delivery !== undefined && (typeof delivery?.send !== "function" || typeof delivery.status !== "function")) {
@@ -189,7 +200,7 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
   const unavailable = () => { throw new Error("session-profile delivery unavailable"); };
   const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
     send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
-    schedules: { root, policy: () => readJobPolicy(root).schedules },
+    schedules: { root, policy: () => readJobPolicy(root).schedules, sampleFile: (g, signal) => sampleFile(root, g, signal) },
   });
   let listener;
   try {
@@ -230,6 +241,8 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
       let worked = false;
       try { worked = await store.dispatchDue(signal); }
       catch { /* A reserved dispatch stays uncertain; other jobs still run. */ }
+      try { await store.watches.pollFiles(signal); }
+      catch { /* Unavailable authority or filesystem observations cannot produce a change. */ }
       try { worked = await store.watches.dispatchDue(signal) || worked; }
       catch { /* The next check uses the saved cursor and any original proof handle. */ }
       try { await delay(worked ? 0 : 500, undefined, { signal }); } catch { return; }
