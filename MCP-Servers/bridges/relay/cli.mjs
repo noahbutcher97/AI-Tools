@@ -19,6 +19,7 @@
 
 import { discoverTargets, formatTargets, parseArgs, sendMessage } from "./client.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
+import { receive } from "./receive.mjs";
 
 // node:sqlite is experimental and announces itself on every load. The warning
 // is noise here and would be noise in a bridge log, so it is filtered while
@@ -30,6 +31,12 @@ process.on("warning", (warning) => {
 });
 
 async function main() {
+  if (process.argv[2] === "receive") {
+    const result = await receive(process.argv.slice(3), process.env.SSH_ORIGINAL_COMMAND, process.stdin);
+    console.log(JSON.stringify(result));
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
   let options;
   try {
     options = parseArgs(process.argv.slice(2));
