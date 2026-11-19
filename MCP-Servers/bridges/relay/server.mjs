@@ -34,7 +34,7 @@ const server = new McpServer({ name: "relay-bridge", version: "0.1.0" });
 
 server.tool(
   "relay_watch",
-  "Activate an owner-granted local schedule or file watch for the calling Codex thread.",
+  "Activate an owner-granted schedule, file or branch watch for the calling Codex thread.",
   { target: z.string().uuid(), condition: z.string().uuid() },
   { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ target, condition }, extra) => {

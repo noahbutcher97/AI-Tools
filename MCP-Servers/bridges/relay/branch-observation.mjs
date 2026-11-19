@@ -1,4 +1,6 @@
 import path from "node:path";
+import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { runProvider } from "./provider-process.mjs";
 
 // A protected machine profile supplies the installed Git image, its helper
@@ -34,4 +36,36 @@ export async function sampleAnonymousBranch(profile, endpoint, ref, signal, run 
     if (!match || match[0] !== stdout || match[2] !== ref) throw Error();
     return match[1];
   } catch { throw Error("branch observation unavailable"); }
+}
+
+// Setup validates ownership and denies writes by desktop sessions throughout
+// the executable search directories. Recheck the live administrative pins so
+// profile removal and a provider update take effect on the next observation.
+async function verifyGitPins(root, profile, signal) {
+  const files = [[path.join(root, "completion-git.json"), profile.profileHash, 1024],
+    [profile.image, profile.imageHash, 64 << 20], [path.join(profile.execPath, "git-remote-https.exe"), profile.transportHash, 64 << 20]];
+  for (const [file, expected, limit] of files) {
+    signal?.throwIfAborted();
+    if (typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) throw Error("branch observation unavailable");
+    const handle = await fs.promises.open(file, "r");
+    try {
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.size < 1 || stat.size > limit) throw Error("branch observation unavailable");
+      const hash = createHash("sha256");
+      let size = 0;
+      for await (const chunk of handle.createReadStream({ autoClose: false, signal })) {
+        size += chunk.length;
+        if (size > stat.size) throw Error("branch observation unavailable");
+        hash.update(chunk);
+      }
+      if (size !== stat.size || hash.digest("hex") !== expected) throw Error("branch observation unavailable");
+    } finally { await handle.close(); }
+  }
+}
+
+export async function sampleInstalledBranch(root, profile, grant, signal, run = runProvider) {
+  if (!profile || grant.credential !== null || !validBranchResource(grant.endpoint, grant.ref)) throw Error("branch observation unavailable");
+  try { await verifyGitPins(root, profile, signal); }
+  catch { throw Error("branch observation unavailable"); }
+  return sampleAnonymousBranch(profile, grant.endpoint, grant.ref, signal, run);
 }

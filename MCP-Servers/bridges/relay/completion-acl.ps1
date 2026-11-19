@@ -48,6 +48,38 @@ function Assert-GrantDirectory {
     }
 }
 
+function Get-BranchGit($root,$admin) {
+    $profile = Join-Path $root 'completion-git.json'
+    if (![IO.File]::Exists($profile)) { return $null }
+    Assert-BrokerAcl $profile $admin
+    if ((Get-Item -LiteralPath $profile).Length -gt 1024) { throw 'Invalid Git profile' }
+    $policy = Get-Content -LiteralPath $profile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($policy.v -ne 1 -or $policy.edition -cnotin @('mingw64','ucrt64') -or
+        $policy.imageHash -cnotmatch '^[a-f0-9]{64}$' -or $policy.transportHash -cnotmatch '^[a-f0-9]{64}$' -or
+        @($policy.PSObject.Properties).Count -ne 4) { throw 'Invalid Git profile' }
+    $programs = [Environment]::GetFolderPath('ProgramFiles')
+    $git = Join-Path $programs 'Git'
+    $runtime = Join-Path $git $policy.edition
+    $bin = Join-Path $runtime 'bin'
+    $exec = Join-Path $runtime 'libexec/git-core'
+    $cwd = Join-Path $root 'worker-cwd'
+    foreach ($dir in @($programs,$git,$runtime,$bin,(Join-Path $runtime 'libexec'),$exec,$cwd)) {
+        Assert-BrokerAcl $dir $admin
+    }
+    if (@(Get-ChildItem -LiteralPath $cwd -Force).Count) { throw 'Unexpected Git working directory' }
+    foreach ($dir in @($bin,$exec)) {
+        foreach ($item in Get-ChildItem -LiteralPath $dir -File -Force) {
+            if ($item.Extension -in @('.dll','.exe','.config','.manifest')) { Assert-BrokerAcl $item.FullName $admin }
+        }
+    }
+    $image = Join-Path $bin 'git.exe'
+    $transport = Join-Path $exec 'git-remote-https.exe'
+    if ((Get-FileHash -LiteralPath $image).Hash -ine $policy.imageHash -or
+        (Get-FileHash -LiteralPath $transport).Hash -ine $policy.transportHash) { throw 'Git installation changed' }
+    return @{image=$image;execPath=$exec;cwd=$cwd;windows=[Environment]::GetFolderPath('Windows');
+        profileHash=(Get-FileHash -LiteralPath $profile).Hash.ToLowerInvariant();imageHash=$policy.imageHash;transportHash=$policy.transportHash}
+}
+
 function Get-CompletionRoot {
     $root = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'CrossAgentRelay'
     $admin = @('S-1-5-18', 'S-1-5-32-544',
@@ -108,7 +140,11 @@ function Get-CompletionRoot {
         if ($agentSid.Value -notmatch '^S-1-5-21-(\d+-){3}\d+$') { throw 'Expected a session account SID' }
         Assert-GrantDirectory $grantPath $trusted $agentSid.Value
     }
-    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health; handoff=$handoff} | ConvertTo-Json -Compress
+    $git = $null
+    if ($installed) {
+        try { $git = Get-BranchGit $root $admin } catch { $git = $null }
+    }
+    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health; handoff=$handoff;git=$git} | ConvertTo-Json -Compress
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

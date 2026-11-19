@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sampleAnonymousBranch, validBranchResource } from "./branch-observation.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { createHash } from "node:crypto";
+import { sampleAnonymousBranch, sampleInstalledBranch, validBranchResource } from "./branch-observation.mjs";
 
 const endpoint = "https://" + ["fixture","invalid"].join(".") + "/fixture/repo";
 const ref = "refs/heads/fixture";
@@ -43,4 +47,29 @@ test("only a successful exact ref result exposes a revision", async () => {
     await assert.rejects(sampleAnonymousBranch(profile, endpoint, ref, undefined, async () => ({ code, stdout })),
       { message: "branch observation unavailable" });
   }
+});
+
+test("removed machine approval or a replaced HTTPS transport prevents a Git launch", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-ref-"));
+  const files = ["completion-git.json","git.exe","git-remote-https.exe"].map(name => path.join(root,name));
+  t.after(() => { for (const file of files) fs.rmSync(file, { force: true }); fs.rmdirSync(root); });
+  for (const file of files) fs.writeFileSync(file,"fixture");
+  const hash = createHash("sha256").update("fixture").digest("hex");
+  const installed = { ...profile, image: files[1], execPath: root, profileHash: hash, imageHash: hash, transportHash: hash };
+  const grant = { endpoint, ref, credential: null };
+  let launches = 0;
+  const run = async () => { launches++; return { code: 0, stdout: revision + "\t" + ref + "\n" }; };
+  if (process.platform === "win32") {
+    assert.equal(await sampleInstalledBranch(root, installed, grant, undefined, run), revision);
+    assert.equal(launches, 1);
+  }
+  launches = 0;
+  for (const file of files) {
+    fs.writeFileSync(file, "changed");
+    await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, run), { message: "branch observation unavailable" });
+    fs.writeFileSync(file, "fixture");
+  }
+  fs.unlinkSync(files[0]);
+  await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, run), { message: "branch observation unavailable" });
+  assert.equal(launches, 0);
 });

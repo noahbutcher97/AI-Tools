@@ -25,6 +25,8 @@ $members = @('CompletionChannel.exe','runtime/node.exe','provider/claude.exe','p
     'relay/CompletionChannel.cs','relay/completion-acl.ps1')
 $fileAdditions = @('relay/FileObservation.cs','relay/FileObservation.exe','relay/file-watch.mjs')
 $members += $fileAdditions
+$branchModule = 'relay/branch-observation.mjs'
+$members += $branchModule
 foreach ($module in @('client','completion-broker','completion-jobs','completion-protocol','completion-session',
     'completion-worker','delivery-protocol','fleet','identity','local-ping','proof','provider-process','run-handoff','schedule-watch','watcher-health')) {
     $members += "relay/$module.mjs"
@@ -67,11 +69,11 @@ function Read-Package([string]$dir,[switch]$AllowLegacy) {
     $meta = [Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json
     $files = @{}
     $expected = $members
-    if ($AllowLegacy -and $meta.files.Count -in @(($members.Count-3),($members.Count-4))) {
-        $expected = @($expected | Where-Object { $_ -cnotin $fileAdditions })
-    }
-    if ($AllowLegacy -and $meta.files.Count -eq ($expected.Count-1)) {
-        $expected = @($expected | Where-Object { $_ -cne 'relay/schedule-watch.mjs' })
+    if ($AllowLegacy) {
+        $listed = @($meta.files | ForEach-Object { $_[0] })
+        if ($branchModule -cnotin $listed) { $expected = @($expected | Where-Object { $_ -cne $branchModule }) }
+        if ('relay/FileObservation.exe' -cnotin $listed) { $expected = @($expected | Where-Object { $_ -cnotin $fileAdditions }) }
+        if ('relay/schedule-watch.mjs' -cnotin $listed) { $expected = @($expected | Where-Object { $_ -cne 'relay/schedule-watch.mjs' }) }
     }
     if ($meta.v -ne 1 -or $meta.files.Count -ne $expected.Count) { throw 'Unexpected package version or size' }
     foreach ($row in $meta.files) {

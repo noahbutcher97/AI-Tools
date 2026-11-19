@@ -40,9 +40,16 @@ test("watcher package contains a complete protected import closure and an empty 
   fs.unlinkSync(path.join(out, "relay", "package.json"));
   const legacy = path.join(temp, "legacy");
   fs.cpSync(out, legacy, { recursive: true });
+  fs.unlinkSync(path.join(legacy, "relay/branch-observation.mjs"));
+  const old = JSON.parse(fs.readFileSync(path.join(legacy, "package.json"), "utf8"));
+  old.files = old.files.filter(([member]) => member !== "relay/branch-observation.mjs");
+  const fileManifest = JSON.stringify(old);
+  fs.writeFileSync(path.join(legacy, "package.json"), fileManifest);
+  assert.equal(await buildWatcherPackage(path.join(temp, "branches"), {
+    base: legacy, baseDigest: createHash("sha256").update(fileManifest).digest("hex"), changedMember: "branches",
+  }), digest);
   const additions = ["relay/file-watch.mjs", "relay/FileObservation.cs", "relay/FileObservation.exe"];
   for (const member of additions) fs.unlinkSync(path.join(legacy, member));
-  const old = JSON.parse(fs.readFileSync(path.join(legacy, "package.json"), "utf8"));
   old.files = old.files.filter(([member]) => !additions.includes(member));
   const scheduleManifest = JSON.stringify(old);
   fs.writeFileSync(path.join(legacy, "package.json"), scheduleManifest);

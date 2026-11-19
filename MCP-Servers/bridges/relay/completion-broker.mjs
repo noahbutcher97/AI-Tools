@@ -11,7 +11,8 @@ import { sessionDelivery } from "./completion-session.mjs";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { writeHeartbeat } from "./watcher-health.mjs";
 import { publishRunHandoff } from "./run-handoff.mjs";
-import { validFileWatch, validSchedule } from "./schedule-watch.mjs";
+import { validBranchWatch, validFileWatch, validSchedule } from "./schedule-watch.mjs";
+import { sampleInstalledBranch } from "./branch-observation.mjs";
 import { sampleInstalledFile } from "./file-watch.mjs";
 
 const PORT = 44197;
@@ -120,9 +121,13 @@ function readJobPolicy(root, includeRevision = false) {
     if (includeRevision) revision = digest(contents);
   } finally { fs.closeSync(fd); }
   const automatic = policy?.v === 2;
-  const hasFiles = policy?.v === 4;
+  const hasBranches = policy?.v === 5;
+  const hasFiles = policy?.v === 4 || hasBranches;
   const scheduled = policy?.v === 3 || hasFiles;
-  if (scheduled && !(exactKeys(policy, hasFiles ? ["v","grants","schedules","files"] : ["v","grants","schedules"]) && Array.isArray(policy.schedules) &&
+  const watchKeys = ["v","grants","schedules"];
+  if (hasFiles) watchKeys.push("files");
+  if (hasBranches) watchKeys.push("branches");
+  if (scheduled && !(exactKeys(policy, watchKeys) && Array.isArray(policy.schedules) &&
       policy.schedules.length <= 32 && policy.schedules.every(validSchedule) &&
       new Set(policy.schedules.map(g => g.condition)).size === policy.schedules.length)) throw new Error("invalid schedule policy");
   const valid = (automatic ? exactKeys(policy, ["v", "grants", "startupRun"]) :
@@ -139,8 +144,13 @@ function readJobPolicy(root, includeRevision = false) {
       if (!Array.isArray(policy.files) || policy.files.length + schedules.length > 32 ||
           !policy.files.every(validFileWatch)) throw new Error("invalid file authority");
       schedules = [...schedules, ...policy.files];
-      if (new Set(schedules.map(g => g.condition)).size !== schedules.length) throw new Error("ambiguous condition");
     }
+    if (hasBranches) {
+      if (!Array.isArray(policy.branches) || policy.branches.length + schedules.length > 32 ||
+          !policy.branches.every(validBranchWatch)) throw new Error("invalid branch authority");
+      schedules = [...schedules, ...policy.branches];
+    }
+    if (new Set(schedules.map(g => g.condition)).size !== schedules.length) throw new Error("ambiguous condition");
     return { grants, startup: null, schedules, revision };
   }
   const startup = policy.startupRun;
@@ -192,7 +202,7 @@ export async function provisionRun(root, session, count, expiry) {
 }
 
 export async function startCompletionBroker(root, { port, delivery, publishHealth = false,
-  sampleFile = sampleInstalledFile, listenerWaitMs = 0 } = {}) {
+  sampleFile = sampleInstalledFile, sampleBranch, listenerWaitMs = 0 } = {}) {
   // Only the trusted process launcher supplies these adapters. The production
   // broker account must never fall back to spawning a provider in its profile.
   if (!Number.isInteger(listenerWaitMs) || listenerWaitMs < 0 || listenerWaitMs > 15000) throw new Error("invalid listener deadline");
@@ -222,7 +232,7 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
     startupStage = 23;
     store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
       send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
-      schedules: { root, policy: () => readJobPolicy(root).schedules, sampleFile: (g, signal) => sampleFile(root, g, signal) },
+      schedules: { root, policy: () => readJobPolicy(root).schedules, sampleFile: (g, signal) => sampleFile(root, g, signal), sampleBranch },
     });
     startupStage = 25;
     const { startup, grants } = readJobPolicy(root);
@@ -264,7 +274,7 @@ export async function startCompletionBroker(root, { port, delivery, publishHealt
       let worked = false;
       try { worked = await store.dispatchDue(signal); }
       catch { /* A reserved dispatch stays uncertain; other jobs still run. */ }
-      try { await store.watches.pollFiles(signal); }
+      try { await store.watches.pollChanges(signal); }
       catch { /* Unavailable authority or filesystem observations cannot produce a change. */ }
       try { worked = await store.watches.dispatchDue(signal) || worked; }
       catch { /* The next check uses the saved cursor and any original proof handle. */ }
@@ -310,7 +320,8 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       console.log("Authenticated desktop worker ready.");
     } else {
       const delivery = checked.enabled === true ? sessionDelivery(checked.root) : undefined;
-      const broker = await startCompletionBroker(checked.root, { delivery, publishHealth: checked.health === true, listenerWaitMs: 15000 });
+      const sampleBranch = checked.git ? (g, signal) => sampleInstalledBranch(checked.root, checked.git, g, signal) : undefined;
+      const broker = await startCompletionBroker(checked.root, { delivery, sampleBranch, publishHealth: checked.health === true, listenerWaitMs: 15000 });
       for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
     }
   } catch (error) {

@@ -12,12 +12,14 @@ import { initializeCompletionJobs } from "../../MCP-Servers/bridges/relay/comple
 const modules = [
   "client", "completion-broker", "completion-jobs", "completion-protocol", "completion-session",
   "completion-worker", "delivery-protocol", "fleet", "identity", "local-ping", "proof",
-  "provider-process", "run-handoff", "schedule-watch", "watcher-health", "file-watch",
+  "provider-process", "run-handoff", "schedule-watch", "watcher-health", "file-watch", "branch-observation",
 ];
 const bridge = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/", import.meta.url));
 const sources = [...modules.map(name => name + ".mjs"), "completion-acl.ps1", "CompletionChannel.cs", "FileObservation.cs"];
 const observationImage = "relay/FileObservation.exe";
 const fileAdditions = [observationImage, "relay/FileObservation.cs", "relay/file-watch.mjs"];
+const branchModule = "relay/branch-observation.mjs";
+const branchChanges = [branchModule, "relay/completion-acl.ps1"];
 export const packageFiles = Object.freeze([
   ...sources.map(name => "relay/" + name),
   "CompletionChannel.exe", observationImage, "runtime/node.exe", "provider/codex.exe", "provider/claude.exe", "initial/jobs.sqlite",
@@ -71,6 +73,7 @@ export async function verifyWatcherPackage(root, expected, { allowLegacy = false
   if (!/^[a-f0-9]{64}$/.test(expected)) throw Error("Invalid package digest");
   const members = packageFiles.filter(m => !(allowLegacy &&
     ((!fs.existsSync(path.join(root, addedMember)) && m === addedMember) ||
+     (!fs.existsSync(path.join(root, branchModule)) && m === branchModule) ||
      (!fs.existsSync(path.join(root, observationImage)) && fileAdditions.includes(m)))));
   for (const dir of ["", "relay", "runtime", "provider", "initial"]) {
     const prefix = dir ? dir + "/" : "";
@@ -110,18 +113,22 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
   if (!path.isAbsolute(out)) throw Error("Expected an absolute package destination");
   const inputs = new Map(sources.map(name => ["relay/" + name, path.join(bridge, name)]));
   const fileMigration = changedMember === "files" || changedMember === "schedules";
-  const changed = new Set(changedMember === "schedules" ? [...scheduleMembers, ...fileAdditions] :
-    changedMember === "files" ? [...fileUpdates, ...fileAdditions] : [changedMember]);
+  const changed = new Set(changedMember === "schedules" ? [...scheduleMembers, ...fileAdditions, ...branchChanges] :
+    changedMember === "files" ? [...fileUpdates, ...fileAdditions, ...branchChanges] :
+    changedMember === "branches" ? [...fileUpdates, ...branchChanges] : [changedMember]);
   let priorEntries;
   if (base !== undefined) {
-    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","schedules","files"].includes(changedMember)) throw Error("Unsupported broker package member");
+    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","schedules","files","branches"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
-    await verifyWatcherPackage(base, baseDigest, { allowLegacy: fileMigration });
+    await verifyWatcherPackage(base, baseDigest, { allowLegacy: fileMigration || changedMember === "branches" });
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
     if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
     priorEntries = new Map(JSON.parse(bytes).files);
     if (changedMember === "files" && (!priorEntries.has(addedMember) || priorEntries.has(observationImage))) {
       throw Error("Expected a schedule-only base package");
+    }
+    if (changedMember === "branches" && (!priorEntries.has(observationImage) || priorEntries.has(branchModule))) {
+      throw Error("Expected a file-watch base package");
     }
     for (const member of packageFiles) {
       if (!changed.has(member)) inputs.set(member, canonicalFile(base, member));
@@ -186,9 +193,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const [mode, out, ...rest] = process.argv.slice(2);
     if (mode === "build" && rest.length === 2) {
       console.log(await buildWatcherPackage(out, { node: process.execPath, codex: rest[0], claude: rest[1] }));
-    } else if (["stage-broker","stage-jobs","stage-schedules","stage-files"].includes(mode) && rest.length === 2) {
+    } else if (["stage-broker","stage-jobs","stage-schedules","stage-files","stage-branches"].includes(mode) && rest.length === 2) {
       const changedMember = { "stage-broker": "relay/completion-broker.mjs", "stage-jobs": "relay/completion-jobs.mjs",
-        "stage-schedules": "schedules", "stage-files": "files" }[mode];
+        "stage-schedules": "schedules", "stage-files": "files", "stage-branches": "branches" }[mode];
       console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1], changedMember }));
     } else if (mode === "verify" && rest.length === 1) {
       console.log(await verifyWatcherPackage(out, rest[0]));

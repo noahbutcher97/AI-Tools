@@ -188,6 +188,13 @@ $PackageDigest=$NextDigest
     Assert-BrokerDelta $scheduleBase $hashes
     Denied { Assert-BrokerDelta $scheduleBase $unexpected } 'Unexpected file watch package change'
     Denied { Assert-BrokerDelta $hashes $hashes } 'Expected the first file watch package migration'
+    $Component='Branches'
+    $fileBase=@{}+$hashes
+    $fileBase.Remove($branchModule)
+    Assert-BrokerDelta $fileBase $hashes
+    $alteredImage=@{}+$hashes
+    $alteredImage['relay/FileObservation.exe']='3'*64
+    Denied { Assert-BrokerDelta $fileBase $alteredImage } 'Unexpected file watch package change'
     $Component='Schedules'
     $root=Join-Path $FixtureRoot 'migration'
     $live=Join-Path $root 'relay'

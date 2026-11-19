@@ -71,6 +71,10 @@ Task Scheduler records a numeric result when the broker exits before its heartbe
 
 For an installation with schedule support, stage the file watcher with `watcher-package.mjs stage-files <new-directory> <previous-directory> <previous-digest>`. Run the same updater with `-Component Files` for Plan and Apply. It verifies the compiled metadata helper and its source along with the changed broker modules. The broker needs attribute access to the explicitly granted resource. File grants live in private configuration. The updater leaves filesystem permissions on watched resources alone.
 
+## Branch observation upgrade
+
+For anonymous branch watching, stage a file-capable package with `stage-branches` and update it with `-Component Branches`. A protected `completion-git.json` selects the installed Git edition and pins the Git and HTTPS transport SHA-256 hashes. Use an administrator-controlled copy of `Test-InstalledBranchRead.ps1` beside the reviewed setup and trial scripts to check an expected public ref from the installed broker. The script removes its temporary profile and grant and restores reports-only operation.
+
 ## Deactivate and retain state
 
 ```text

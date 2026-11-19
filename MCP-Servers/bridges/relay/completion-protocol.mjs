@@ -6,6 +6,7 @@ const TAG = /^[a-f0-9]{64}$/;
 export const scheduleNotice = "A scheduled check is due. No reply is needed.";
 export const changeNotice = "A watched condition changed. No reply is needed.";
 export const isThreadNotice = body => body === scheduleNotice || body === changeNotice;
+export const isWatchActivation = op => ["activate_schedule","activate_file","activate_branch"].includes(op);
 export function validExit(event) {
   if (!exactKeys(event, ["code", "signal"])) return false;
   if (event.signal === null) return Number.isInteger(event.code) && event.code >= -2147483648 && event.code <= 4294967295;
@@ -16,7 +17,7 @@ export function validJobFrame(frame) {
   return exactKeys(frame, ["v", "op", "id", "nonce", "event", "mac"]) && frame.v === 1 &&
     matches(UUID, frame.id) && matches(/^[a-f0-9]{32}$/, frame.nonce) && matches(TAG, frame.mac) &&
     (((frame.op === "claim" || frame.op === "start_failed") && frame.event === null) ||
-      (["activate_schedule","activate_file"].includes(frame.op) && exactKeys(frame.event, ["session"]) && matches(UUID, frame.event.session)) ||
+      (isWatchActivation(frame.op) && exactKeys(frame.event, ["session"]) && matches(UUID, frame.event.session)) ||
       (["claim_run","available_run"].includes(frame.op) && matches(UUID, frame.event?.session) &&
         (exactKeys(frame.event, ["session"]) || (exactKeys(frame.event, ["session", "provider"]) && frame.event.provider === "codex"))) ||
       (frame.op === "complete" && validExit(frame.event)));
@@ -25,7 +26,7 @@ export function validJobFrame(frame) {
 export function jobMac(key, frame, direction) {
   const fields = ["relay-job-v1", direction, frame.op, frame.id, frame.nonce,
     frame.event?.code ?? null, frame.event?.signal ?? null];
-  if (["claim_run","available_run","activate_schedule","activate_file"].includes(frame.op)) {
+  if (isWatchActivation(frame.op) || ["claim_run","available_run"].includes(frame.op)) {
     fields.push(frame.event.session);
     if (frame.event.provider) fields.push(frame.event.provider);
   }
