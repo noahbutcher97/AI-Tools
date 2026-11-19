@@ -828,8 +828,19 @@ export function buildDelegateInvocation({ targetName, message, origin, originTar
     // claude ships as a native executable here, so argv passes without a shell
     // and the long system prompt is not exposed to cmd.exe quoting.
     command: command || resolveClaudeCommand() || "claude",
+    // bypassPermissions matches the permission mode class of a bypass-mode
+    // recipient, so Claude Code delivers without holding the message for a
+    // human click (a prompting sender into a bypass session is held). Bypass
+    // makes --allowedTools moot, so the boundary is the tool SET: --tools
+    // leaves SendMessage as the only built-in, and --strict-mcp-config with no
+    // --mcp-config loads no MCP server. Properties 2a and 2b in the tests.
     args: [
       "-p",
+      "--permission-mode",
+      "bypassPermissions",
+      "--tools",
+      "SendMessage",
+      "--strict-mcp-config",
       "--allowedTools",
       "SendMessage",
       "--append-system-prompt",
@@ -867,28 +878,41 @@ const QUEUE_CONFIRMATION = /Queued message ([0-9a-fA-F-]{36}) for thread/;
 // exactly the multi-line prose this is for. The shim itself just runs
 // `node <pkg>/bin/codex.js`, so that JS is spawned directly with an argv array
 // and the message never meets a shell parser.
-function resolveCodexCommand() {
-  const names = process.platform === "win32" ? ["codex.cmd", "codex.exe", "codex"] : ["codex"];
-  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+export function resolveCodexCommand({
+  platform = process.platform,
+  pathValue = process.env.PATH || "",
+  execPath = process.execPath,
+  existsSync = fs.existsSync,
+} = {}) {
+  const windows = platform === "win32";
+  const paths = windows ? path.win32 : path.posix;
+  const names = windows ? ["codex.cmd", "codex.exe", "codex"] : ["codex"];
+  for (const dir of pathValue.split(paths.delimiter)) {
     if (!dir) continue;
     for (const name of names) {
-      if (!fs.existsSync(path.join(dir, name))) continue;
-      const js = path.join(dir, "node_modules", "@openai", "codex", "bin", "codex.js");
-      if (fs.existsSync(js)) return { command: process.execPath, prefix: [js] };
-      return { command: path.join(dir, name), prefix: [] };
+      if (!existsSync(paths.join(dir, name))) continue;
+      const js = paths.join(dir, "node_modules", "@openai", "codex", "bin", "codex.js");
+      if (existsSync(js)) return { command: execPath, prefix: [js] };
+      // A custom batch/sh wrapper may precede the npm install on PATH.
+      // Keep looking rather than handing a script to shell-free Windows spawn.
+      if (windows && name !== "codex.exe") continue;
+      return { command: paths.join(dir, name), prefix: [] };
     }
   }
   return null;
 }
 
-async function defaultRunQueue(threadId, text) {
-  const { spawnSync } = await import("node:child_process");
-  const resolved = resolveCodexCommand();
-  if (!resolved) throw new Error("codex was not found on PATH");
+export async function defaultRunQueue(threadId, text, {
+  resolveCommand = resolveCodexCommand,
+  spawnSync = undefined,
+} = {}) {
+  spawnSync ??= (await import("node:child_process")).spawnSync;
+  const resolved = resolveCommand();
+  if (!resolved) throw new Error("No shell-free Codex launcher found on PATH; use a native codex.exe or an npm launcher with adjacent node_modules/@openai/codex/bin/codex.js");
   const result = spawnSync(
     resolved.command,
     [...resolved.prefix, "queue", "--thread", threadId, "--message", text],
-    { encoding: "utf8" },
+    { encoding: "utf8", shell: false },
   );
   if (result.error) throw result.error;
   return { code: result.status ?? 1, stdout: result.stdout || "", stderr: result.stderr || "" };

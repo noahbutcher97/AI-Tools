@@ -76,6 +76,37 @@ test("no other tool is granted anywhere in the invocation", () => {
   assert.equal(args.filter((a) => a === "--allowedTools").length, 1, "a second grant would widen the first");
 });
 
+// ── Property 2a: bypass mode is paired with a tool SET of exactly SendMessage ──
+//
+// The delegate runs in bypassPermissions so a bypass-mode recipient accepts
+// it without a human click. Under bypass every available tool is callable, so
+// confinement rests on what is AVAILABLE, not on what is allowed.
+
+function flagRun(args, flag) {
+  const index = args.indexOf(flag);
+  if (index === -1) return null;
+  const run = [];
+  for (let i = index + 1; i < args.length && !args[i].startsWith("--"); i += 1) run.push(args[i]);
+  return run;
+}
+
+test("bypass mode is never used without --tools SendMessage alone", () => {
+  const { args } = invocation();
+  const modeIndex = args.indexOf("--permission-mode");
+  if (modeIndex === -1) return;
+  assert.equal(args[modeIndex + 1], "bypassPermissions");
+  assert.equal(args.filter((a) => a === "--tools").length, 1, "a second --tools would widen the set");
+  assert.deepEqual(flagRun(args, "--tools"), ["SendMessage"]);
+});
+
+// ── Property 2b: no MCP server is loaded ──
+
+test("--strict-mcp-config is present and no --mcp-config adds servers", () => {
+  const { args } = invocation();
+  assert.equal(args.includes("--strict-mcp-config"), true, "MCP tools would be callable under bypass");
+  assert.equal(args.includes("--mcp-config"), false);
+});
+
 // ── Property 3: the confining system prompt is present ──
 
 test("--append-system-prompt is present and not empty", () => {
