@@ -7,6 +7,7 @@ import { discoverTargets, formatTargets } from "./client.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
+import { fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
 
 // Cross-agent relay — MCP face (spec 4.1, 4.4).
 //
@@ -163,5 +164,20 @@ server.tool(
 );
 
 const transport = new StdioServerTransport();
+server.tool(
+  "relay_doctor",
+  "Read the dated readiness record from the latest CLI doctor run, locally or across configured hosts.",
+  { all_hosts: z.boolean().optional() },
+  { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  async ({ all_hosts }) => {
+    const record = readReadiness();
+    try {
+      if (all_hosts) return toolJsonResult(await fleetReadiness({ local: record }));
+      const status = !record ? "no_readiness" : record.build !== loadedBuild ? "build_mismatch" :
+        Date.now() > Date.parse(record.validUntil) ? "stale" : record.status;
+      return toolJsonResult({ status, record });
+    } catch { return toolJsonResult({ ok: false, cause: "directory_unavailable" }); }
+  },
+);
 await server.connect(transport);
 console.error("[relay-bridge] ready");

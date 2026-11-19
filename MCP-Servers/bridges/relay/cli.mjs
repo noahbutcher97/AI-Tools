@@ -20,6 +20,7 @@
 import { discoverTargets, formatTargets, parseArgs } from "./client.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
+import { checkReadiness, fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { receive } from "./receive.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
@@ -35,7 +36,8 @@ process.on("warning", (warning) => {
 
 async function main() {
   if (process.argv[2] === "receive") {
-    const result = await receive(process.argv.slice(3), process.env.SSH_ORIGINAL_COMMAND, process.stdin, 3000, inventory, dispatchRemote);
+    const result = await receive(process.argv.slice(3), process.env.SSH_ORIGINAL_COMMAND, process.stdin, 3000, inventory, dispatchRemote,
+      () => ({ record: readReadiness(), build: loadedBuild }));
     console.log(JSON.stringify(result));
     process.exitCode = result.ok ? 0 : 1;
     return;
@@ -51,6 +53,13 @@ async function main() {
 
   if (options.command === "send") {
     await runSend(options);
+    return;
+  }
+  if (options.command === "doctor") {
+    const local = await checkReadiness({ target: options.probeTarget });
+    const report = options.allHosts ? await fleetReadiness({ local, persist: true }) : local;
+    console.log(JSON.stringify(report, null, options.json ? 2 : 0));
+    process.exitCode = (options.allHosts ? report.ready : local.status === "ready") ? 0 : 3;
     return;
   }
   if (options.command === "ping" && !options.allHosts) {

@@ -20,12 +20,12 @@ export function decodeRequest(bytes) {
   if (bytes.length > MAX_PROBE_BYTES || !request || typeof request !== "object" || Array.isArray(request) ||
       text.includes("\\") || [...text.matchAll(/"[^"]*"\s*:/g)].length !== 3 ||
       Object.keys(request).length !== 3 || request.v !== 1 ||
-      !["probe", "inventory"].includes(request.op) || typeof request.requestId !== "string" ||
+      !["probe", "inventory", "readiness"].includes(request.op) || typeof request.requestId !== "string" ||
       !UUID.test(request.requestId)) throw new Error("invalid_frame");
   return request;
 }
 
-export async function receive(args, originalCommand, input, timeoutMs = 3000, inventory, dispatch) {
+export async function receive(args, originalCommand, input, timeoutMs = 3000, inventory, dispatch, readiness) {
   if (originalCommand !== "relay receive" || args.length !== 4 ||
       args[0] !== "--peer" || args[2] !== "--host" ||
       !LABEL.test(args[1]) || !LABEL.test(args[3])) {
@@ -50,6 +50,11 @@ export async function receive(args, originalCommand, input, timeoutMs = 3000, in
     if (request.v === 2) {
       if (!dispatch || request.host !== args[3] || args[1] === args[3]) return { ok: false, error: "receive_denied" };
       return { ...reply, state: await dispatch(request, args[1]) };
+    }
+    if (request.op === "readiness") {
+      if (!readiness) return { ok: false, error: "unsupported_operation" };
+      const { record, build } = readiness();
+      return { ...reply, record, build, time: new Date().toISOString() };
     }
     if (request.op === "inventory") {
       if (!inventory) return { ok: false, error: "unsupported_operation" };

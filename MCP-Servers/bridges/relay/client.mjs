@@ -444,7 +444,7 @@ const DELEGATE_SYSTEM_PROMPT = [
   "If you cannot deliver it with SendMessage, say why and stop. Never attempt the request yourself.",
 ].join("\n");
 
-function resolveClaudeCommand() {
+export function resolveClaudeCommand() {
   const names = process.platform === "win32" ? ["claude.exe", "claude.cmd", "claude"] : ["claude"];
   for (const dir of (process.env.PATH || "").split(path.delimiter)) {
     if (!dir) continue;
@@ -1827,7 +1827,7 @@ export async function resolveCodexReference(id, re, {
 // Unit 1 knows one command. Unknown commands and flags are refused rather than
 // ignored: a mistyped --scope that silently fell back to the caller's own
 // workspace would report an empty machine and look like a broken relay.
-const COMMANDS = new Set(["list", "send", "ping"]);
+const COMMANDS = new Set(["list", "send", "ping", "doctor"]);
 const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
 
@@ -1853,6 +1853,13 @@ export function parseArgs(argv = []) {
   if (command === "ping" && args[0] && !args[0].startsWith("--")) options.to = args.shift();
   while (args.length) {
     const flag = args.shift();
+    if (command === "doctor") {
+      if (flag === "--json") options.json = true;
+      else if (flag === "--all-hosts") options.allHosts = true;
+      else if (flag === "--probe-target" && !options.probeTarget && args[0] && !args[0].startsWith("--")) options.probeTarget = args.shift();
+      else throw new Error("invalid doctor option");
+      continue;
+    }
     if (flag === "--status" && command === "ping" && !options.statusHandle && args[0] && !args[0].startsWith("--")) {
       options.statusHandle = args.shift();
       continue;
@@ -1907,6 +1914,7 @@ export function parseArgs(argv = []) {
   if (command === "ping" && [options.allHosts, options.statusHandle, options.to].filter(Boolean).length !== 1) {
     throw new Error("ping requires one target, --all-hosts or --status <handle>");
   }
+  if (command === "doctor" && options.allHosts && options.probeTarget) throw new Error("a live doctor probe is local");
   return options;
 }
 
