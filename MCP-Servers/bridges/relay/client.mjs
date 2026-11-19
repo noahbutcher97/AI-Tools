@@ -1305,7 +1305,7 @@ export async function resolveCodexReference(id, re, {
 // Unit 1 knows one command. Unknown commands and flags are refused rather than
 // ignored: a mistyped --scope that silently fell back to the caller's own
 // workspace would report an empty machine and look like a broken relay.
-const COMMANDS = new Set(["list", "send", "ping", "doctor"]);
+const COMMANDS = new Set(["list", "send", "ping", "doctor", "run"]);
 const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
 
@@ -1319,6 +1319,10 @@ export function parseArgs(argv = []) {
     }
   }
 
+  if (command === "run") {
+    if (args.shift() !== "--" || !args[0]) throw new Error("Use relay run -- <executable> [args...].");
+    return { command, argv: args };
+  }
   const options = { command, scope: "cwd", cwd: undefined, json: false, dryRun: false, viaDelegate: false, kind: "notice" };
 
   if (command === "send") {

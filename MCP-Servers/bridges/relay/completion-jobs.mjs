@@ -106,10 +106,17 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       if (!key || !sameMac(frame.mac, jobMac(key, frame, "request"))) throw new Error("job denied");
       const job = active(frame.id);
       if (!job) throw new Error("job denied");
-      if (frame.op === "claim") {
+      if (frame.op === "claim" || frame.op === "claim_run") {
+        if (frame.op === "claim_run" && (job.provider !== "claude" || job.recipient !== frame.event.session)) {
+          throw new Error("run grant mismatch");
+        }
         const claimed = db.prepare("UPDATE jobs SET state='claimed' WHERE id=? AND state='waiting' AND valid_until>?")
           .run(frame.id, now());
         if (claimed.changes !== 1) throw new Error("job already claimed");
+      } else if (frame.op === "start_failed") {
+        const failed = db.prepare("UPDATE jobs SET state='start_failed' WHERE id=? AND state='claimed' AND valid_until>?")
+          .run(frame.id, now());
+        if (failed.changes !== 1 && active(frame.id)?.state !== "start_failed") throw new Error("job outcome conflict");
       } else {
         recordOutcome(job, frame.event, "claimed");
       }

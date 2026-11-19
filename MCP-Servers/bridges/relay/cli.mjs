@@ -51,6 +51,19 @@ async function main() {
     return;
   }
 
+  if (options.command === "run") {
+    const { startRun, RunInputError } = await import("./run-job.mjs");
+    try {
+      const result = await startRun(options.argv, resolveCallerIdentity(), process.stdin);
+      console.log(JSON.stringify(result));
+      process.exitCode = result.state === "started" ? 0 : 1;
+    } catch (error) {
+      if (!(error instanceof RunInputError)) throw error;
+      console.error(error.message);
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (options.command === "send") {
     await runSend(options);
     return;
