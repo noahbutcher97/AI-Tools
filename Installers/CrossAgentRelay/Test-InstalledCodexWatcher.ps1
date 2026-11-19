@@ -57,7 +57,15 @@ function Restart-TrialBroker($expectedMode) {
         if ([DateTime]::UtcNow -gt $end) { throw 'Broker stop timed out' }
         Start-Sleep -Milliseconds 150
     }
-    Start-VerifiedWatcher ($folder.GetTask($brokerTask))
+    try { Start-VerifiedWatcher ($folder.GetTask($brokerTask)) }
+    catch {
+        # A stopped task once exited before its first restoration heartbeat.
+        # Retry only the idle broker after the trial authority has been removed.
+        if ($expectedMode -cne 'reports_only' -or $folder.GetTask($brokerTask).State -ne 3 -or
+            [IO.File]::ReadAllText($policyFile) -cne '{"v":1,"grants":[]}' -or
+            [IO.File]::ReadAllText($flagFile) -cne '{"v":1,"enabled":false}') { throw }
+        Start-VerifiedWatcher ($folder.GetTask($brokerTask))
+    }
     $beat = Get-Content -LiteralPath (Join-Path $root 'completion-health/watcher.json') -Raw | ConvertFrom-Json
     if ($beat.mode -cne $expectedMode) { throw 'Unexpected watcher mode' }
 }

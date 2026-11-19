@@ -210,6 +210,30 @@ $PackageDigest=$NextDigest
 [IO.File]::Delete($state)
 Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
 . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage $Digest
+& {
+    $root=Join-Path $FixtureRoot 'restore'
+    $null=[IO.Directory]::CreateDirectory((Join-Path $root 'completion-health'))
+    $policyFile=Join-Path $root 'policy'
+    $flagFile=Join-Path $root 'flag'
+    [IO.File]::WriteAllText($policyFile,'{"v":1,"grants":[]}')
+    [IO.File]::WriteAllText($flagFile,'{"v":1,"enabled":false}')
+    [IO.File]::WriteAllText((Join-Path $root 'completion-health/watcher.json'),'{"mode":"reports_only"}')
+    $script:restoreStarts=0
+    $folder.GetTask($brokerTask).State=3
+    function Start-VerifiedWatcher($task) {
+        $script:restoreStarts++
+        if ($script:restoreStarts -eq 1) { throw 'Fixture startup failure' }
+    }
+    Restart-TrialBroker 'reports_only'
+    Must ($script:restoreStarts -eq 2) 'Idle restoration was not recovered'
+    $script:restoreStarts=0
+    Denied { Restart-TrialBroker 'watching' } 'Fixture startup failure'
+    Must ($script:restoreStarts -eq 1) 'Delivery startup was retried'
+    [IO.File]::WriteAllText($policyFile,'{"v":3,"grants":[],"schedules":[]}')
+    $script:restoreStarts=0
+    Denied { Restart-TrialBroker 'reports_only' } 'Fixture startup failure'
+    Must ($script:restoreStarts -eq 1) 'A trial policy was still present during retry'
+}
 $node = (Get-Command node.exe -CommandType Application | Select-Object -First 1).Source
 $trial = $FixtureRoot
 $verifier = Join-Path $FixtureRoot 'environment.cjs'
