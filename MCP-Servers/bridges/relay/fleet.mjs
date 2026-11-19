@@ -106,10 +106,13 @@ export function sshInvocation(entry) {
   ] };
 }
 
-export function requestHost(entry, request, timeoutMs = 3000) {
+export function requestHost(entry, request, timeoutMs = 3000, spawnProcess = spawn) {
   const { command, args } = sshInvocation(entry);
   return new Promise((resolve) => {
-    const child = spawn(command, args, { shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    // Windows OpenSSH uses overlapped I/O. Ordinary libuv pipes can leave
+    // ssh waiting for input EOF or channel shutdown after a valid response.
+    const channel = process.platform === "win32" ? "overlapped" : "pipe";
+    const child = spawnProcess(command, args, { shell: false, windowsHide: true, stdio: [channel, channel, channel] });
     let error = null;
     let size = 0;
     const chunks = [];

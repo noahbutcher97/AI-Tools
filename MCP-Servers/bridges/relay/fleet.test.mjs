@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import { parseDirectory, queryFleet, sshInvocation, inventory } from "./fleet.mjs";
+import { spawn } from "node:child_process";
+import { parseDirectory, queryFleet, sshInvocation, inventory, requestHost } from "./fleet.mjs";
 import { receive } from "./receive.mjs";
 import { parseArgs } from "./client.mjs";
 
@@ -12,6 +13,16 @@ const hosts = ["host-a", "host-b", "host-c"].map((host) => ({
   host, endpoint: host, port: 22, user: "operator",
 }));
 const directory = parseDirectory({ host: "host-a" }, hosts);
+
+test("requestHost closes the frame and drains both SSH output channels with native Windows I/O", async () => {
+  const request = { op: "fixture" };
+  const result = await requestHost(hosts[1], request, 3000, (_command, _args, options) => {
+    const type = process.platform === "win32" ? "overlapped" : "pipe";
+    assert.deepEqual(options.stdio, [type, type, type]);
+    return spawn(process.execPath, ["-e", "process.stdin.pipe(process.stdout)"], options);
+  });
+  assert.deepEqual(result, { reply: request });
+});
 
 test("host configuration admits only typed operands", () => {
   for (const change of [{ host: "-o" }, { endpoint: "name@host" }, { endpoint: "x y" },
