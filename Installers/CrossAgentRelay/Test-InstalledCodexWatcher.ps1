@@ -8,6 +8,7 @@ param(
     [guid]$Target,
     [switch]$RotateBrokerPassword,
     [switch]$Schedule,
+    [switch]$FileWatch,
     [switch]$Mcp,
     [string]$McpClientImage,
     [ValidatePattern('^[a-f0-9]{64}$')][string]$McpClientDigest
@@ -108,8 +109,9 @@ function Assert-McpClient($image,$digest) {
 }
 
 if ($MyInvocation.InvocationName -eq '.') { return }
-if ($Schedule -and $RotateBrokerPassword) { throw 'Schedule issuance uses the running broker identity' }
-if ($Mcp -and !$Schedule) { throw 'The MCP trial requires a schedule' }
+if (($Schedule -or $FileWatch) -and $RotateBrokerPassword) { throw 'Watch issuance uses the running broker identity' }
+if ($FileWatch -and (!$Mcp -or $Schedule)) { throw 'The file trial requires MCP and a single condition' }
+if ($Mcp -and !($Schedule -or $FileWatch)) { throw 'The MCP trial requires a watch' }
 $record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
 $account = Get-LocalUser -Name $accountName
 if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
@@ -156,7 +158,7 @@ if ($Stage -eq 'Start') {
     }
     New-AccessDirectory $trial "(A;OICI;GRGX;;;$desktopSid)"
     New-AccessDirectory $exchange "(A;OICI;0x1301bf;;;$desktopSid)"
-    $modeFlag = if ($Mcp) { '--installed-mcp-schedule' } elseif ($Schedule) { '--installed-schedule' } else { '--installed' }
+    $modeFlag = if ($FileWatch) { '--installed-mcp-file' } elseif ($Mcp) { '--installed-mcp-schedule' } elseif ($Schedule) { '--installed-schedule' } else { '--installed' }
     $argsText = '"'+$SessionScript+'" "'+$providerImage+'" '+$modeFlag+' "'+$exchange+'"'
     $task = Register-TrialTask $runner $desktopSid 3 $argsText $null
     $null = $task.Run($null)
@@ -169,6 +171,15 @@ if ($Stage -eq 'Cleanup') {
     Assert-PlainPath $exchange
     # The unelevated runner cleans its output. Never traverse its files for deletion.
     [IO.Directory]::Delete($exchange,$false)
+    if ($FileWatch) {
+        $resource = Join-Path $trial 'resource'
+        if ([IO.Directory]::Exists($resource)) {
+            Assert-Protected $resource
+            $item = Join-Path $resource 'item'
+            if ([IO.File]::Exists($item)) { Assert-Protected $item; [IO.File]::Delete($item) }
+            [IO.Directory]::Delete($resource,$false)
+        }
+    }
     foreach ($name in @('authorized','finished','verify.cjs','result.txt')) {
         $file = Join-Path $trial $name
         if ([IO.File]::Exists($file)) { Assert-Protected $file; [IO.File]::Delete($file) }
@@ -192,6 +203,25 @@ if ($Schedule) {
     $startsAt = [DateTime]::UtcNow.AddSeconds($leadSeconds).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     $trialPolicy = @{v=3;grants=@();schedules=@(@{condition=$condition;target=$id;provider='codex';scope='thread-schedule';
         intervalSeconds=86400;startsAt=$startsAt;expiresAt=$expires})}
+}
+if ($FileWatch) {
+    $condition = $TrialId.ToString('D')
+    $resource = Join-Path $trial 'resource'
+    New-AccessDirectory $resource "(A;OICI;GRGX;;;$($record.brokerSid))"
+    $item = Join-Path $resource 'item'
+    [IO.File]::WriteAllText($item,'fixture',$utf)
+    Assert-Protected $item
+    $drive = [IO.Path]::GetPathRoot($resource)
+    $volumePath = (& (Join-Path ([Environment]::SystemDirectory) 'mountvol.exe') $drive /L | Out-String).Trim()
+    if ($LASTEXITCODE -or $volumePath -notmatch '\{([a-fA-F0-9-]{36})\}\\$') { throw 'Expected a fixed local volume' }
+    $volume = ([guid]$Matches[1]).ToString('D')
+    $directory = $resource.Substring($drive.Length).Replace('\','/')
+    $helper = Join-Path $root 'relay/FileObservation.exe'
+    Assert-Protected $helper
+    $type = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($helper)).GetType('FileObservation',$true)
+    $rootId = $type::RootIdentity($volume,$directory)
+    $trialPolicy = @{v=4;grants=@();schedules=@();files=@(@{condition=$condition;target=$id;provider='codex';
+        scope='thread-file-change';volume=$volume;directory=$directory;rootId=$rootId;file='item';expiresAt=$expires})}
 }
 $approved = $trialPolicy | ConvertTo-Json -Depth 4 -Compress
 $policyChanged = $false
@@ -233,11 +263,23 @@ try {
 } finally { db.close(); }
 '@
     }
+    if ($FileWatch) {
+        $source = @'
+const { DatabaseSync } = require('node:sqlite');
+const [file,condition] = process.argv.slice(2);
+const db = new DatabaseSync(file, {readOnly:true});
+try {
+  db.exec('PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
+  const row = db.prepare('SELECT w.state, s.baseline IS NOT NULL AS sampled FROM schedule_watches w LEFT JOIN file_samples s USING(condition) WHERE w.condition=?').get(condition);
+  process.stdout.write(!row ? 'absent' : row.state === 'delivered' ? 'proved' : row.state === 'waiting' && row.sampled ? 'armed' : row.state);
+} finally { db.close(); }
+'@
+    }
     if ([IO.File]::Exists($verifier)) { throw 'Trial already started' }
     [IO.File]::WriteAllText($verifier,$source,$utf)
     $db = Join-Path $root 'completion-state/jobs.sqlite'
     Assert-PlainPath $db
-    $lookup = if ($Schedule) { $condition } else { $id }
+    $lookup = if ($Schedule -or $FileWatch) { $condition } else { $id }
     if ((Get-TrialOutcome $db $lookup) -cne 'absent') { throw 'Expected a new disposable target' }
     Set-ApprovedText $policyFile $empty $approved
     $policyChanged = $true
@@ -266,25 +308,34 @@ try {
         $flagChanged=$true
         Restart-TrialBroker 'watching'
     }
-    if ($Schedule) {
+    if ($Schedule -or $FileWatch) {
         if (!$Mcp) { Restart-TrialBroker 'reports_only' }
         if ((Get-TrialOutcome $db $lookup) -cne 'issued') { throw 'Expected a new schedule grant' }
         [IO.File]::WriteAllText((Join-Path $trial 'authorized'),$condition,$utf)
-        $end = [DateTime]::UtcNow.AddSeconds($leadSeconds+45)
+        $end = [DateTime]::UtcNow.AddSeconds(120)
         $resumed = Join-Path $exchange 'resumed.json'
         while (!(Test-Path -LiteralPath $resumed)) {
             if ([DateTime]::UtcNow -gt $end) { throw 'Disposable writer did not resume' }
             Start-Sleep -Milliseconds 250
         }
-        if ((Get-TrialOutcome $db $lookup) -cne 'armed') { throw 'The first scheduled tick must follow activation' }
-        if ($Mcp -and [DateTime]::UtcNow -ge ([DateTimeOffset]::Parse($startsAt)).UtcDateTime) { throw 'The writer must resume before the first tick' }
+        if ($FileWatch) {
+            while ((Get-TrialOutcome $db $lookup) -cne 'armed') {
+                if ([DateTime]::UtcNow -gt $end) { throw 'The installed worker could not obtain a file baseline' }
+                Start-Sleep -Milliseconds 500
+            }
+            Assert-Protected $item
+            [IO.File]::Delete($item)
+        } else {
+            if ((Get-TrialOutcome $db $lookup) -cne 'armed') { throw 'The first scheduled tick must follow activation' }
+            if ($Mcp -and [DateTime]::UtcNow -ge ([DateTimeOffset]::Parse($startsAt)).UtcDateTime) { throw 'The writer must resume before the first tick' }
+        }
     }
     if (!$Mcp) {
         Set-ApprovedText $flagFile $off $on
         $flagChanged = $true
         Restart-TrialBroker 'watching'
     }
-    if (!$Schedule) {
+    if (!($Schedule -or $FileWatch)) {
         if ((Get-TrialOutcome $db $id) -cne 'waiting') { throw 'Expected exactly one waiting job for the trial thread' }
         [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
     }

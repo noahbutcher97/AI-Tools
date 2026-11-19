@@ -25,9 +25,9 @@ if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).
 const fromShell = process.argv[3] === "--from-shell";
 const schedule = process.argv[3] === "--schedule";
 const checkMcp = process.argv[3] === "--mcp-watch";
-const installedMcp = process.argv[3] === "--installed-mcp-schedule";
-const installedSchedule = installedMcp || process.argv[3] === "--installed-schedule";
-const installed = installedSchedule || process.argv[3] === "--installed";
+const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file"].includes(process.argv[3]);
+const installedWatch = installedMcp || process.argv[3] === "--installed-schedule";
+const installed = installedWatch || process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
 const preparedTrial = installedMcp ? process.argv[5] : undefined;
 if (preparedTrial !== undefined && !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(preparedTrial)) throw Error("Invalid trial ID");
@@ -245,7 +245,7 @@ async function runTrial() {
     const env = { ...process.env, CODEX_THREAD_ID: id };
     delete env.CODEX_SESSION_ID;
     delete env.CLAUDE_CODE_SESSION_ID;
-    const command = installedSchedule ? ["watch", "--notify", id, fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
+    const command = installedWatch ? ["watch", "--notify", id, fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
       ["run", "--", process.execPath, "-e", "process.exit(23)"];
     let job;
     if (installedMcp) {
@@ -257,7 +257,7 @@ async function runTrial() {
       assert.equal(result.status, 0, "The installed broker did not confirm the public CLI request");
       job = JSON.parse(result.stdout);
     }
-    if (installedSchedule) {
+    if (installedWatch) {
       if (!installedMcp) assert.equal(job.state, "subscribed");
       await provider.close();
       await until(async () => (await targets()).length === 0, 8000, "Original writer did not close");
