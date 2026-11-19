@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
-import { constants } from "node:os";
 import { pathToFileURL } from "node:url";
-import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
+import { digest, matches, UUID } from "./delivery-protocol.mjs";
+import { jobMac, sameMac, validExit, validJobFrame } from "./completion-protocol.mjs";
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
 
 // This database belongs to the broker. Installation supplies the protected
@@ -30,12 +30,6 @@ function instanceOf(target) {
   // A Codex thread ID and writer-lock filename can recur after resume.
   // Qualify a per-writer instance witness before issuing completion grants.
   throw new Error("unknown session instance");
-}
-
-function validExit(event) {
-  if (!exactKeys(event, ["code", "signal"])) return false;
-  if (event.signal === null) return Number.isInteger(event.code) && event.code >= -2147483648 && event.code <= 4294967295;
-  return event.code === null && typeof event.signal === "string" && Object.hasOwn(constants.signals, event.signal);
 }
 
 export async function openCompletionJobs(file, { now = Date.now, send = sendProvedNotice, status = localStatus,
@@ -66,6 +60,15 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         !timingSafeEqual(job.token_hash, Buffer.from(digest(capability), "hex"))) throw new Error("job denied");
     return job;
   }
+  function recordOutcome(job, event, initialState) {
+    if (!validExit(event)) throw new Error("invalid job outcome");
+    const wrote = db.prepare("UPDATE jobs SET code=?,signal=?,state='ready' WHERE id=? AND state=? AND valid_until>?")
+      .run(event.code, event.signal, job.id, initialState, now());
+    if (!wrote.changes) {
+      const current = active(job.id);
+      if (!current || current.code !== event.code || current.signal !== event.signal) throw new Error("job outcome conflict");
+    }
+  }
   async function inspectProof(job) {
     const proof = await status(job.handle);
     if (!active(job.id)) return "unavailable";
@@ -93,16 +96,24 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
     // The wrapper can report a termination once. It cannot select a recipient,
     // supply text, ask for proof, or manage the grant.
     complete(id, capability, event) {
-      const job = authorize(id, capability);
-      if (!validExit(event)) throw new Error("invalid job outcome");
-      const wrote = db.prepare("UPDATE jobs SET code=?,signal=?,state='ready' WHERE id=? AND state='waiting' AND valid_until>?")
-        .run(event.code, event.signal, id, now());
-      if (!wrote.changes) {
-        const current = active(job.id);
-        if (!current || current.state === "waiting" || current.code !== event.code || current.signal !== event.signal) {
-          throw new Error("job outcome conflict");
-        }
+      recordOutcome(authorize(id, capability), event, "waiting");
+    },
+    // Only this operation is exposed to wrappers. Authenticate before the
+    // protected policy lookup. Sign acknowledgements after the durable write.
+    acceptFrame(frame) {
+      if (!validJobFrame(frame)) throw new Error("job denied");
+      const key = row.get(frame.id)?.token_hash;
+      if (!key || !sameMac(frame.mac, jobMac(key, frame, "request"))) throw new Error("job denied");
+      const job = active(frame.id);
+      if (!job) throw new Error("job denied");
+      if (frame.op === "claim") {
+        const claimed = db.prepare("UPDATE jobs SET state='claimed' WHERE id=? AND state='waiting' AND valid_until>?")
+          .run(frame.id, now());
+        if (claimed.changes !== 1) throw new Error("job already claimed");
+      } else {
+        recordOutcome(job, frame.event, "claimed");
       }
+      return { ack: jobMac(key, frame, "ack") };
     },
     async dispatch(id) {
       const job = active(id);
