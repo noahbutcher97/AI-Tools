@@ -10,32 +10,6 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
-$record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
-$account = Get-LocalUser -Name $accountName
-if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
-    $record.brokerSid -ne $account.SID.Value -or $account.Description -cne $record.tag -or
-    !$account.Enabled -or $record.sessionSid -ne $desktopSid -or $desktopSid -eq $record.brokerSid) { throw 'Installation mismatch' }
-$scheduler = New-Object -ComObject Schedule.Service
-$scheduler.Connect()
-$folder = $scheduler.GetFolder('\')
-$broker = $folder.GetTask($brokerTask)
-Assert-Protected $root
-Assert-Protected $journal
-Assert-RegisteredTask $broker $record
-Assert-RegisteredTask ($folder.GetTask($workerTask)) $record
-$tag = 'RelayWatcherTrial-' + $TrialId.ToString('N')
-$trial = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) $tag
-$exchange = Join-Path $trial 'session'
-$runner = $tag + '-Session'
-$issuer = $tag + '-Grant'
-$node = Join-Path $root 'runtime/node.exe'
-$providerImage = Join-Path $root 'provider/codex.exe'
-$brokerModule = Join-Path $root 'relay/completion-broker.mjs'
-$policyFile = Join-Path $root 'completion-policy.json'
-$flagFile = Join-Path $root 'completion-worker.json'
-foreach ($p in @($node,$providerImage,$brokerModule,$policyFile,$flagFile)) { Assert-Protected $p }
-$utf = [Text.UTF8Encoding]::new($false)
-
 function Register-TrialTask($name,$principal,$type,$arguments,$password) {
     $def = $scheduler.NewTask(0)
     $def.RegistrationInfo.Description = $tag
@@ -86,6 +60,56 @@ function Restart-TrialBroker($expectedMode) {
     $beat = Get-Content -LiteralPath (Join-Path $root 'completion-health/watcher.json') -Raw | ConvertFrom-Json
     if ($beat.mode -cne $expectedMode) { throw 'Unexpected watcher mode' }
 }
+
+function Get-TrialOutcome($database,$sessionId) {
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = $node
+    $info.Arguments = '"'+$verifier+'" "'+$database+'" '+$sessionId
+    $info.WorkingDirectory = $trial
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $info.EnvironmentVariables.Clear()
+    $info.EnvironmentVariables['SystemRoot'] = [Environment]::GetFolderPath('Windows')
+    $info.EnvironmentVariables['PATH'] = [Environment]::SystemDirectory
+    $info.EnvironmentVariables['NODE_NO_WARNINGS'] = '1'
+    $process = [Diagnostics.Process]::Start($info)
+    try {
+        $output = $process.StandardOutput.ReadToEndAsync()
+        $errors = $process.StandardError.ReadToEndAsync()
+        if (!$process.WaitForExit(5000)) { $process.Kill(); throw 'Status lookup timed out' }
+        if ($process.ExitCode -ne 0 -or $errors.Result.Length) { throw 'Status lookup failed' }
+        return $output.Result
+    } finally { $process.Dispose() }
+}
+
+if ($MyInvocation.InvocationName -eq '.') { return }
+$record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
+$account = Get-LocalUser -Name $accountName
+if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
+    $record.brokerSid -ne $account.SID.Value -or $account.Description -cne $record.tag -or
+    !$account.Enabled -or $record.sessionSid -ne $desktopSid -or $desktopSid -eq $record.brokerSid) { throw 'Installation mismatch' }
+$scheduler = New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$folder = $scheduler.GetFolder('\')
+$broker = $folder.GetTask($brokerTask)
+Assert-Protected $root
+Assert-Protected $journal
+Assert-RegisteredTask $broker $record
+Assert-RegisteredTask ($folder.GetTask($workerTask)) $record
+$tag = 'RelayWatcherTrial-' + $TrialId.ToString('N')
+$trial = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) $tag
+$exchange = Join-Path $trial 'session'
+$runner = $tag + '-Session'
+$issuer = $tag + '-Grant'
+$node = Join-Path $root 'runtime/node.exe'
+$providerImage = Join-Path $root 'provider/codex.exe'
+$brokerModule = Join-Path $root 'relay/completion-broker.mjs'
+$policyFile = Join-Path $root 'completion-policy.json'
+$flagFile = Join-Path $root 'completion-worker.json'
+foreach ($p in @($node,$providerImage,$brokerModule,$policyFile,$flagFile)) { Assert-Protected $p }
+$utf = [Text.UTF8Encoding]::new($false)
 
 if ($Stage -eq 'Start') {
     if (!$SessionScript -or ![IO.Path]::IsPathRooted($SessionScript) -or
@@ -147,14 +171,9 @@ try {
 '@
     if ([IO.File]::Exists($verifier)) { throw 'Trial already started' }
     [IO.File]::WriteAllText($verifier,$source,$utf)
-    $env:NODE_OPTIONS=$null
-    $env:NODE_PATH=$null
-    $env:NODE_COMPILE_CACHE=$null
-    $env:NODE_NO_WARNINGS='1'
     $db = Join-Path $root 'completion-state/jobs.sqlite'
     Assert-PlainPath $db
-    Set-Location -LiteralPath $trial
-    if ((& $node $verifier $db $id) -cne 'absent' -or $LASTEXITCODE) { throw 'Expected a new disposable target' }
+    if ((Get-TrialOutcome $db $id) -cne 'absent') { throw 'Expected a new disposable target' }
     $pw = New-BrokerPassword
     try {
         Set-LocalUser -SID $account.SID -Password $pw
@@ -179,8 +198,8 @@ try {
     [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
     $end=[DateTime]::UtcNow.AddSeconds(90)
     do {
-        $state=& $node $verifier $db $id
-        if ($LASTEXITCODE -ne 0 -or $state -eq 'invalid') { throw 'Invalid trial outcome' }
+        $state=Get-TrialOutcome $db $id
+        if ($state -eq 'invalid') { throw 'Invalid trial outcome' }
         if ($state -eq 'proved') { break }
         if ([DateTime]::UtcNow -gt $end) { throw "Transcript proof timed out ($state)" }
         Start-Sleep -Milliseconds 600

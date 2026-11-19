@@ -44,6 +44,14 @@ A broker build supporting policy version 2 can publish one job grant at startup 
 
 After acquiring its exclusive listener the broker issues one capability through the existing private handoff. Repeating the same request across restarts recovers the same capability and consumed state. An incompatible earlier batch for this instance causes startup to fail. The receiver rechecks the current policy and deadline on claim, completion and dispatch. An empty version 1 policy revokes authority. Existing version 1 grants keep their explicit provisioning behavior.
 
+## Qualify installed Codex completion
+
+`Test-InstalledCodexWatcher.ps1` exercises the version 1 installation with a temporary delivery window. Use an administrator-controlled copy beside the reviewed installer. Each stage takes the same fresh `-TrialId` and reviewed `-ExpectedPackage`. Start with empty grants, an idle interactive worker, and disabled delivery.
+
+1. Run `-Stage Start -SessionScript <absolute-path-to-Qualify-CodexCompletion.mjs>`. A non-elevated interactive task starts a disposable read-only Codex thread at low effort. Its private trial directory contains `session/target.json`. Confirm the exact raw ID, requested model and unique addressable thread in the disposable workspace.
+2. With approval to rotate the dedicated broker password and enable delivery temporarily, run `-Stage Run -Target <confirmed-raw-id> -RotateBrokerPassword`. The fixed provisioning task runs under the broker SID, issues one grant with a four-minute expiry and releases the ordinary CLI runner. Success requires one matching job with exit code 23 and the broker's transcript-proven delivered state.
+3. The supervisor restores empty policy and reports-only mode on success or ordinary failure. The runner archives its thread. Verify a fresh heartbeat and successful session-task exit before `-Stage Cleanup` removes the remaining trial artifacts. If the host shut down during the delivery window, restore the protected empty policy and disabled worker setting, restart the broker and verify its mode before cleanup. The job store retains its delivery record.
+
 ## Review and apply a broker-only update
 
 Stage the current broker module against the previously reviewed package in a new private directory. Staging checks the previous digest and copies the other members byte for byte. Keep both packages until the update and its recovery window are complete.

@@ -164,4 +164,12 @@ Must ((Get-Content $journal -Raw|ConvertFrom-Json).package -ceq $NextDigest -and
 $PackageDigest=$NextDigest
 [IO.File]::Delete($state)
 Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
+. (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage $Digest
+$node = (Get-Command node.exe -CommandType Application | Select-Object -First 1).Source
+$trial = $FixtureRoot
+$verifier = Join-Path $FixtureRoot 'environment.cjs'
+[IO.File]::WriteAllText($verifier,"process.stdout.write([process.env.NODE_OPTIONS,process.env.NODE_PATH,process.env.RELAY_TEST_PARENT].every(x=>x===undefined)?'clean':'inherited')")
+$env:RELAY_TEST_PARENT='fixture'
+$env:NODE_OPTIONS='--require=missing-fixture-preload'
+Must ((Get-TrialOutcome $FixtureRoot ([guid]::NewGuid())) -ceq 'clean') 'Verifier inherited parent environment'
 'Isolated setup, recovery, refusal, rollback and reactivation passed.'
