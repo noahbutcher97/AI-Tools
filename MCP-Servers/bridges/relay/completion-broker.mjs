@@ -191,29 +191,48 @@ export async function provisionRun(root, session, count, expiry) {
   } finally { store.close(); }
 }
 
-export async function startCompletionBroker(root, { port, delivery, publishHealth = false, sampleFile = sampleInstalledFile } = {}) {
+export async function startCompletionBroker(root, { port, delivery, publishHealth = false,
+  sampleFile = sampleInstalledFile, listenerWaitMs = 0 } = {}) {
   // Only the trusted process launcher supplies these adapters. The production
   // broker account must never fall back to spawning a provider in its profile.
+  if (!Number.isInteger(listenerWaitMs) || listenerWaitMs < 0 || listenerWaitMs > 15000) throw new Error("invalid listener deadline");
   if (delivery !== undefined && (typeof delivery?.send !== "function" || typeof delivery.status !== "function")) {
     throw new Error("incomplete delivery adapter");
   }
   const unavailable = () => { throw new Error("session-profile delivery unavailable"); };
-  const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
-    send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
-    schedules: { root, policy: () => readJobPolicy(root).schedules, sampleFile: (g, signal) => sampleFile(root, g, signal) },
-  });
-  let listener;
+  let listener, store;
+  let ready = false;
+  function accept(frame) {
+    if (!ready) throw new Error("broker starting");
+    return store.acceptFrame(frame);
+  }
   let startupStage = 24;
   try {
-    listener = await listenForJobReports(store.acceptFrame, { port });
+    // Windows can report the task stopped before its previous listener is
+    // available again. Publish health and issue grants only after exclusive bind.
+    const deadline = performance.now() + listenerWaitMs;
+    for (;;) {
+      try { listener = await listenForJobReports(accept, { port }); break; }
+      catch (error) {
+        const remaining = deadline - performance.now();
+        if (error.code !== "EADDRINUSE" || remaining <= 0) throw error;
+        await delay(Math.min(250, remaining));
+      }
+    }
+    startupStage = 23;
+    store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
+      send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
+      schedules: { root, policy: () => readJobPolicy(root).schedules, sampleFile: (g, signal) => sampleFile(root, g, signal) },
+    });
     startupStage = 25;
     const { startup, grants } = readJobPolicy(root);
     startupStage = 26;
     if (startup && grants.length) publishApprovedRun(root, store, startup.id, "1", startup.expiresAt, true);
     store.watches.provision();
+    ready = true;
   } catch (err) {
     await listener?.close();
-    store.close();
+    store?.close();
     err.relayStartupStage = startupStage;
     throw err;
   }
@@ -291,7 +310,7 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       console.log("Authenticated desktop worker ready.");
     } else {
       const delivery = checked.enabled === true ? sessionDelivery(checked.root) : undefined;
-      const broker = await startCompletionBroker(checked.root, { delivery, publishHealth: checked.health === true });
+      const broker = await startCompletionBroker(checked.root, { delivery, publishHealth: checked.health === true, listenerWaitMs: 15000 });
       for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
     }
   } catch (error) {

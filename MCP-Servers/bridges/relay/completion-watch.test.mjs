@@ -84,6 +84,24 @@ test("one notice and one original proof cover a burst for the same live instance
   assert.equal(await store.dispatch(b), "delivered");
 });
 
+test("startup can wait for the incumbent to release its listener without opening storage or taking over", async t => {
+  const f = await fixture(t);
+  const incumbent = await f.start();
+  const port = incumbent.port;
+  // An inaccessible store would fail first if a contender opened it before binding.
+  await assert.rejects(startCompletionBroker(path.join(f.root,"absent"), { port, listenerWaitMs: 30 }),
+    { code: "EADDRINUSE", relayStartupStage: 24 });
+  let replacement;
+  const waiting = startCompletionBroker(f.root, { port, listenerWaitMs: 2000 }).then(b => { replacement = b; });
+  try {
+    await delay(50);
+    assert.equal(replacement, undefined);
+    await incumbent.close();
+    await waiting;
+    assert.equal(replacement.port, port);
+  } finally { await replacement?.close(); }
+});
+
 test("revoking a member between capture and reservation suppresses the entire first attempt", async t => {
   const f = await fixture(t);
   let now = 1, revoked, calls = 0, outputs = [];
