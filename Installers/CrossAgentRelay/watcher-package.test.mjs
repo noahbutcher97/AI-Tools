@@ -25,6 +25,12 @@ test("watcher package contains a complete protected import closure and an empty 
   try { assert.equal(db.prepare("SELECT count(*) AS n FROM jobs").get().n, 0); } finally { db.close(); }
   await assert.rejects(buildWatcherPackage(out, { node: image, claude: image, codex: image }));
   await assert.rejects(verifyWatcherPackage(out, "a".repeat(64)));
+  const updated = path.join(temp, "updated");
+  await assert.rejects(buildWatcherPackage(updated, { base: out, baseDigest: "0".repeat(64) }));
+  assert.equal(fs.existsSync(updated), false);
+  // This fixture already contains the current broker. Repackaging must keep every byte.
+  assert.equal(await buildWatcherPackage(updated, { base: out, baseDigest: digest }), digest);
+  assert.equal(await verifyWatcherPackage(updated, digest), digest);
   fs.writeFileSync(path.join(out, "relay", "package.json"), "{}");
   await assert.rejects(verifyWatcherPackage(out, digest), /Unexpected/);
   fs.unlinkSync(path.join(out, "relay", "package.json"));

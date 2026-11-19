@@ -44,6 +44,17 @@ A broker build supporting policy version 2 can publish one job grant at startup 
 
 After acquiring its exclusive listener the broker issues one capability through the existing private handoff. Repeating the same request across restarts recovers the same capability and consumed state. An incompatible earlier batch for this instance causes startup to fail. The receiver rechecks the current policy and deadline on claim, completion and dispatch. An empty version 1 policy revokes authority. Existing version 1 grants keep their explicit provisioning behavior.
 
+## Review and apply a broker-only update
+
+Stage the current broker module against the previously reviewed package in a new private directory. Staging checks the previous digest and copies the other members byte for byte. Keep both packages until the update and its recovery window are complete.
+
+```text
+node watcher-package.mjs stage-broker <new-directory> <previous-directory> <previous-digest>
+Update-CompletionBroker.ps1 -Operation Plan -PreviousPackage <previous-directory> -PreviousDigest <previous-digest> -NextPackage <new-directory> -NextDigest <new-digest>
+```
+
+Run the updater beside the reviewed installer from an administrator-controlled directory. Plan checks both manifests, the installed code, task definitions and policy. After approving the new digest, run the same command with `-Operation Apply`. Apply takes the installation lock, checks for empty grants and disabled delivery, swaps the broker module atomically, restarts the scheduled task and verifies its heartbeat before recording the new digest. A startup failure restores the reviewed previous module. A retry reconciles an interrupted journal write. The existing job database, task principals, credentials and provider binaries are preserved.
+
 ## Deactivate and retain state
 
 ```text

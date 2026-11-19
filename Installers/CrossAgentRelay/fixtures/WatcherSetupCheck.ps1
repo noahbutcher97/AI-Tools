@@ -1,7 +1,7 @@
 # Exercise the installer against an isolated directory and in-memory task and account adapters.
 param([Parameter(Mandatory)][string]$FixtureRoot,[Parameter(Mandatory)][string]$Bundle,[Parameter(Mandatory)][string]$Digest)
 $ErrorActionPreference = 'Stop'
-. (Join-Path $PSScriptRoot '../Install-CompletionWatcher.ps1')
+. (Join-Path $PSScriptRoot '../Update-CompletionBroker.ps1')
 $root = Join-Path $FixtureRoot 'destination'
 $null = [IO.Directory]::CreateDirectory($root)
 $journal = Join-Path $root 'watcher-install.json'
@@ -127,6 +127,41 @@ Must ((Get-FileHash -LiteralPath $state).Hash -eq $beforeHash) 'Rollback lost st
 $Mode='Apply'
 Invoke-WatcherSetup $scheduler $folder | Out-Null
 Must ($script:registered.Count -eq 2 -and $script:fixtureUser.Enabled) 'Explicit reactivation failed'
+$PreviousDigest=$Digest
+$NextDigest='a'*64
+$PreviousPackage=$Bundle
+$NextPackage=Join-Path $FixtureRoot 'update'
+$null=[IO.Directory]::CreateDirectory((Join-Path $NextPackage 'relay'))
+$candidate=Join-Path $NextPackage $brokerMember
+[IO.File]::WriteAllText($candidate,'fixture update')
+$next=@{}+$hashes
+$next[$brokerMember]=(Get-FileHash $candidate).Hash
+$different=@{}+$next
+$different['runtime/node.exe']='0'*64
+Denied { Assert-BrokerDelta $hashes $different } 'This updater accepts only a broker module change'
+Assert-BrokerDelta $hashes $next
+$Operation='Plan'
+$plan=Invoke-BrokerUpdate $hashes $next | ConvertFrom-Json
+Must ($plan.changed -ceq $brokerMember -and (Get-FileHash (Join-Path $root $brokerMember)).Hash -eq $hashes[$brokerMember]) 'Update plan changed installation'
+function Stop-BrokerForUpdate { $folder.GetTask($brokerTask).State=3 }
+function Start-UpdatedBroker {
+    if ($script:failOnce) { $script:failOnce=$false; throw 'Fixture heartbeat absent' }
+    $folder.GetTask($brokerTask).State=4
+}
+$Operation='Apply'
+$script:failOnce=$true
+Denied { Invoke-BrokerUpdate $hashes $next } 'Fixture heartbeat absent'
+Must ((Get-FileHash (Join-Path $root $brokerMember)).Hash -eq $hashes[$brokerMember] -and
+    (Get-Content $journal -Raw|ConvertFrom-Json).package -ceq $Digest) 'Update failed to restore original package'
+Invoke-BrokerUpdate $hashes $next | Out-Null
+Must ((Get-FileHash (Join-Path $root $brokerMember)).Hash -eq $next[$brokerMember] -and
+    (Get-Content $journal -Raw|ConvertFrom-Json).package -ceq $NextDigest) 'New package was not recorded'
+$oldRecord=Get-Content $journal -Raw|ConvertFrom-Json
+$oldRecord.package=$Digest;Save-Record $oldRecord
+Invoke-BrokerUpdate $hashes $next | Out-Null
+Must ((Get-Content $journal -Raw|ConvertFrom-Json).package -ceq $NextDigest -and
+    (Get-FileHash $state).Hash -eq $beforeHash -and $script:registered.Count -eq 2) 'Interrupted update lost state'
+$PackageDigest=$NextDigest
 [IO.File]::Delete($state)
 Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
 'Isolated setup, recovery, refusal, rollback and reactivation passed.'

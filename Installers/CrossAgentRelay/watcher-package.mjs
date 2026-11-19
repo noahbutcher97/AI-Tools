@@ -95,12 +95,24 @@ function compileChannel(out) {
     env: { SystemRoot: process.env.SystemRoot, TEMP: out, TMP: out, PATH: path.join(process.env.SystemRoot, "System32") } });
 }
 
-export async function buildWatcherPackage(out, { node, codex, claude, compile = compileChannel }) {
-  if (![out, node, codex, claude].every(p => typeof p === "string" && path.isAbsolute(p))) throw Error("Expected absolute paths");
+export async function buildWatcherPackage(out, { node, codex, claude, compile = compileChannel, base, baseDigest }) {
+  if (!path.isAbsolute(out)) throw Error("Expected an absolute package destination");
   const inputs = new Map(sources.map(name => ["relay/" + name, path.join(bridge, name)]));
-  for (const [member, file] of [["runtime/node.exe", node], ["provider/codex.exe", codex], ["provider/claude.exe", claude]]) {
-    if (!fs.statSync(file).isFile()) throw Error("Missing installed executable");
-    inputs.set(member, file);
+  let priorEntries;
+  if (base !== undefined) {
+    if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
+    await verifyWatcherPackage(base, baseDigest);
+    const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
+    if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
+    priorEntries = new Map(JSON.parse(bytes).files);
+    for (const member of packageFiles) {
+      if (member !== "relay/completion-broker.mjs") inputs.set(member, canonicalFile(base, member));
+    }
+  } else {
+    for (const [member, file] of [["runtime/node.exe", node], ["provider/codex.exe", codex], ["provider/claude.exe", claude]]) {
+      if (!path.isAbsolute(file) || !fs.statSync(file).isFile()) throw Error("Missing installed executable");
+      inputs.set(member, file);
+    }
   }
   const parent = path.dirname(out);
   if (path.relative(parent, fs.realpathSync.native(parent)) !== "") throw Error("Redirected staging parent");
@@ -113,23 +125,27 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       directories.push(dir);
     }
     const entries = [];
-    for (const member of packageFiles.filter(name => name !== "CompletionChannel.exe")) {
+    for (const member of packageFiles) {
       const file = path.join(out, member);
       if (fs.existsSync(file)) throw Error("Package member already exists");
-      if (member === "initial/jobs.sqlite") {
+      if (!base && member === "CompletionChannel.exe") continue;
+      if (!base && member === "initial/jobs.sqlite") {
         await initializeCompletionJobs(file);
         created.push(file);
         entries.push([member, await fileHash(file)]);
       } else {
         const hash = await fileHash(inputs.get(member), file);
         created.push(file);
+        if (priorEntries && member !== "relay/completion-broker.mjs" && priorEntries.get(member) !== hash) throw Error("Base member changed");
         entries.push([member, hash]);
       }
     }
-    compile(out);
-    const helper = canonicalFile(out, "CompletionChannel.exe");
-    created.push(helper);
-    entries.push(["CompletionChannel.exe", await fileHash(helper)]);
+    if (!base) {
+      compile(out);
+      const helper = canonicalFile(out, "CompletionChannel.exe");
+      created.push(helper);
+      entries.push(["CompletionChannel.exe", await fileHash(helper)]);
+    }
     entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
     const output = manifest(entries);
     const metadata = path.join(out, "package.json");
@@ -151,8 +167,10 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const [mode, out, ...rest] = process.argv.slice(2);
     if (mode === "build" && rest.length === 2) {
       console.log(await buildWatcherPackage(out, { node: process.execPath, codex: rest[0], claude: rest[1] }));
+    } else if (mode === "stage-broker" && rest.length === 2) {
+      console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1] }));
     } else if (mode === "verify" && rest.length === 1) {
       console.log(await verifyWatcherPackage(out, rest[0]));
-    } else throw Error("Expected build <directory> <Codex image> <Claude image> or verify <directory> <digest>");
+    } else throw Error("Expected build, stage-broker <new-directory> <base-directory> <base-digest>, or verify");
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
