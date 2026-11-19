@@ -1,7 +1,7 @@
 # Run the three stages from an administrator-controlled copy beside the reviewed installer.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('Start','Run','Cleanup')][string]$Stage,
+    [Parameter(Mandatory)][ValidateSet('Prepare','Start','Run','Cleanup')][string]$Stage,
     [Parameter(Mandatory)][guid]$TrialId,
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ExpectedPackage,
     [string]$SessionScript,
@@ -136,6 +136,14 @@ $flagFile = Join-Path $root 'completion-worker.json'
 foreach ($p in @($node,$providerImage,$brokerModule,$policyFile,$flagFile)) { Assert-Protected $p }
 $utf = [Text.UTF8Encoding]::new($false)
 
+if ($Stage -eq 'Prepare') {
+    # A desktop caller already owns the disposable client and has captured its
+    # raw ID. Set up the protected signals without registering a second runner.
+    if (!$Mcp -or !$Target -or $Target -eq [guid]::Empty) { throw 'Expected a pinned MCP trial thread' }
+    New-AccessDirectory $trial "(A;OICI;GRGX;;;$desktopSid)"
+    New-AccessDirectory $exchange "(A;OICI;0x1301bf;;;$desktopSid)"
+    return
+}
 if ($Stage -eq 'Start') {
     if (!$SessionScript -or ![IO.Path]::IsPathRooted($SessionScript) -or
         [IO.Path]::GetFileName($SessionScript) -cne 'Qualify-CodexCompletion.mjs' -or

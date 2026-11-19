@@ -29,9 +29,14 @@ const installedMcp = process.argv[3] === "--installed-mcp-schedule";
 const installedSchedule = installedMcp || process.argv[3] === "--installed-schedule";
 const installed = installedSchedule || process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
-if (process.argv.length !== (installed ? 5 : fromShell || schedule || checkMcp ? 4 : 3)) throw Error("Unexpected qualification argument");
+const preparedTrial = installedMcp ? process.argv[5] : undefined;
+if (preparedTrial !== undefined && !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(preparedTrial)) throw Error("Invalid trial ID");
+if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
     fs.readdirSync(exchangeDir).length)) throw Error("Supply an empty private trial directory");
+const signals = preparedTrial ? path.join(process.env.ProgramFiles, "RelayWatcherTrial-" + preparedTrial.replaceAll("-", "")) :
+  installed ? path.dirname(exchangeDir) : undefined;
+const resumedDirectory = installed ? path.join(signals, "session") : undefined;
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-resume-"));
 const workspace = path.join(root, "workspace");
 fs.mkdirSync(workspace);
@@ -42,6 +47,7 @@ const params = { model, cwd: checkMcp || installedMcp ? mcpWorkspace : workspace
 const sessionName = "relay-check-" + randomUUID();
 let provider, store, listener, id;
 const providers = [];
+const ownedOutputs = new Set();
 async function until(check, ms, reason) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
@@ -220,12 +226,17 @@ async function runTrial() {
     // The administrator authorizes the exact returned thread and independently
     // checks the installed broker's proof before allowing the writer to close.
     const write = (name, value) => {
-      const temp = path.join(exchangeDir, name + ".tmp");
+      const dir = name === "resumed.json" ? resumedDirectory : exchangeDir;
+      const temp = path.join(dir, name + ".tmp");
+      const published = path.join(dir, name);
       fs.writeFileSync(temp, JSON.stringify(value), { flag: "wx", mode: 0o600 });
-      fs.renameSync(temp, path.join(exchangeDir, name));
+      ownedOutputs.add(temp);
+      fs.linkSync(temp, published);
+      ownedOutputs.add(published);
+      fs.unlinkSync(temp);
+      ownedOutputs.delete(temp);
     };
     write("target.json", { id, model });
-    const signals = path.dirname(exchangeDir);
     await until(() => {
       if (fs.existsSync(path.join(signals, "finished"))) throw Error("Installed trial closed before authorization");
       return fs.existsSync(path.join(signals, "authorized"));
@@ -335,11 +346,7 @@ try {
     try { await provider.call("thread/archive", { threadId: id }); } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();
-  if (installed) {
-    for (const name of ["target.json", "target.json.tmp", "job.json", "job.json.tmp", "resumed.json", "resumed.json.tmp"]) {
-      fs.rmSync(path.join(exchangeDir, name), { force: true });
-    }
-  }
+  for (const file of ownedOutputs) fs.rmSync(file, { force: true });
   await listener?.close();
   store?.close();
   fs.rmSync(root, { recursive: true, force: true });
