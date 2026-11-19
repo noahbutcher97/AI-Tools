@@ -5,6 +5,7 @@ import { z } from "zod/v3";
 import { toolJsonResult } from "../../lib/tool-result.mjs";
 import { discoverTargets, formatTargets, sendMessage } from "./client.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
+import { inventory, queryFleet } from "./fleet.mjs";
 
 // Cross-agent relay — MCP face (spec 4.1, 4.4).
 //
@@ -31,20 +32,31 @@ const server = new McpServer({ name: "relay-bridge", version: "0.1.0" });
 
 server.tool(
   "relay_list",
-  "List the live Claude Code and Codex agent sessions on this machine, with status, idle time, workspace and whether each can be sent to.",
+  "List live Claude Code and Codex sessions locally or across configured hosts.",
   {
     scope: z
       .enum(["cwd", "all"])
       .optional()
       .describe("cwd (default) lists sessions sharing the caller's workspace tree; all lists every session on the machine"),
     cwd: z.string().optional().describe("Workspace to scope to. Defaults to the server's working directory."),
+    all_hosts: z.boolean().optional().describe("Query the configured hosts concurrently. An explicit workspace scope applies on this host."),
   },
   // Reads two machine-local registries and nothing else. Declared read-only so
   // a host can auto-approve it: measured from a real Codex session, a tool with
   // no readOnlyHint is treated as side-effecting, and under
   // `approval_policy = "never"` the call fails outright rather than prompting.
-  { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-  async ({ scope = "cwd", cwd }, extra) => {
+  { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
+  async ({ scope, cwd, all_hosts = false }, extra) => {
+    if (all_hosts) {
+      try {
+        return toolJsonResult(await queryFleet("inventory", {
+          localInventory: () => inventory({ scope: scope || "all", cwd: cwd || process.cwd() }),
+        }));
+      } catch {
+        return toolJsonResult({ ok: false, cause: "directory_unavailable" });
+      }
+    }
+    scope ??= "cwd";
     const result = await discoverTargets({ scope, cwd: cwd || process.cwd() });
     // Resolved per call like the send path, so a caller asking who it is gets
     // the same answer relay would stamp on its next message.

@@ -288,7 +288,7 @@ async function readTurnStats(codexHome, ids, openDb, warnings) {
   return stats;
 }
 
-async function readCodexTargets(codexHome, now, openDb, warnings) {
+async function readCodexTargets(codexHome, now, openDb, warnings, indexOnly) {
   const ids = readLockedThreadIds(codexHome, warnings);
   // Nothing live means the 400MB store is never opened.
   if (!ids.length) return [];
@@ -315,7 +315,7 @@ async function readCodexTargets(codexHome, now, openDb, warnings) {
     // wrong: "user" would offer subagent internals as targets, "subagent" would
     // hide real sessions. Read the rollout instead — at the indexed path, so
     // still no directory walk.
-    if (!threadSource) {
+    if (!threadSource && !indexOnly) {
       if (!rollout) rollout = scanRollouts().get(id.toLowerCase()) || null;
       if (!rollout) {
         warnings.push(`codex thread ${id} is locked but has no rollout file`);
@@ -351,7 +351,10 @@ async function readCodexTargets(codexHome, now, openDb, warnings) {
 
     let addressable;
     let reason = null;
-    if (!rollout) {
+    if (indexOnly && !threadSource) {
+      addressable = false;
+      reason = "provider index has no session provenance";
+    } else if (!rollout) {
       // Spec 3.5: `codex queue` rejects exactly this case with "no rollout
       // found for thread id".
       addressable = false;
@@ -1829,7 +1832,7 @@ export async function resolveReference(options = {}) {
 // Unit 1 knows one command. Unknown commands and flags are refused rather than
 // ignored: a mistyped --scope that silently fell back to the caller's own
 // workspace would report an empty machine and look like a broken relay.
-const COMMANDS = new Set(["list", "send"]);
+const COMMANDS = new Set(["list", "send", "ping"]);
 const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
 
@@ -1854,6 +1857,11 @@ export function parseArgs(argv = []) {
 
   while (args.length) {
     const flag = args.shift();
+    if (flag === "--all-hosts" && (command === "ping" || command === "list")) {
+      options.allHosts = true;
+      continue;
+    }
+    if (command === "ping" && flag !== "--json") throw new Error("ping requires --all-hosts");
     if (BOOLEAN_FLAGS.has(flag)) {
       if (flag === "--json") options.json = true;
       else if (flag === "--via-delegate") options.viaDelegate = true;
@@ -1866,6 +1874,7 @@ export function parseArgs(argv = []) {
     if (flag === "--scope") {
       if (value !== "cwd" && value !== "all") throw new Error(`scope must be "cwd" or "all", got "${value}"`);
       options.scope = value;
+      options.explicitScope = value;
     } else if (flag === "--message") {
       options.message = value;
     } else if (flag === "--re") {
@@ -1889,6 +1898,7 @@ export function parseArgs(argv = []) {
       options.cwd = value;
     }
   }
+  if (command === "ping" && !options.allHosts) throw new Error("ping requires --all-hosts");
   return options;
 }
 
@@ -1949,7 +1959,7 @@ export async function discoverTargets(options = {}) {
   const warnings = [];
   let targets = [
     ...readClaudeTargets(claudeSessionsDir, now, readFile, warnings),
-    ...(await readCodexTargets(codexHome, now, openDb, warnings)),
+    ...(await readCodexTargets(codexHome, now, openDb, warnings, options.indexOnly)),
   ];
 
   // Workspace is a default filter, never a boundary — --scope all reaches
