@@ -7,7 +7,7 @@ import { PassThrough, Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { sessionDelivery, serveSession, completionText, frameIO } from "./completion-session.mjs";
-import { installedDelegate } from "./completion-worker.mjs";
+import { installedDelegate, installedQueue } from "./completion-worker.mjs";
 
 const id = "00000000-0000-4000-8000-000000000001";
 const body = "Job " + id + " ended with exit code 23. No reply is needed.";
@@ -96,6 +96,28 @@ test("installed delegate uses the protected executable, empty cwd and fixed isol
     assert.deepEqual(args, ["--model","haiku","--effort","low","--setting-sources","","--settings",'{"disableAllHooks":true}',"-p","--tools","SendMessage"]);
     assert.deepEqual(opts, { cwd: path.join(root,"worker-cwd"), stdin: "fixture" });
   });
+});
+
+test("a Codex worker submits only an exact thread address through the installed native queue", async () => {
+  const root = path.resolve("fixture");
+  const actual = { ...target, kind: "codex", pid: null, startedAt: null, name: id };
+  for (const name of [id, "different"]) {
+    let queued = 0;
+    const adapter = sessionDelivery(root, exchanges({ status: assert.fail, send: async (to, text, opts) => {
+      await opts.checkTarget({ ...actual, name });
+      await opts.onHandle(handle, actual);
+      installedQueue(root, to, text, (cmd, argv, options) => {
+        assert.equal(cmd, path.join(root, "provider", "codex.exe"));
+        assert.deepEqual(argv, ["queue", "--thread", id, "--message", body]);
+        assert.deepEqual(options, { cwd: path.join(root, "worker-cwd") });
+        queued++;
+      });
+      return { state: "pending" };
+    } }));
+    const result = await adapter.send(id, body, { checkTarget(t) { assert.equal(t.kind, "codex"); }, onHandle() {} });
+    assert.equal(result.state, name === id ? "pending" : "dispatch_failed");
+    assert.equal(queued, name === id ? 1 : 0);
+  }
 });
 
 test("Windows authenticates both named pipe peers before transferring data", { skip: process.platform !== "win32" }, t => {

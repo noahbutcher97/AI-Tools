@@ -13,14 +13,18 @@ export function validJobFrame(frame) {
   return exactKeys(frame, ["v", "op", "id", "nonce", "event", "mac"]) && frame.v === 1 &&
     matches(UUID, frame.id) && matches(/^[a-f0-9]{32}$/, frame.nonce) && matches(TAG, frame.mac) &&
     (((frame.op === "claim" || frame.op === "start_failed") && frame.event === null) ||
-      (["claim_run","available_run"].includes(frame.op) && exactKeys(frame.event, ["session"]) && matches(UUID, frame.event.session)) ||
+      (["claim_run","available_run"].includes(frame.op) && matches(UUID, frame.event?.session) &&
+        (exactKeys(frame.event, ["session"]) || (exactKeys(frame.event, ["session", "provider"]) && frame.event.provider === "codex"))) ||
       (frame.op === "complete" && validExit(frame.event)));
 }
 
 export function jobMac(key, frame, direction) {
   const fields = ["relay-job-v1", direction, frame.op, frame.id, frame.nonce,
     frame.event?.code ?? null, frame.event?.signal ?? null];
-  if (["claim_run","available_run"].includes(frame.op)) fields.push(frame.event.session);
+  if (["claim_run","available_run"].includes(frame.op)) {
+    fields.push(frame.event.session);
+    if (frame.event.provider) fields.push(frame.event.provider);
+  }
   return createHmac("sha256", key).update(JSON.stringify(fields)).digest("hex");
 }
 

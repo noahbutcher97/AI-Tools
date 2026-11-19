@@ -81,6 +81,8 @@ function Get-CompletionRoot {
         foreach ($name in @('CompletionChannel.exe','relay','runtime','runtime/node.exe','provider','provider/claude.exe','worker-cwd')) {
             Assert-BrokerAcl (Join-Path $root $name) $admin
         }
+        $queueImage = Join-Path $root 'provider/codex.exe'
+        if (Test-Path -LiteralPath $queueImage) { Assert-BrokerAcl $queueImage $admin }
         foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'relay') -File -Force) {
             Assert-BrokerAcl $file.FullName $admin
         }

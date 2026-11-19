@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { openCompletionJobs } from "./completion-jobs.mjs";
+import { openCompletionJobs, threadStatusBinding } from "./completion-jobs.mjs";
 import { prepareJobRequest } from "./completion-protocol.mjs";
 import { sessionDelivery } from "./completion-session.mjs";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
@@ -115,10 +115,12 @@ function readJobPolicy(root) {
     policy = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, n)));
   } finally { fs.closeSync(fd); }
   const valid = exactKeys(policy, ["v", "grants"]) && policy.v === 1 && Array.isArray(policy.grants) &&
-    policy.grants.length <= 128 && policy.grants.every(g => exactKeys(g, ["id", "provider", "instance"]) &&
-      matches(UUID, g.id) && g.provider === "claude" && matches(/^[a-f0-9]{64}$/, g.instance));
+    policy.grants.length <= 128 && policy.grants.every(g => matches(UUID, g?.id) && (
+      (exactKeys(g, ["id", "provider", "instance"]) && g.provider === "claude" && matches(/^[a-f0-9]{64}$/, g.instance)) ||
+      (exactKeys(g, ["id", "provider", "scope"]) && g.provider === "codex" && g.scope === "thread-status")
+    ));
   if (!valid) throw new Error("invalid job policy");
-  return policy.grants;
+  return policy.grants.map(g => g.provider === "codex" ? { ...g, instance: threadStatusBinding(g.id) } : g);
 }
 
 export function loadJobPolicy(root) {
@@ -140,7 +142,7 @@ export async function provisionRun(root, session, count, expiry) {
   });
   try {
     return store.provision(session, authorized[0].instance, Number(count), validUntil,
-      (binding, hash, pending) => publishRunHandoff(root, binding, hash, pending));
+      (binding, hash, pending) => publishRunHandoff(root, binding, hash, pending), authorized[0].provider);
   } finally { store.close(); }
 }
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { initializeCompletionJobs, openCompletionJobs } from "./completion-jobs.mjs";
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
+import { prepareJobRequest } from "./completion-protocol.mjs";
 import { digest } from "./delivery-protocol.mjs";
 
 const id = "00000000-0000-4000-8000-000000000001";
@@ -160,6 +161,32 @@ test("revocation after submission prevents proof reads until independently autho
   assert.equal(await peer.dispatch(grant.id), "delivered");
   assert.equal(reads, 1);
   assert.equal(calls, 1);
+});
+
+test("a resumed Codex status notice rejects a different thread and revocation before queue submission", async t => {
+  const f = await fixture(t);
+  const thread = { kind: "codex", id, addressable: true, pid: null, startedAt: null };
+  for (const cause of ["wrong-thread", "policy-revoked"]) {
+    let allowed = true, submits = 0;
+    const jobs = await f.open({
+      permits: (to, provider) => allowed && to === id && provider === "codex",
+      status: assert.fail,
+      send: (to, body, options) => sendProvedNotice(to, body, { ...options, profile: f.profile,
+        capture: async () => { allowed = false; return { id }; },
+        send: async call => {
+          const actual = cause === "wrong-thread" ? { ...thread, id: other } : thread;
+          try { await call.beforeSubmit(actual, body); } catch { return { ok: false }; }
+          submits++;
+          return { ok: true };
+        },
+      }),
+    });
+    const grant = jobs.issue(thread, 200);
+    jobs.acceptFrame(prepareJobRequest(grant, "claim_run", { session: id, provider: "codex" }).frame);
+    jobs.acceptFrame(prepareJobRequest(grant, "complete", event).frame);
+    assert.equal(await jobs.dispatch(grant.id), cause === "wrong-thread" ? "ready" : "unavailable");
+    assert.equal(submits, 0);
+  }
 });
 
 test("failed asynchronous receipt persistence prevents submission", async t => {

@@ -34,11 +34,12 @@ export function validCommand(argv) {
 }
 
 // The caller owns execution. Only the status report is retried.
-export async function observeCommand({ grant, session, argv, port }, notify, {
+export async function observeCommand({ grant, session, provider = "claude", argv, port }, notify, {
   report = reportJob, launch = spawn, pause = delay, connected = () => true,
 } = {}) {
   if (!validRunGrant(grant) || !matches(UUID, session) || !validCommand(argv)) return notify("not_started");
-  try { await report(grant, "claim_run", { session }, { port }); }
+  const event = provider === "claude" ? { session } : { session, provider };
+  try { await report(grant, "claim_run", event, { port }); }
   catch { return notify("not_started"); }
   async function finish(op, event) {
     for (const backoff of [0, 250, 1000, 4000]) {
@@ -67,9 +68,9 @@ export async function observeCommand({ grant, session, argv, port }, notify, {
 export async function startRun(argv, identity, input, options = {}) {
   const { port } = options;
   if (!validCommand(argv)) throw new RunInputError("Use relay run -- <executable> [args...].");
-  if (identity?.provider !== "claude" || !matches(UUID, identity.id)) throw new RunInputError("Run is unavailable in this session.");
+  if (!["claude", "codex"].includes(identity?.provider) || !matches(UUID, identity.id)) throw new RunInputError("Run is unavailable in this session.");
   const grant = await readRunGrant(input, async () => {
-    try { return await availableGrant(identity.id, reportJob, options); }
+    try { return await availableGrant(identity.id, reportJob, { ...options, provider: identity.provider }); }
     catch { throw new RunInputError("No usable pre-issued job grant for this session."); }
   });
   // Keep the bearer out of argv, the child environment and the command's stdin.
@@ -81,7 +82,7 @@ export async function startRun(argv, identity, input, options = {}) {
     worker.once("error", () => finish("unknown"));
     worker.once("exit", () => finish("unknown"));
     worker.once("message", message => finish(["started", "not_started"].includes(message) ? message : "unknown"));
-    worker.send({ argv, session: identity.id, grant, port }, err => { if (err) finish("unknown"); });
+    worker.send({ argv, session: identity.id, provider: identity.provider, grant, port }, err => { if (err) finish("unknown"); });
   });
   if (worker.connected) worker.disconnect();
   worker.unref();

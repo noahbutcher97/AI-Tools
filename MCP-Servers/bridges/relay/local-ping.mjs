@@ -56,12 +56,12 @@ export function localPing(to, options) {
 // submission. Recovery uses localStatus(handle), which never calls a provider.
 export async function sendProvedNotice(to, message, { allowDelegate = false, profile = os.homedir(), send = sendMessage,
   capture = captureCursor, verify = prove, onHandle = () => {}, checkTarget = () => {}, deferProof = false, waitMs = 2000, signal,
-  runDelegate } = {}) {
+  runDelegate, runQueue } = {}) {
   if (!matches(UUID, to)) return { ok: false, cause: "invalid_target", detail: "A proved notice requires a raw session ID." };
   if (typeof message !== "string" || !message.trim()) return { ok: false, cause: "empty_notice", detail: "A proved notice needs a body." };
   let handle;
   const result = await send({
-    to, exactId: true, scope: "all", allowDelegate, kind: "notice", message,
+    to, exactId: true, scope: "all", allowDelegate, kind: "notice", message, runQueue,
     beforeSubmit: async (target, text) => {
       if (target.id !== to) throw new Error("target changed");
       await checkTarget(target);

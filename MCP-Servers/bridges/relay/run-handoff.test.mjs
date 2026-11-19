@@ -41,6 +41,40 @@ async function fixture(t) {
   return { base, root, dir, file, db, policy, row, until, issue, store };
 }
 
+test("Codex thread-status grants bind claims to the provider, thread and local broker", async t => {
+  const f = await fixture(t);
+  const peer = await fixture(t);
+  const row = { id: session, provider: "codex", scope: "thread-status" };
+  const thread = { id: session, kind: "codex", addressable: true, pid: null, startedAt: null };
+  assert.throws(() => instanceOf(thread), /unknown session instance/);
+  f.policy([{ ...row, scope: "private-tail" }]);
+  await assert.rejects(f.issue());
+  f.policy([row]);
+  peer.policy([row]);
+  await f.issue();
+  const listener = await listenForJobReports(f.store.acceptFrame, { port: 0 });
+  try {
+    const options = { root: f.root, port: listener.port, provider: "codex", discover: async () => ({ targets: [thread] }) };
+    const grant = await availableGrant(session, reportJob, options);
+    const claim = prepareJobRequest(grant, "claim_run", { session, provider: "codex" });
+    for (const wrong of [{ session }, { session: other, provider: "codex" }]) {
+      assert.throws(() => f.store.acceptFrame(prepareJobRequest(grant, "claim_run", wrong).frame));
+    }
+    assert.throws(() => f.store.acceptFrame({ ...claim.frame, event: { session } }));
+    assert.throws(() => peer.store.acceptFrame(claim.frame));
+    await assert.rejects(availableGrant(session, reportJob, { ...options, provider: "claude" }));
+    const result = await startRun([process.execPath, "-e", "process.exit(23)"], { id: session, provider: "codex" }, Readable.from([]), options);
+    assert.deepEqual(result, { id: grant.id, state: "started" });
+    const end = Date.now() + 5000;
+    const state = () => f.store.subscriptions().subscriptions.find(s => s.id === grant.id)?.state;
+    while (state() === "claimed" && Date.now() < end) await delay(25);
+    assert.equal(state(), "ready");
+    assert.throws(() => f.store.acceptFrame(claim.frame));
+    f.policy([]);
+    await assert.rejects(availableGrant(session, reportJob, options));
+  } finally { await listener.close(); }
+});
+
 test("a reserved handoff resumes publication once and cannot mint replacements", async t => {
   const f = await fixture(t);
   const retry = () => f.store.provision(session, binding, 2, f.until, () => { throw Error("interrupted"); });

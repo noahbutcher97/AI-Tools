@@ -29,7 +29,7 @@ test("run preserves literal arguments and refuses an absent or oversized grant",
   await assert.rejects(readRunGrant(Readable.from([])), /grant/);
   await assert.rejects(readRunGrant(input({ ...grant, path: "fixture" })), /grant/);
   await assert.rejects(readRunGrant(Readable.from([" ".repeat(257), JSON.stringify(grant)])), /grant/);
-  await assert.rejects(startRun(argv, { id: session, provider: "codex" }, input(grant)), /unavailable/);
+  await assert.rejects(startRun(argv, { id: session, provider: "unknown" }, input(grant)), /unavailable/);
   const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
   const env = { ...process.env, CLAUDE_CODE_SESSION_ID: session };
   delete env.CODEX_SESSION_ID;

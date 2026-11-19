@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { discoverTargets } from "./client.mjs";
-import { instanceOf } from "./completion-jobs.mjs";
+import { statusBinding } from "./completion-jobs.mjs";
 import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { installationRoot } from "./fleet.mjs";
 
@@ -70,16 +70,18 @@ export function publishRunHandoff(root, binding, hash, pending) {
 }
 
 export async function availableGrant(session, report, { root = installationRoot(), discover = discoverTargets,
-  now = Date.now, port } = {}) {
+  now = Date.now, port, provider = "claude" } = {}) {
   const { targets } = await discover({ scope: "all" });
   const matching = targets.filter(target => target.id === session);
   if (matching.length !== 1) throw new Error("ambiguous or absent session");
   const target = matching[0];
-  const binding = instanceOf(target);
-  process.kill(target.pid, 0);
+  if (target.kind !== provider) throw new Error("provider mismatch");
+  const binding = statusBinding(target);
+  if (provider === "claude") process.kill(target.pid, 0);
   const batch = parseBatch(readBatch(handoffPath(root, binding)), binding);
   if (batch.session !== session || batch.validUntil <= now()) throw new Error("grant handoff expired or mismatched");
-  const checks = await Promise.allSettled(batch.grants.map(grant => report(grant, "available_run", { session }, { port })));
+  const event = provider === "claude" ? { session } : { session, provider };
+  const checks = await Promise.allSettled(batch.grants.map(grant => report(grant, "available_run", event, { port })));
   const index = checks.findIndex(check => check.status === "fulfilled");
   if (index < 0) throw new Error("no unused run grant");
   return batch.grants[index];

@@ -19,8 +19,9 @@ export function completionText(value) {
 }
 
 function validTarget(t, to) {
-  return exactKeys(t, ["id", "kind", "pid", "startedAt", "addressable"]) && t.id === to && t.kind === "claude" &&
-    Number.isSafeInteger(t.pid) && t.pid > 0 && Number.isSafeInteger(t.startedAt) && t.startedAt > 0 && t.addressable === true;
+  if (!exactKeys(t, ["id", "kind", "pid", "startedAt", "addressable"]) || t.id !== to || t.addressable !== true) return false;
+  if (t.kind === "codex") return t.pid === null && t.startedAt === null;
+  return t.kind === "claude" && Number.isSafeInteger(t.pid) && t.pid > 0 && Number.isSafeInteger(t.startedAt) && t.startedAt > 0;
 }
 
 export function frameIO(input, output) {
@@ -149,7 +150,8 @@ export async function serveSession(io, { send, status, enabled = () => true }) {
     const result = await send(req.to, req.body, { allowDelegate: true, deferProof: true,
       async checkTarget(t) {
         const target = { id: t.id, kind: t.kind, pid: t.pid, startedAt: t.startedAt, addressable: t.addressable };
-        if (phase++ !== 0 || !validTarget(target, req.to) || !matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/, t.name)) throw new Error();
+        const addressValid = t.kind === "codex" ? t.name === req.to : matches(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/, t.name);
+        if (phase++ !== 0 || !validTarget(target, req.to) || !addressValid || !enabled(t.kind)) throw new Error();
         await io.write({ op: "target", target });
         const ack = await io.read();
         if (!exactKeys(ack, ["op"]) || ack.op !== "capture" || !enabled()) throw new Error();
