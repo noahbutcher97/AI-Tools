@@ -4,6 +4,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 import { openCompletionJobs } from "./completion-jobs.mjs";
 import { prepareJobRequest } from "./completion-protocol.mjs";
 import { exactKeys, matches, UUID } from "./delivery-protocol.mjs";
@@ -120,12 +121,39 @@ export function loadJobPolicy(root) {
   };
 }
 
-export async function startCompletionBroker(root, options) {
-  const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), { permits: loadJobPolicy(root) });
+export async function startCompletionBroker(root, { port, delivery } = {}) {
+  // Only the trusted process launcher supplies these adapters. The production
+  // broker account must never fall back to spawning a provider in its profile.
+  if (delivery !== undefined && (typeof delivery?.send !== "function" || typeof delivery.status !== "function")) {
+    throw new Error("incomplete delivery adapter");
+  }
+  const unavailable = () => { throw new Error("session-profile delivery unavailable"); };
+  const store = await openCompletionJobs(underRoot(root, path.join("completion-state", "jobs.sqlite")), {
+    send: delivery?.send ?? unavailable, status: delivery?.status ?? unavailable, permits: loadJobPolicy(root),
+  });
   let listener;
-  try { listener = await listenForJobReports(store.acceptFrame, options); }
+  try { listener = await listenForJobReports(store.acceptFrame, { port }); }
   catch (err) { store.close(); throw err; }
-  return { port: listener.port, async close() { await listener.close(); store.close(); } };
+  const controller = new AbortController();
+  const { signal } = controller;
+  async function watch() {
+    while (!signal.aborted) {
+      let worked = false;
+      try { worked = await store.dispatchDue(signal); }
+      catch { /* A reserved dispatch stays uncertain; other jobs still run. */ }
+      try { await delay(worked ? 0 : 500, undefined, { signal }); } catch { return; }
+    }
+  }
+  const running = delivery ? watch() : Promise.resolve();
+  let closing;
+  return { port: listener.port, close() {
+    if (!closing) {
+      controller.abort();
+      // Retain exclusive ownership of the listener through the final callback.
+      closing = running.then(() => listener.close()).finally(() => store.close());
+    }
+    return closing;
+  } };
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {

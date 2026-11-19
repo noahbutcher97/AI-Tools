@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 
-export function runProvider(command, args, { stdin, cwd, env, timeoutMs = 35000, maxBytes = 128 * 1024 } = {}) {
+export function runProvider(command, args, { stdin, cwd, env, signal, timeoutMs = 35000, maxBytes = 128 * 1024 } = {}) {
   const windows = process.platform === "win32";
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const child = spawn(command, args, { shell: false, windowsHide: true, detached: !windows,
       env, cwd, stdio: ["pipe", "pipe", "pipe"] });
     const stdout = [], stderr = [];
@@ -22,6 +23,11 @@ export function runProvider(command, args, { stdin, cwd, env, timeoutMs = 35000,
       }
     }
     const timer = setTimeout(abort, timeoutMs);
+    signal?.addEventListener("abort", abort, { once: true });
+    function cleanup() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
     for (const [stream, chunks] of [[child.stdout, stdout], [child.stderr, stderr]]) {
       stream.on("data", chunk => {
         size += chunk.length;
@@ -30,9 +36,9 @@ export function runProvider(command, args, { stdin, cwd, env, timeoutMs = 35000,
       });
     }
     child.stdin.on("error", () => {});
-    child.once("error", err => { clearTimeout(timer); reject(err); });
+    child.once("error", err => { cleanup(); reject(err); });
     child.once("close", code => {
-      clearTimeout(timer);
+      cleanup();
       if (aborted) return reject(new Error("provider outcome unknown"));
       resolve({ code: code ?? 1, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") });
     });

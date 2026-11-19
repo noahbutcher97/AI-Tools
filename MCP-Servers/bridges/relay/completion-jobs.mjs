@@ -5,6 +5,8 @@ import { digest, matches, UUID } from "./delivery-protocol.mjs";
 import { jobMac, sameMac, validExit, validJobFrame } from "./completion-protocol.mjs";
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
 
+const COOLDOWN_MS = 10000;
+
 // This database belongs to the broker. Installation supplies the protected
 // directory. No CLI, SSH frame or MCP request can select a path or issue grants.
 export async function initializeCompletionJobs(file) {
@@ -16,8 +18,12 @@ export async function initializeCompletionJobs(file) {
     db.exec(`CREATE TABLE jobs (
       id TEXT PRIMARY KEY, token_hash BLOB NOT NULL, recipient TEXT NOT NULL,
       provider TEXT NOT NULL, instance TEXT NOT NULL, valid_until INTEGER NOT NULL,
-      state TEXT NOT NULL, code INTEGER, signal TEXT, handle TEXT
-    ) WITHOUT ROWID; PRAGMA application_id=1128943426; PRAGMA user_version=1`);
+      state TEXT NOT NULL, code INTEGER, signal TEXT, handle TEXT,
+      next_check INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, last_notice INTEGER
+    ) WITHOUT ROWID;
+    CREATE INDEX jobs_due ON jobs(state,next_check,id);
+    CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
+    PRAGMA application_id=1128943426; PRAGMA user_version=2`);
   } finally { db.close(); }
 }
 
@@ -39,9 +45,18 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   url.searchParams.set("mode", "rw");
   const db = new DatabaseSync(url.href);
   try {
-    if (db.prepare("PRAGMA application_id").get().application_id !== 1128943426 ||
-        db.prepare("PRAGMA user_version").get().user_version !== 1) throw new Error("invalid job store");
-    db.exec("PRAGMA synchronous=FULL; PRAGMA busy_timeout=500");
+    db.exec("PRAGMA synchronous=FULL; PRAGMA busy_timeout=500; BEGIN IMMEDIATE");
+    if (db.prepare("PRAGMA application_id").get().application_id !== 1128943426) throw new Error("invalid job store");
+    const version = db.prepare("PRAGMA user_version").get().user_version;
+    if (version === 1) {
+      db.exec(`ALTER TABLE jobs ADD COLUMN next_check INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE jobs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE jobs ADD COLUMN last_notice INTEGER;
+        CREATE INDEX jobs_due ON jobs(state,next_check,id);
+        CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
+        PRAGMA user_version=2`);
+    } else if (version !== 2) throw new Error("invalid job store");
+    db.exec("COMMIT");
   } catch (error) { db.close(); throw error; }
   const row = db.prepare("SELECT * FROM jobs WHERE id=?");
   function active(id) {
@@ -62,22 +77,98 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   }
   function recordOutcome(job, event, initialState) {
     if (!validExit(event)) throw new Error("invalid job outcome");
-    const wrote = db.prepare("UPDATE jobs SET code=?,signal=?,state='ready' WHERE id=? AND state=? AND valid_until>?")
-      .run(event.code, event.signal, job.id, initialState, now());
+    const stamp = now();
+    const wrote = db.prepare(`UPDATE jobs SET code=?,signal=?,state='ready',next_check=max(?,(
+      SELECT coalesce(max(last_notice)+?,0) FROM jobs WHERE recipient=? AND provider=? AND instance=? AND last_notice IS NOT NULL
+    )) WHERE id=? AND state=? AND valid_until>?`)
+      .run(event.code, event.signal, stamp + 750, COOLDOWN_MS, job.recipient, job.provider, job.instance, job.id, initialState, stamp);
     if (!wrote.changes) {
       const current = active(job.id);
       if (!current || current.code !== event.code || current.signal !== event.signal) throw new Error("job outcome conflict");
     }
   }
-  async function inspectProof(job) {
-    const proof = await status(job.handle);
-    if (!active(job.id)) return "unavailable";
-    if (proof.to === job.recipient && proof.state === "delivered") {
-      db.prepare("UPDATE jobs SET state='delivered' WHERE id=? AND state='observing'").run(job.id);
-    } else if (proof.state !== "pending" || proof.to !== job.recipient) {
-      return "proof_unavailable";
+  function transaction(fn) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const result = fn();
+      db.exec("COMMIT");
+      return result;
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+  }
+  function currentJobs(ids, state) {
+    return ids.map(active).filter(job => job?.state === state);
+  }
+  async function inspectProof(jobs) {
+    const first = jobs[0];
+    const proof = await status(first.handle);
+    if (proof.to !== first.recipient || !["pending", "delivered"].includes(proof.state)) return "proof_unavailable";
+    if (proof.state === "delivered") {
+      transaction(() => {
+        for (const job of jobs) {
+          if (active(job.id)) db.prepare("UPDATE jobs SET state='delivered' WHERE id=? AND state='observing' AND handle=?").run(job.id, first.handle);
+        }
+      });
     }
-    return publicState(job.id);
+    return publicState(first.id);
+  }
+  async function dispatchJobs(ids, signal) {
+    if (signal?.aborted) return "stopped";
+    const observing = currentJobs(ids, "observing");
+    if (observing.length) return inspectProof(observing);
+    const jobs = transaction(() => {
+      const ready = currentJobs(ids, "ready");
+      for (const job of ready) db.prepare("UPDATE jobs SET state='dispatching' WHERE id=?").run(job.id);
+      return ready;
+    });
+    if (!jobs.length) return publicState(ids[0]);
+    const first = jobs[0];
+    const checkTarget = target => {
+      if (signal?.aborted || target.id !== first.recipient || target.kind !== first.provider ||
+          instanceOf(target) !== first.instance || jobs.some(job => active(job.id)?.state !== "dispatching")) {
+        throw new Error("job binding changed");
+      }
+    };
+    const message = jobs.map(job => "Job " + job.id + " ended with " +
+      (job.signal ? "signal " + job.signal : "exit code " + job.code) + ".").join("\n") + " No reply is needed.";
+    const result = await send(first.recipient, message, { allowDelegate: first.provider === "claude", checkTarget,
+      deferProof: true, signal, onHandle(handle, target) {
+        transaction(() => {
+          checkTarget(target);
+          const stamp = now();
+          for (const job of jobs) db.prepare("UPDATE jobs SET handle=?,state='observing',last_notice=? WHERE id=?").run(handle, stamp, job.id);
+          db.prepare(`UPDATE jobs SET next_check=max(next_check,?) WHERE state='ready' AND recipient=? AND provider=? AND instance=?`)
+            .run(stamp + COOLDOWN_MS, first.recipient, first.provider, first.instance);
+        });
+      },
+    });
+    if (result.state === "dispatch_failed") {
+      transaction(() => {
+        for (const job of jobs) db.prepare("UPDATE jobs SET state='ready' WHERE id=? AND state='dispatching'").run(job.id);
+      });
+    }
+    const saved = currentJobs(jobs.map(job => job.id), "observing");
+    if (saved.length && !signal?.aborted) return inspectProof(saved);
+    return publicState(first.id);
+  }
+
+  // Reserve a finite retry interval before any asynchronous work. After a
+  // crash the state determines whether a send or only a proof check is legal.
+  function dueBatch() {
+    return transaction(() => {
+      const stamp = now();
+      const due = db.prepare(`SELECT * FROM jobs WHERE state IN ('ready','observing') AND valid_until>? AND next_check<=?
+        ORDER BY next_check,id LIMIT 1`).get(stamp, stamp);
+      if (!due) return [];
+      const related = db.prepare(`SELECT id,attempts FROM jobs WHERE id<>? AND recipient=? AND provider=? AND instance=?
+        AND state=? AND handle IS ? AND valid_until>? AND (next_check<=? OR (state='ready' AND attempts=0))
+        ORDER BY next_check,id LIMIT 7`).all(due.id, due.recipient, due.provider, due.instance, due.state, due.handle, stamp, stamp);
+      const jobs = [due, ...related];
+      for (const job of jobs) {
+        const backoff = Math.min(60000, 2000 * 2 ** Math.min(5, job.attempts));
+        db.prepare("UPDATE jobs SET next_check=?, attempts=min(attempts+1,6) WHERE id=?").run(stamp + backoff, job.id);
+      }
+      return jobs.map(job => job.id);
+    });
   }
   return {
     close: () => db.close(),
@@ -122,36 +213,13 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       }
       return { ack: jobMac(key, frame, "ack") };
     },
-    async dispatch(id) {
-      const job = active(id);
-      if (!job) return "unavailable";
-      if (job.state === "observing") return inspectProof(job);
-      if (job.state !== "ready") return publicState(id);
-      const won = db.prepare("UPDATE jobs SET state='dispatching' WHERE id=? AND state='ready' AND valid_until>?").run(id, now());
-      if (won.changes !== 1) return publicState(id);
-      const checkTarget = target => {
-        if (!active(id) || target.id !== job.recipient || target.kind !== job.provider || instanceOf(target) !== job.instance) {
-          throw new Error("job binding changed");
-        }
-      };
-      const termination = job.signal ?? String(job.code);
-      const message = "Job " + id + " ended with " + (job.signal ? "signal " : "exit code ") + termination + ". No reply is needed.";
-      // Persist the original notice's handle before its one possible provider
-      // call. Another worker or a restarted broker can only inspect that handle.
-      const result = await send(job.recipient, message, { allowDelegate: job.provider === "claude", checkTarget, deferProof: true,
-        onHandle(handle, target) {
-          checkTarget(target);
-          const saved = db.prepare("UPDATE jobs SET handle=?,state='observing' WHERE id=? AND state='dispatching' AND valid_until>?")
-            .run(handle, id, now());
-          if (saved.changes !== 1) throw new Error("job grant unavailable");
-        },
-      });
-      if (result.state === "dispatch_failed") {
-        db.prepare("UPDATE jobs SET state='ready' WHERE id=? AND state='dispatching'").run(id);
-      }
-      const current = active(id);
-      if (current?.state === "observing") return inspectProof(current);
-      return publicState(id);
+    dispatch: id => dispatchJobs([id]),
+    async dispatchDue(signal) {
+      if (signal?.aborted) return false;
+      const ids = dueBatch();
+      if (!ids.length) return false;
+      await dispatchJobs(ids, signal);
+      return true;
     },
   };
 }

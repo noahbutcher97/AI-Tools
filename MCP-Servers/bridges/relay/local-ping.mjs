@@ -55,7 +55,7 @@ export function localPing(to, options) {
 // The caller supplies the notice and can durably reserve its handle before
 // submission. Recovery uses localStatus(handle), which never calls a provider.
 export async function sendProvedNotice(to, message, { allowDelegate = false, profile = os.homedir(), send = sendMessage,
-  capture = captureCursor, verify = prove, onHandle = () => {}, checkTarget = () => {}, deferProof = false, waitMs = 2000 } = {}) {
+  capture = captureCursor, verify = prove, onHandle = () => {}, checkTarget = () => {}, deferProof = false, waitMs = 2000, signal } = {}) {
   if (!matches(UUID, to)) return { ok: false, cause: "invalid_target", detail: "A proved notice requires a raw session ID." };
   if (typeof message !== "string" || !message.trim()) return { ok: false, cause: "empty_notice", detail: "A proved notice needs a body." };
   let handle;
@@ -70,7 +70,7 @@ export async function sendProvedNotice(to, message, { allowDelegate = false, pro
       handle = reserved;
     },
     runDelegate: invocation => runProvider(invocation.command, ["--model", "haiku", "--effort", "low", ...invocation.args],
-      { stdin: invocation.stdin }),
+      { stdin: invocation.stdin, signal }),
   });
   if (!handle) return { ok: false, state: "dispatch_failed", cause: result.cause ?? "proof_unavailable",
     detail: "Notice could not start. Check the recipient, transcript and receipt storage." };
