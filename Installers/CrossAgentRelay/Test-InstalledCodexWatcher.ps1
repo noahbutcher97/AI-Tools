@@ -279,6 +279,10 @@ try {
         [IO.File]::WriteAllText((Join-Path $trial 'authorized'),'',$utf)
     }
     $end=[DateTime]::UtcNow.AddSeconds(90)
+    if ($Schedule) {
+        $tickDeadline=([DateTimeOffset]::Parse($startsAt)).UtcDateTime.AddSeconds(90)
+        if ($tickDeadline -gt $end) { $end=$tickDeadline }
+    }
     do {
         $state=Get-TrialOutcome $db $lookup
         if ($state -eq 'invalid') { throw 'Invalid trial outcome' }

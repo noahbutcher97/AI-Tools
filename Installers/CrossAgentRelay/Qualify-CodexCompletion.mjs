@@ -271,7 +271,16 @@ async function runTrial() {
       assert.equal(job.state, "started");
       write("job.json", { id: job.id });
     }
-    await until(() => fs.existsSync(path.join(signals, "finished")), 150000, "Installed delivery was not confirmed");
+    await until(() => fs.existsSync(path.join(signals, "finished")), installedMcp ? 240000 : 150000, "Installed delivery was not confirmed");
+    const resultText = fs.readFileSync(path.join(signals, "result.txt"), "utf8");
+    if (resultText !== "proved") {
+      // Emit only the controlled failure category from the administrator's
+      // receipt. Local paths and arbitrary child output stay out of reports.
+      const gate = ["Disposable writer did not resume","The first scheduled tick must follow activation",
+        "Watcher startup is unproven","Unexpected watcher mode","Transcript proof timed out","Status lookup failed"]
+        .find(label => resultText.includes(label));
+      throw Error("The installed trial failed: " + (gate ?? "unclassified gate"));
+    }
     return;
   }
   const file = path.join(root, "jobs.sqlite");
