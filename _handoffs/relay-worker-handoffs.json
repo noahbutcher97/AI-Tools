@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-branch-credential-read-review",
+    "revision": "a15fce11dac2de755a0daebdafd118719007fcb3",
+    "worker": "independent credential boundary reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Review the branch sampler, its trusted reader contract and the synthetic authorization checks. Use isolated fixtures only.",
+    "acceptance": "Trace exact resource and authority checks to the record open, decryption and process launch. Check errors and credential exposure, the installed default and the distinction between source and live evidence.",
+    "state": "accepted",
+    "result": {
+      "revision": "a15fce11dac2de755a0daebdafd118719007fcb3",
+      "verdict": "Pass for a sampler with a trusted conforming reader.",
+      "evidence": "Fifteen focused tests passed. Five independent recording probes counted reads, decryptions and launches at distinct revocation points. Six offline Git configuration lookups confirmed descendant header matching and sibling exclusion.",
+      "limitations": "The installed policy accepts anonymous reads only. The future adapter must bound the open, close synchronously, validate file access and decrypt only its supplied bytes. Authenticated HTTP, installed cross-account retrieval and erasure of child environment copies were unproved."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the guarded sampler. The separate Windows reader and a live authenticated transport remain open.",
+      "next": "Qualify bounded ciphertext reads and resource-bound decryption with synthetic data before connecting an installed credential record."
+    }
+  },
+  {
     "id": "relay-branch-refresh-review",
     "revision": "a09422db97a2de76f3e1cbe7d31ee57860edb09a",
     "worker": "independent installer reviewer",

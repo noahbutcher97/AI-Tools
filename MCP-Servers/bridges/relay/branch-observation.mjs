@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { runProvider } from "./provider-process.mjs";
+import { matches, UUID } from "./delivery-protocol.mjs";
 
 // A protected machine profile supplies the installed Git image, its helper
 // directory and an empty working directory. A watch can select only the
@@ -20,6 +21,10 @@ export function validBranchResource(endpoint, ref) {
 }
 
 export async function sampleAnonymousBranch(profile, endpoint, ref, signal, run = runProvider) {
+  return queryBranch(profile, endpoint, ref, signal, run);
+}
+
+async function queryBranch(profile, endpoint, ref, signal, run, basicCredential) {
   if (!validBranchResource(endpoint, ref) || ![profile?.image, profile?.execPath, profile?.cwd, profile?.windows]
     .every(value => typeof value === "string" && path.win32.isAbsolute(value))) throw Error("branch observation unavailable");
   const args = ["-c", "protocol.allow=never", "-c", "protocol.https.allow=always",
@@ -30,12 +35,18 @@ export async function sampleAnonymousBranch(profile, endpoint, ref, signal, run 
     GIT_EXEC_PATH: profile.execPath, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "NUL", GIT_TERMINAL_PROMPT: "0",
     GIT_CEILING_DIRECTORIES: path.win32.dirname(profile.cwd) };
   try {
+    if (basicCredential) {
+      env.GIT_CONFIG_COUNT = "1";
+      env.GIT_CONFIG_KEY_0 = "http." + endpoint + ".extraHeader";
+      env.GIT_CONFIG_VALUE_0 = "Authorization: Basic " + basicCredential.toString("base64");
+    }
     const { code, stdout } = await run(profile.image, args, { env, cwd: profile.cwd, signal, timeoutMs: 9000, maxBytes: 4096 });
     if (code !== 0 || typeof stdout !== "string") throw Error();
     const match = /^([a-f0-9]{40}|[a-f0-9]{64})\t([^\r\n]+)\r?\n$/.exec(stdout);
     if (!match || match[0] !== stdout || match[2] !== ref) throw Error();
     return match[1];
   } catch { throw Error("branch observation unavailable"); }
+  finally { delete env.GIT_CONFIG_VALUE_0; }
 }
 
 // Setup validates ownership and denies writes by desktop sessions throughout
@@ -63,15 +74,45 @@ async function verifyGitPins(root, profile, signal) {
   }
 }
 
-export async function sampleInstalledBranch(root, profile, grant, signal, { canObserve, run = runProvider } = {}) {
-  if (!profile || grant.credential !== null || !validBranchResource(grant.endpoint, grant.ref)) throw Error("branch observation unavailable");
+export async function sampleInstalledBranch(root, profile, grant, signal, { canObserve, run = runProvider, credentialRecord } = {}) {
+  let secret;
   try {
-    if (canObserve() !== true) throw Error();
+    const { endpoint, ref, credential } = grant;
+    if (!validBranchResource(endpoint, ref) || ![profile?.image, profile?.execPath, profile?.cwd, profile?.windows]
+      .every(value => typeof value === "string" && path.win32.isAbsolute(value))) throw Error();
+    // The broker supplies a pre-bound reader for a protected record. Session
+    // input can select neither a file path nor the function that opens it.
+    function checkAuthority() {
+      signal?.throwIfAborted();
+      if (canObserve() !== true) throw Error();
+      if (credential === null) return;
+      if (!matches(UUID, credential) ||
+          credentialRecord?.id !== credential || credentialRecord.endpoint !== endpoint ||
+          credentialRecord.ref !== ref || typeof credentialRecord.readSealed !== "function" ||
+          typeof credentialRecord.unseal !== "function") throw Error();
+    }
+    checkAuthority();
     await verifyGitPins(root, profile, signal);
-    signal?.throwIfAborted();
-    // No await between the fresh synchronous policy read and the Git spawn.
-    if (canObserve() !== true) throw Error();
+    checkAuthority();
+    if (credential !== null) {
+      // The protected adapter opens and closes the record synchronously here.
+      const sealed = credentialRecord.readSealed();
+      if (!Buffer.isBuffer(sealed) || !sealed.length || sealed.length > 8192) throw Error();
+      checkAuthority();
+      secret = await credentialRecord.unseal(sealed);
+      checkAuthority();
+      if (!Buffer.isBuffer(secret) || secret.length > 4096) throw Error();
+      const colon = secret.indexOf(0x3a);
+      if (colon < 1 || colon === secret.length - 1 ||
+          !secret.every(byte => byte >= 33 && byte <= 126)) throw Error();
+      // Reading the record may yield. Reconfirm the machine profile and
+      // binaries, then check the live grant immediately before process launch.
+      await verifyGitPins(root, profile, signal);
+      checkAuthority();
+    }
+    return await queryBranch(profile, endpoint, ref, signal, run, secret);
+  } catch { throw Error("branch observation unavailable"); }
+  finally {
+    if (Buffer.isBuffer(secret)) secret.fill(0);
   }
-  catch { throw Error("branch observation unavailable"); }
-  return sampleAnonymousBranch(profile, grant.endpoint, grant.ref, signal, run);
 }
