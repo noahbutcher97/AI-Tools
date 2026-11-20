@@ -123,6 +123,117 @@ Assert-NoInventory
         } finally {
             Remove-Item Env:NODE_OPTIONS,Env:RELAY_TRIAL_CANARY -ErrorAction SilentlyContinue
         }
+        foreach ($options in @(@{MovementTarget=$condition},@{MovementCondition=$condition},
+            @{MovementTarget=[guid]::Empty;MovementCondition=$condition;ReaderUser='fixture'},
+            @{MovementTarget=$condition;MovementCondition=[guid]::NewGuid()})) {
+            $failed=$false
+            try { . (Join-Path $PSScriptRoot '../Test-InstalledBranchRead.ps1') @parameters @options }
+            catch { $failed=$_.Exception.Message -ceq 'Private movement requires a reader, a disposable raw target and a fresh condition ID' }
+            if (!$failed) { throw 'Incomplete movement binding accepted' }
+        }
+        $paramsFile = Join-Path $trial 'parameters.json'
+        $fixtureGrant = @{condition=$condition.ToString('D');target=[guid]::NewGuid().ToString('D');provider='codex';
+            scope='thread-branch-change';endpoint=$endpoint;ref=$parameters.Ref;credential=[guid]::NewGuid().ToString('D');
+            expiresAt=[DateTime]::UtcNow.AddHours(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')}
+        $inputFile=Join-Path $trial 'fixture.json'
+        [IO.File]::WriteAllText($inputFile,($fixtureGrant|ConvertTo-Json -Compress),$utf)
+        Write-MovementVerifier
+        # Exercise the reader against rows written by the real watcher. The
+        # branch sampler, transport, and subsequent receipt are local fixtures.
+        $fixtureFile=Join-Path $trial 'exercise.mjs'
+        $exercise=@'
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {DatabaseSync} from 'node:sqlite';
+import {pathToFileURL,fileURLToPath} from 'node:url';
+const [moduleFile] = process.argv.slice(2);
+const {scheduleWatches,scheduleTable} = await import(pathToFileURL(moduleFile));
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const file = path.join(dir,'movement.sqlite');
+const db = new DatabaseSync(file);
+const g = JSON.parse(fs.readFileSync(path.join(dir,'fixture.json'),'utf8'));
+const baseline = 'a'.repeat(40);
+const movement = {check:'movement',grant:g,revision:baseline};
+function verify(input, condition=g.condition) {
+  fs.writeFileSync(path.join(dir,'parameters.json'),JSON.stringify(input));
+  const result=spawnSync(process.execPath,[path.join(dir,'verify.cjs'),file,condition],{
+    cwd:dir,encoding:'utf8',windowsHide:true,timeout:5000,env:{SystemRoot:process.env.SystemRoot,NODE_NO_WARNINGS:'1'}
+  });
+  assert.equal(result.status,0);
+  return result.stdout;
+}
+try {
+  db.exec(scheduleTable);
+  fs.mkdirSync(path.join(dir,'completion-grants'));
+  let now=Date.now(), sample=baseline, delivered=false;
+  const target={id:g.target,kind:'codex',addressable:true,pid:null,startedAt:null};
+  const watches=scheduleWatches(db,fn=>fn(),{root:dir,policy:()=>[g],now:()=>now,sampleBranch:()=>sample,
+    send:async (id,body,options)=>{
+      assert.equal(id,g.target);
+      options.onHandle('local-proof.'+'a'.repeat(48),target);
+      return {state:'pending'};
+    },status:async ()=>({state:delivered?'delivered':'pending',to:g.target})});
+  assert.equal(verify({check:'unused'}),'unused');
+  db.prepare('INSERT INTO file_samples(condition,next_poll) VALUES(?,0)').run(g.condition);
+  assert.equal(verify({check:'unused'}),'used');
+  db.prepare('DELETE FROM file_samples WHERE condition=?').run(g.condition);
+  assert.equal(verify(movement),'invalid');
+  watches.provision();
+  assert.equal(verify({check:'unused'}),'used');
+  assert.equal(verify(movement),'waiting');
+  assert.equal(db.prepare('SELECT state FROM schedule_watches').get().state,'issued');
+  watches.activate({id:g.condition,op:'activate_branch',event:{session:g.target}},()=>true);
+  assert.equal(verify(movement),'waiting');
+  await watches.pollChanges();
+  assert.equal(verify(movement),'armed');
+  assert.equal(verify({...movement,revision:'c'.repeat(40)}),'invalid');
+  assert.equal(verify({...movement,grant:{...g,target:g.credential}}),'invalid');
+  assert.equal(verify(movement,g.credential),'invalid');
+  now+=60000;
+  await watches.pollChanges();
+  assert.equal(verify(movement),'armed');
+  sample='b'.repeat(40);
+  now+=60000;
+  await watches.pollChanges();
+  assert.equal(verify(movement),'pending');
+  await watches.dispatchDue();
+  assert.equal(verify(movement),'pending');
+  now+=10000;
+  await watches.dispatchDue();
+  assert.equal(verify(movement),'pending');
+  delivered=true;
+  now+=10000;
+  await watches.dispatchDue();
+  assert.equal(verify(movement),'proved');
+  db.prepare("UPDATE schedule_watches SET handle='unretired' WHERE condition=?").run(g.condition);
+  assert.equal(verify(movement),'invalid');
+  db.prepare("UPDATE schedule_watches SET handle=NULL WHERE condition=?").run(g.condition);
+} finally {db.close();}
+'@
+        [IO.File]::WriteAllText($fixtureFile,$exercise,$utf)
+        & $node --no-warnings $fixtureFile (Join-Path $PSScriptRoot '../../../MCP-Servers/bridges/relay/schedule-watch.mjs')
+        if ($LASTEXITCODE -ne 0) { throw 'Movement verifier fixture failed' }
+        $db=Join-Path $trial 'movement.sqlite'
+        $failed=$false
+        try { Wait-BranchMovement $db ([DateTimeOffset]::UtcNow.AddSeconds(3)) }
+        catch { $failed=$_.Exception.Message -ceq 'Private movement did not follow the expected baseline and delivery sequence' }
+        if (!$failed) { throw 'Premature completed watch was credited' }
+        & {
+            $outcomes = [Collections.Generic.Queue[string]]::new()
+            foreach ($state in @('waiting','armed','armed','pending','proved')) { $outcomes.Enqueue($state) }
+            $announcements = [Collections.Generic.List[string]]::new()
+            function Get-TrialOutcome($file,$id) { return $outcomes.Dequeue() }
+            function Start-Sleep($Milliseconds) {}
+            function Write-Host($message) { $announcements.Add($message) }
+            Wait-BranchMovement $db ([DateTimeOffset]::UtcNow.AddSeconds(3))
+            if ($outcomes.Count -ne 0 -or $announcements.Count -ne 1) { throw 'Unexpected writer handoff' }
+            $expired=$false
+            try { Wait-BranchMovement $db ([DateTimeOffset]::UtcNow) }
+            catch { $expired=$_.Exception.Message -ceq 'Private branch movement delivery unproved before grant expiry' }
+            if (!$expired) { throw 'Expired movement accepted' }
+        }
     }
     $binding = [byte[]]::new(32)
     $secret = ConvertTo-SecureString 'synthetic-password' -AsPlainText -Force

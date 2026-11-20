@@ -9,6 +9,7 @@ param(
     [switch]$RotateBrokerPassword,
     [switch]$Schedule,
     [switch]$FileWatch,
+    [switch]$BranchWatch,
     [switch]$Mcp,
     [string]$McpClientImage,
     [ValidatePattern('^[a-f0-9]{64}$')][string]$McpClientDigest
@@ -108,10 +109,24 @@ function Assert-McpClient($image,$digest) {
     if (!$digest -or (Get-FileHash -LiteralPath $image).Hash -ine $digest) { throw 'Client executable differs from the reviewed session client' }
 }
 
+function Get-TrialClientMode {
+    if ($BranchWatch) {
+        if ($Stage -notin @('Start','Cleanup') -or $Schedule -or $FileWatch -or $RotateBrokerPassword) {
+            throw 'Use the branch client only for Start or Cleanup with a single condition'
+        }
+        if ($Mcp) { return '--installed-mcp-branch' }
+        return '--installed-branch'
+    }
+    if (($Schedule -or $FileWatch) -and $RotateBrokerPassword) { throw 'Watch issuance uses the running broker identity' }
+    if ($FileWatch -and (!$Mcp -or $Schedule)) { throw 'The file trial requires MCP and a single condition' }
+    if ($Mcp -and !($Schedule -or $FileWatch)) { throw 'The MCP trial requires a watch' }
+    if ($FileWatch) { return '--installed-mcp-file' }
+    if ($Mcp) { return '--installed-mcp-schedule' }
+    if ($Schedule) { return '--installed-schedule' }
+    return '--installed'
+}
 if ($MyInvocation.InvocationName -eq '.') { return }
-if (($Schedule -or $FileWatch) -and $RotateBrokerPassword) { throw 'Watch issuance uses the running broker identity' }
-if ($FileWatch -and (!$Mcp -or $Schedule)) { throw 'The file trial requires MCP and a single condition' }
-if ($Mcp -and !($Schedule -or $FileWatch)) { throw 'The MCP trial requires a watch' }
+$modeFlag = Get-TrialClientMode
 $record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
 $account = Get-LocalUser -Name $accountName
 if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
@@ -158,8 +173,8 @@ if ($Stage -eq 'Start') {
     }
     New-AccessDirectory $trial "(A;OICI;GRGX;;;$desktopSid)"
     New-AccessDirectory $exchange "(A;OICI;0x1301bf;;;$desktopSid)"
-    $modeFlag = if ($FileWatch) { '--installed-mcp-file' } elseif ($Mcp) { '--installed-mcp-schedule' } elseif ($Schedule) { '--installed-schedule' } else { '--installed' }
     $argsText = '"'+$SessionScript+'" "'+$providerImage+'" '+$modeFlag+' "'+$exchange+'"'
+    if ($BranchWatch) { $argsText += ' '+$TrialId.ToString('D') }
     $task = Register-TrialTask $runner $desktopSid 3 $argsText $null
     $null = $task.Run($null)
     return

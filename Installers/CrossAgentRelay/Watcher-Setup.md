@@ -97,6 +97,15 @@ If the private check is interrupted, revoke its credential at the issuer. Using 
 
 Private trials publish the sealed record and Git profile by renaming completed files. Recovery can remove an interrupted write under the staging name recorded for that trial. A stop during creation of the recovery record itself can leave an incomplete administrator-owned trial directory. At that point the trial has published neither file. Preserve an unreadable recovery record for inspection.
 
+#### Prove delivery after a private branch moves
+
+Use a disposable branch with one writer. Keep its initial and intended successor revisions in private configuration. Verify the successor is a direct child of the initial revision. Confirm that the reader is available before starting the timed client. Use the enrolled desktop account on the intended machine and its own installed package digest.
+
+1. Choose a fresh condition GUID. Run the protected `Test-InstalledCodexWatcher.ps1` with `-Stage Start -BranchWatch`, the condition as `-TrialId`, the installed digest as `-ExpectedPackage` and the reviewed qualification runner as `-SessionScript`. This starts a least-privilege desktop client. Verify the new raw ID and low-cost model in the trial’s `session/target.json` against the uniquely discoverable disposable session. Use `-Mcp` and the reviewed client image and digest when exercising the MCP face.
+2. Within five minutes, run the protected private branch read trial with its usual private read arguments. Add `-MovementTarget <verified-raw-id> -MovementCondition <trial-id>`. The client activates the exact grant when the broker makes it available. It closes and resumes the same thread. The movement grant lasts five minutes from issuance.
+3. Wait for the protected verifier to report that the exact baseline matched. Confirm that `session/resumed.json` names the same raw ID and the resumed writer is addressable. The separate writer may now advance only the approved fixture ref from the expected initial revision to the prepared successor. Use an exact old-revision lease and independently verify the resulting hosted revision. Stop on a different head or a missed deadline.
+4. A pass requires the installed broker’s delivery proof for this grant after the baseline. The protected trial restores reports-only mode and removes the credential and Git profile. The disposable client then archives its thread. Once its task exits, run the client setup with `-Stage Cleanup -BranchWatch` using the same trial ID and package digest. Verify a fresh reports-only heartbeat, zero subscriptions and absence of trial artifacts. For an interrupted credential trial, follow the revocation and guarded recovery procedure above. A timeout leaves delivery unproved.
+
 ## Deactivate and retain state
 
 ```text

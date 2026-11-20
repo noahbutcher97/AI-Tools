@@ -21,6 +21,20 @@ function Denied([scriptblock]$op,[string]$reason) {
     try { & $op | Out-Null } catch { if ($_.Exception.Message -like $reason) { return }; throw }
     throw 'A prohibited operation succeeded'
 }
+& {
+    . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage ('a'*64) -BranchWatch
+    Must ((Get-TrialClientMode) -ceq '--installed-branch') 'Wrong branch client'
+    $Mcp = $true
+    Must ((Get-TrialClientMode) -ceq '--installed-mcp-branch') 'Wrong MCP branch client'
+    $Stage = 'Run'
+    Denied { Get-TrialClientMode } 'Use the branch client only*'
+    $Stage = 'Start'
+    foreach ($combination in @('Schedule','FileWatch','RotateBrokerPassword')) {
+        Set-Variable -Name $combination -Value $true
+        Denied { Get-TrialClientMode } 'Use the branch client only*'
+        Set-Variable -Name $combination -Value $false
+    }
+}
 # The fixture grants no OS accounts or task registrations. Use the Windows
 # scheduler's real definition objects to validate actions, triggers and SIDs.
 $folder = [pscustomobject]@{}

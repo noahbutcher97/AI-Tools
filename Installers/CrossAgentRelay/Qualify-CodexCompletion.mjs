@@ -17,6 +17,8 @@ import { localStatus, sendProvedNotice } from "../../MCP-Servers/bridges/relay/l
 import { runProvider } from "../../MCP-Servers/bridges/relay/provider-process.mjs";
 import { subscribeWatch } from "../../MCP-Servers/bridges/relay/watch-client.mjs";
 import { scheduleNotice } from "../../MCP-Servers/bridges/relay/completion-protocol.mjs";
+import { branchBinding } from "../../MCP-Servers/bridges/relay/schedule-watch.mjs";
+import { readWatcher } from "../../MCP-Servers/bridges/relay/watcher-health.mjs";
 
 // Opt-in live check. The installed provider uses its signed-in desktop profile.
 // Only the disposable thread created below receives a turn or is archived.
@@ -25,11 +27,13 @@ if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).
 const fromShell = process.argv[3] === "--from-shell";
 const schedule = process.argv[3] === "--schedule";
 const checkMcp = process.argv[3] === "--mcp-watch";
-const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file"].includes(process.argv[3]);
-const installedWatch = installedMcp || process.argv[3] === "--installed-schedule";
+const installedBranch = ["--installed-branch","--installed-mcp-branch"].includes(process.argv[3]);
+const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file","--installed-mcp-branch"].includes(process.argv[3]);
+const installedWatch = installedMcp || ["--installed-schedule","--installed-branch"].includes(process.argv[3]);
 const installed = installedWatch || process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
-const preparedTrial = installedMcp ? process.argv[5] : undefined;
+const preparedTrial = installedMcp || installedBranch ? process.argv[5] : undefined;
+if (installedBranch && !preparedTrial) throw Error("Supply the branch trial condition ID");
 if (preparedTrial !== undefined && !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(preparedTrial)) throw Error("Invalid trial ID");
 if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
@@ -237,7 +241,13 @@ async function runTrial() {
       ownedOutputs.delete(temp);
     };
     write("target.json", { id, model });
+    const installRoot = installedBranch ? path.join(process.env.ProgramFiles, "CrossAgentRelay") : undefined;
     await until(() => {
+      if (installedBranch) {
+        const binding = branchBinding(id, preparedTrial);
+        return readWatcher(installRoot).state === "watching" &&
+          fs.existsSync(path.join(installRoot, "completion-grants", binding + ".json"));
+      }
       if (fs.existsSync(path.join(signals, "finished"))) throw Error("Installed trial closed before authorization");
       return fs.existsSync(path.join(signals, "authorized"));
     }, 300000, "Trial grant was not ready");
@@ -245,7 +255,7 @@ async function runTrial() {
     const env = { ...process.env, CODEX_THREAD_ID: id };
     delete env.CODEX_SESSION_ID;
     delete env.CLAUDE_CODE_SESSION_ID;
-    const command = installedWatch ? ["watch", "--notify", id, fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
+    const command = installedWatch ? ["watch", "--notify", id, installedBranch ? preparedTrial : fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
       ["run", "--", process.execPath, "-e", "process.exit(23)"];
     let job;
     if (installedMcp) {
@@ -270,6 +280,12 @@ async function runTrial() {
     } else {
       assert.equal(job.state, "started");
       write("job.json", { id: job.id });
+    }
+    if (installedBranch) {
+      // The protected verifier owns the delivery verdict. This signal only
+      // ends the disposable writer after the operator restores the broker.
+      await until(() => readWatcher(installRoot).state === "reports_only", 360000, "Branch trial cleanup timed out");
+      return;
     }
     await until(() => fs.existsSync(path.join(signals, "finished")), installedMcp ? 240000 : 150000, "Installed delivery was not confirmed");
     const resultText = fs.readFileSync(path.join(signals, "result.txt"), "utf8");
