@@ -40,7 +40,11 @@ function Denied([scriptblock]$op,[string]$reason) {
 $folder = [pscustomobject]@{}
 $folder | Add-Member ScriptMethod GetTasks { param($flags) return $script:registered.Values }
 $folder | Add-Member ScriptMethod GetTask { param($name) return $script:registered[$name] }
-$folder | Add-Member ScriptMethod DeleteTask { param($name,$flags) $script:registered.Remove($name) }
+$folder | Add-Member ScriptMethod DeleteTask {
+    param($name,$flags)
+    if ($script:failDelete -ceq $name) { throw 'Fixture task removal interrupted' }
+    $script:registered.Remove($name)
+}
 $folder | Add-Member ScriptMethod RegisterTaskDefinition {
     param($name,$definition,$flags,$sid,$password,$type,$sddl)
     Must ($flags -eq 18) 'Unexpected registration flags'
@@ -317,6 +321,11 @@ Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database 
     Denied { Remove-SessionTrial } 'Trial task is running*'
     Must ([IO.Directory]::Exists($exchange)) 'Active issuer lost its exchange'
     $folder.GetTask($issuer).State=3
+    $script:failDelete=$runner
+    Denied { Remove-SessionTrial } '*Fixture task removal interrupted*'
+    Must (!([IO.Directory]::Exists($exchange)) -and $script:registered.ContainsKey($runner)) 'Stopped task evidence lost at interruption'
+    $script:failDelete=$null
+    Remove-SessionTrial
     Remove-SessionTrial
     Must (!([IO.Directory]::Exists($exchange)) -and !$script:registered.ContainsKey($runner) -and
         !$script:registered.ContainsKey($issuer)) 'Recovered trial still present'

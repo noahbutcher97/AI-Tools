@@ -91,19 +91,25 @@ function Remove-VerifiedExchangeFiles($directory,[guid]$archived) {
 
 function Remove-SessionTrial {
     $sessionTask = Get-StoppedTrialTask $runner
-    $null = Get-StoppedTrialTask $issuer
+    $grantTask = Get-StoppedTrialTask $issuer
+    $hasExchange = Test-Path -LiteralPath $exchange -ErrorAction Stop
     if ($BranchWatch) {
-        if (!$sessionTask) { throw 'Expected the stopped desktop trial task' }
+        if (!$sessionTask) {
+            if ($hasExchange -or $grantTask) { throw 'Expected the stopped desktop trial task' }
+            return
+        }
         $result = $sessionTask.LastTaskResult
         if ($null -eq $result -or ($null -ne $RecordedTaskResult -and $RecordedTaskResult -ne $result)) { throw 'Recorded task result does not match' }
         if ($result -ne 0 -and $null -eq $RecordedTaskResult) {
             throw "Trial failed with task result $result. Keep this result, verify the archived session and complete ordinary desktop recovery before cleanup."
         }
     }
-    Assert-PlainPath $exchange
-    # Never inspect or traverse the desktop's files from the administrator.
-    try { [IO.Directory]::Delete($exchange,$false) }
-    catch [IO.IOException] { throw 'Exchange could not be removed. Preserve the task and finish ordinary desktop recovery.' }
+    if ($hasExchange) {
+        Assert-PlainPath $exchange
+        # Never inspect or traverse the desktop's files from the administrator.
+        try { [IO.Directory]::Delete($exchange,$false) }
+        catch [IO.IOException] { throw 'Exchange could not be removed. Preserve the task and finish ordinary desktop recovery.' }
+    }
     Remove-TrialTask $issuer
     Remove-TrialTask $runner
 }
