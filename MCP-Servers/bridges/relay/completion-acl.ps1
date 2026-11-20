@@ -48,7 +48,23 @@ function Assert-GrantDirectory {
     }
 }
 
-function Get-BranchGit($root,$admin) {
+function Get-BranchCredentialBindings($root,$admin,$brokerSid) {
+    $directory = Join-Path $root 'branch-credentials'
+    if (![IO.Directory]::Exists($directory)) { return }
+    Assert-BrokerAcl $directory $admin -Readers @($brokerSid)
+    $files = @(Get-ChildItem -LiteralPath $directory -Force)
+    if ($files.Count -gt 32) { throw 'Unexpected branch credential inventory' }
+    $seen = @{}
+    foreach ($file in $files) {
+        if ($file.PSIsContainer -or $file.Name -cnotmatch '^([a-f0-9]{64})-[a-f0-9]{64}\.bin$' -or
+            $seen.ContainsKey($Matches[1])) { throw 'Unexpected branch credential record' }
+        $seen[$Matches[1]] = $true
+        Assert-BrokerAcl $file.FullName $admin -Readers @($brokerSid)
+        $file.BaseName
+    }
+}
+
+function Get-BranchGit($root,$admin,$brokerSid) {
     $profile = Join-Path $root 'completion-git.json'
     if (![IO.File]::Exists($profile)) { return $null }
     Assert-BrokerAcl $profile $admin
@@ -76,7 +92,8 @@ function Get-BranchGit($root,$admin) {
     $transport = Join-Path $exec 'git-remote-https.exe'
     if ((Get-FileHash -LiteralPath $image).Hash -ine $policy.imageHash -or
         (Get-FileHash -LiteralPath $transport).Hash -ine $policy.transportHash) { throw 'Git installation changed' }
-    return @{image=$image;execPath=$exec;cwd=$cwd;windows=[Environment]::GetFolderPath('Windows');
+    $bindings = @(Get-BranchCredentialBindings $root $admin $brokerSid)
+    return @{image=$image;execPath=$exec;cwd=$cwd;windows=[Environment]::GetFolderPath('Windows');credentialBindings=$bindings;
         profileHash=(Get-FileHash -LiteralPath $profile).Hash.ToLowerInvariant();imageHash=$policy.imageHash;transportHash=$policy.transportHash}
 }
 
@@ -172,16 +189,24 @@ function Get-CompletionRoot {
         if ($agentSid.Value -notmatch '^S-1-5-21-(\d+-){3}\d+$') { throw 'Expected a session account SID' }
         Assert-GrantDirectory $grantPath $trusted $agentSid.Value
     }
+    $trialBindings = @()
     if ($health -and $installed -and !$enabled) {
-        try { Test-BranchCredentialChallenge $root $admin $identity.User.Value }
+        try {
+            Test-BranchCredentialChallenge $root $admin $identity.User.Value
+            $trial = Join-Path $root 'branch-credential-trial'
+            if ([IO.Directory]::Exists($trial)) {
+                Assert-BrokerAcl $trial $admin -Readers @($identity.User.Value)
+                $trialBindings = @(Get-BranchCredentialBindings $trial $admin $identity.User.Value)
+            }
+        }
         catch { # A failed setup probe leaves the normal reports-only broker available.
         }
     }
     $git = $null
     if ($installed) {
-        try { $git = Get-BranchGit $root $admin } catch { $git = $null }
+        try { $git = Get-BranchGit $root $admin $identity.User.Value } catch { $git = $null }
     }
-    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health; handoff=$handoff;git=$git} | ConvertTo-Json -Compress
+    [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health; handoff=$handoff;git=$git;trialBindings=$trialBindings} | ConvertTo-Json -Compress
 }
 
 if ($MyInvocation.InvocationName -ne '.') {

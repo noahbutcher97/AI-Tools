@@ -44,3 +44,30 @@ $unsafe.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
     [Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow'))
 [IO.File]::SetAccessControl($file,$unsafe)
 Denied
+
+$records = Join-Path $FixtureRoot 'branch-credentials'
+$null = [IO.Directory]::CreateDirectory($records)
+$recordsAcl = [IO.Directory]::GetAccessControl($records)
+$recordsAcl.SetAccessRuleProtection($true,$false)
+$recordsAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))
+[IO.Directory]::SetAccessControl($records,$recordsAcl)
+$binding = 'a'*64
+$member = $binding+'-'+('b'*64)
+$record = Join-Path $records ($member+'.bin')
+[IO.File]::WriteAllBytes($record,[byte[]](1))
+function Assert-NoInventory {
+    $failed=$false
+    try { $null=@(Get-BranchCredentialBindings $FixtureRoot $authorities $sid.Value) } catch { $failed=$true }
+    if (!$failed) { throw 'Unsafe credential inventory accepted' }
+}
+$inventory = @(Get-BranchCredentialBindings $FixtureRoot $authorities $sid.Value)
+if ($inventory.Count -ne 1 -or $inventory[0] -cne $member) { throw 'Expected one authorized credential binding' }
+$duplicate = Join-Path $records ($binding+'-'+('c'*64)+'.bin')
+[IO.File]::WriteAllBytes($duplicate,[byte[]](2))
+Assert-NoInventory
+[IO.File]::Delete($duplicate)
+$unsafeRecord = Get-Acl -LiteralPath $record
+$unsafeRecord.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+    [Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow'))
+[IO.File]::SetAccessControl($record,$unsafeRecord)
+Assert-NoInventory

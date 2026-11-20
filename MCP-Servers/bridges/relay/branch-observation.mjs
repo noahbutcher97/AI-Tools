@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { runProvider } from "./provider-process.mjs";
 import { matches, UUID } from "./delivery-protocol.mjs";
@@ -18,6 +19,72 @@ export function validBranchResource(endpoint, ref) {
   if (typeof ref !== "string" || ref.length > 255 || !ref.startsWith("refs/heads/")) return false;
   return ref.slice(11).split("/").every(part => /^[A-Za-z0-9_-][A-Za-z0-9_.-]*$/.test(part) &&
     !part.endsWith(".") && !part.endsWith(".lock") && !part.includes("..") && !/[\r\n]/.test(part));
+}
+
+// A protected installer grants a single repository/ref/record combination by
+// publishing the digests of this tuple and the sealed bytes in a filename. The tuple digest also binds
+// the encrypted record to its intended use through DPAPI optional entropy.
+export function branchCredentialBinding(id, endpoint, ref) {
+  if (!matches(UUID, id) || !validBranchResource(endpoint, ref)) throw Error("branch observation unavailable");
+  return createHash("sha256").update(JSON.stringify(["branch-basic-v1", id, endpoint, ref])).digest("hex");
+}
+
+const unsealCommand = `
+$ErrorActionPreference='Stop'
+try {
+  Add-Type -AssemblyName System.Security
+  $binding=[Convert]::FromBase64String([Console]::ReadLine())
+  $sealed=[Convert]::FromBase64String([Console]::ReadLine())
+  if ($binding.Length -ne 32 -or $sealed.Length -lt 1 -or $sealed.Length -gt 8192) { exit 1 }
+  $plain=[Security.Cryptography.ProtectedData]::Unprotect($sealed,$binding,'LocalMachine')
+  try {
+    if (!$plain.Length -or $plain.Length -gt 4096) { exit 1 }
+    [Console]::OpenStandardOutput().Write($plain,0,$plain.Length)
+  } finally { [Array]::Clear($plain,0,$plain.Length) }
+} catch { exit 1 }
+`;
+
+export function installedCredentialRecord(root, profile, grant) {
+  if (process.platform !== "win32" || !Array.isArray(profile?.credentialBindings)) return;
+  const { credential: id, endpoint, ref } = grant;
+  const binding = branchCredentialBinding(id, endpoint, ref);
+  const entries = profile.credentialBindings.filter(entry => typeof entry === "string" &&
+    entry.length === 129 && entry.startsWith(binding + "-") && /^[a-f0-9]{64}$/.test(entry.slice(65)));
+  if (entries.length !== 1) return;
+  const file = path.join(root, "branch-credentials", entries[0] + ".bin");
+  return { id, endpoint, ref,
+    readSealed() {
+      if (path.relative(file, fs.realpathSync.native(file)) !== "") throw Error("branch observation unavailable");
+      const fd = fs.openSync(file, "r");
+      try {
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile() || stat.nlink !== 1 || stat.size < 1 || stat.size > 8192) throw Error("branch observation unavailable");
+        const bytes = Buffer.alloc(stat.size + 1);
+        const count = fs.readSync(fd, bytes);
+        const sealed = bytes.subarray(0, count);
+        if (count !== stat.size || createHash("sha256").update(sealed).digest("hex") !== entries[0].slice(65)) {
+          throw Error("branch observation unavailable");
+        }
+        return sealed;
+      } finally { fs.closeSync(fd); }
+    },
+    unseal(bytes) {
+      if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 8192) throw Error("branch observation unavailable");
+      const system = path.join(profile.windows, "System32");
+      const shell = path.join(system, "WindowsPowerShell", "v1.0", "powershell.exe");
+      return new Promise((resolve, reject) => {
+        const child = execFile(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", unsealCommand], {
+          windowsHide: true, cwd: profile.cwd, encoding: "buffer", maxBuffer: 8192, timeout: 5000,
+          env: { SystemRoot: profile.windows, PATH: system, PSModulePath: path.join(path.dirname(shell), "Modules") },
+        }, (error, stdout) => {
+          if (error) { stdout.fill(0); reject(Error("branch observation unavailable")); }
+          else resolve(stdout);
+        });
+        child.stdin.on("error", () => {});
+        child.stdin.end(Buffer.from(binding, "hex").toString("base64") + "\n" + bytes.toString("base64") + "\n");
+      });
+    },
+  };
 }
 
 export async function sampleAnonymousBranch(profile, endpoint, ref, signal, run = runProvider) {
@@ -80,6 +147,7 @@ export async function sampleInstalledBranch(root, profile, grant, signal, { canO
     const { endpoint, ref, credential } = grant;
     if (!validBranchResource(endpoint, ref) || ![profile?.image, profile?.execPath, profile?.cwd, profile?.windows]
       .every(value => typeof value === "string" && path.win32.isAbsolute(value))) throw Error();
+    if (credential !== null && credentialRecord === undefined) credentialRecord = installedCredentialRecord(root, profile, grant);
     // The broker supplies a pre-bound reader for a protected record. Session
     // input can select neither a file path nor the function that opens it.
     function checkAuthority() {
