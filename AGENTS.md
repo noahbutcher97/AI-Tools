@@ -21,6 +21,8 @@ Use Node 18+ ESM (`.mjs`) for bridge and installer JavaScript. Keep JavaScript i
 
 For cross-agent relay work, start with the [rollout journal and worker protocol](_handoffs/2026-11-19-relay-network-rollout.md). Record the assignment before dispatch and the returned evidence and disposition before stage closure. A stage or new trust boundary needs an independent review tied to the implementation revision. Keep the checkpoint open while findings that block its acceptance remain unresolved.
 
+When a relay change affects what an operator sees, types, approves or must infer, include a [constrained operator walkthrough](_handoffs/2026-11-19-relay-network-rollout.md#human-usability-checkpoints) in that checkpoint's acceptance criteria. Record the result and repeat the affected task after fixing friction.
+
 Tests use Node's built-in `node:test` and should sit beside the code they cover as `*.test.mjs`. Add focused tests for parser logic, config resolution, manifest behavior, and any regression-prone bridge output handling. Before submitting bridge changes, run the relevant bridge tests, `node --check` on tracked `.mjs` files, and `npm ci --dry-run` for any package you changed.
 
 ## Commit & Pull Request Guidelines
