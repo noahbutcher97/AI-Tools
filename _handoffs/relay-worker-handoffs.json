@@ -1,0 +1,11 @@
+[
+  {
+    "id": "relay-retrospective-ab-watcher",
+    "revision": "ec46badb2a92397ee9844010c71dca16fde4e0be",
+    "worker": "independent implementation reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only source and test review of remote receive, send, proof, and watcher grant and credential boundaries.",
+    "acceptance": "Return prioritized findings, source evidence, a scoped verdict and unverified areas.",
+    "state": "assigned"
+  }
+]

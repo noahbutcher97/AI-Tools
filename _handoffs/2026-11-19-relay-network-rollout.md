@@ -4,10 +4,30 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 [Approved design and qualification gates](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md)
 
+## Current handoff
+
+At `ec46bad`, both installed brokers passed anonymous branch observation and synthetic credential isolation. The next checkpoint is independent implementation review before introducing a real repository credential. Private repository authentication and delivery of a branch-change notice remain unproved.
+
+| Assignment | Scope and acceptance |
+| --- | --- |
+| Independent reviewer, `ec46bad` | Read the A/B receive, send and proof paths and the watcher broker, grant and credential boundaries. Trace failure, restart and revocation through the code and tests. Return a verdict, prioritized findings with source locations, and unverified areas to the coordinator. This assignment is read-only and uses no live credentials or provider calls. |
+
+### Worker protocol
+
+The owner can stay in the coordinating chat. The coordinator starts a fresh subagent for bounded independent work. A separate provider session is appropriate when the result depends on the actual provider, desktop or session lifetime.
+
+Either enrolled desktop may host a separate visible CLI chat. Prefer the local desktop unless the assignment requires the other environment. Start the provider in the intended signed-in user's interactive desktop with a private test workspace and the permissions specified in the assignment. On a peer, SSH can initiate a separately approved interactive logon task. Keep session launching outside the restricted relay receiver. Record launch, discovery of the intended session, and confirmed return of its result separately. If either desktop lacks a qualified launcher or needs user sign-in, report that limitation before assigning work there.
+
+1. Before dispatch, give the assignment a unique identifier and record its revision, deliverable, scope, allowed effects and evidence required. Include this protocol in the worker's brief. Keep machine-specific launch details and raw session identifiers in private configuration. Use the qualified launcher and lowest-cost qualified model for live tests.
+2. For every worker, preserve a result under that identifier with the inspected revision, findings or evidence, limitations and blockers. The coordinator transcribes a read-only subagent's result into the durable record. A separate provider session records its result and sends a relay doorbell through a qualified route. The message body carries no authority.
+3. The coordinator acknowledges the specific result, verifies that the evidence applies to the current revision, and records the disposition and next action. Keep a checkpoint open for missing or stale evidence. For a change affecting a reviewed boundary, have an independent worker verify the fix before closure. Escalate to the owner when an action needs human interaction or a decision outside the approved scope.
+
+The [handoff register](relay-worker-handoffs.json) records assignments, returns and acknowledgments. CI checks the structure and rejects an accepted handoff with a missing return, mismatched reviewed revision or missing coordinator acknowledgment. Acceptance here means that the coordinator accepts the returned work. Stage closure separately requires resolution of outstanding findings. The coordinator checks evidence quality and reviewer independence.
+
 | Phase | Evidence | Open work |
 | --- | --- | --- |
 | A and B · addressing, proof and health | Both desktops qualified a temporary restricted SSH route for Codex inventory, send and transcript proof. Both providers received live probes using the baseline transport. See design §11. | Permanent enrollment belongs to H. Restricted remote Claude delivery requires enforcement of recipient, payload and call count before the tool acts. |
-| I, including C · watcher and command completion **(active)** | Both installed workers proved job exit, UTC schedule and file-disappearance notices in Codex threads. Both desktops qualified MCP watch activation and writer resume. | Qualify branch observations from the installed broker, process and session transitions, other providers, cross-host notices and private tails. |
+| I, including C · watcher and command completion **(active)** | Both installed workers proved job exit, UTC schedule and file-disappearance notices in Codex threads. Both desktops qualified MCP watch activation, writer resume, anonymous branch observation and synthetic credential isolation. | Review the implementation, then qualify scoped private branch reads and branch-change notices. Process and session transitions, other providers, cross-host notices and private tails remain open. |
 | F, including E · registry and names | Raw IDs already address sessions directly. | Exclusive local leases, observed and reported fields in `who`, authorized rebinding, visible pauses and raw-ID pause notices. |
 | G and H · capabilities, discovery and setup | Doctor collects dated provider evidence. Watcher installation and disposable SSH qualification cover parts of setup. | Capability evidence, tagged network discovery, directory fallback and permanent fleet enrollment. |
 | D · machine signatures | A has durable request reservations. | Message signatures, signed receipts, trust revision and revocation, replay and per-peer rollout. |
@@ -22,7 +42,7 @@ Resume from the first open gate in the active phase. Update this record when imp
 - At `f66f0a7` both desktops passed the installed delivery gate. The public CLI activated a future UTC tick with the worker disabled. Each disposable writer closed and resumed before delivery was enabled. Each broker advanced from the verified pre-tick baseline to a proved tick in its original thread. The single tick fell within the grant lifetime.
 - At `7eb2ce1` both installations had empty policy, fresh reports-only heartbeats and zero subscriptions. On one desktop the first restoration start exited before its heartbeat. Starting the idle broker again restored service. The cause of the initial exit is undetermined. A fixture now verifies one restoration retry with delivery disabled and trial authority removed.
 
-## Resume here
+## Earlier session events
 
 Both desktops completed the CLI trial cleanup. On the initiating desktop a single elevated operation verified the tagged session task exited successfully, removed the trial, and confirmed the temporary tasks and directory were absent.
 

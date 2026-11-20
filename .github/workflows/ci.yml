@@ -23,6 +23,17 @@ on:
 #      `npm ci --dry-run`. Catches lockfile drift before it hits an installer.
 
 jobs:
+  relay-handoffs:
+    name: Relay handoff records
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - run: node --test .github/scripts/check-relay-handoffs.test.mjs
+      - run: node .github/scripts/check-relay-handoffs.mjs
+
   syntax-check:
     name: Syntax check (node --check)
     runs-on: ubuntu-latest
