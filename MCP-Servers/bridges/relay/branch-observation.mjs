@@ -69,7 +69,8 @@ export function installedCredentialRecord(root, profile, grant) {
       } finally { fs.closeSync(fd); }
     },
     unseal(bytes) {
-      if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 8192) throw Error("branch observation unavailable");
+      if (!Buffer.isBuffer(bytes) || !bytes.length || bytes.length > 8192 ||
+          createHash("sha256").update(bytes).digest("hex") !== entries[0].slice(65)) throw Error("branch observation unavailable");
       const system = path.join(profile.windows, "System32");
       const shell = path.join(system, "WindowsPowerShell", "v1.0", "powershell.exe");
       return new Promise((resolve, reject) => {

@@ -181,6 +181,7 @@ test("Windows branch reader limits file access and decrypts only the bytes opene
   assert.deepEqual(bytes, blob);
   fs.unlinkSync(file);
   assert.equal((await record.unseal(bytes)).toString(), marker);
+  assert.throws(() => record.unseal(Buffer.alloc(bytes.length)), { message: "branch observation unavailable" });
   const other = { ...grant, ref: ref + "-other" };
   machine.credentialBindings.push(branchCredentialBinding(id, endpoint, other.ref) + "-" + hash);
   const different = installedCredentialRecord(root, machine, other);

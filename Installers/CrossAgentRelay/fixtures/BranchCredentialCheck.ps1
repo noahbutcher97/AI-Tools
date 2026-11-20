@@ -71,3 +71,23 @@ $unsafeRecord.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
     [Security.Principal.SecurityIdentifier]::new('S-1-1-0'),'Read','Allow'))
 [IO.File]::SetAccessControl($record,$unsafeRecord)
 Assert-NoInventory
+[IO.File]::Delete($record)
+foreach ($i in 1..33) {
+    $leaf = $i.ToString('x64')+'-'+('d'*64)+'.bin'
+    [IO.File]::WriteAllBytes((Join-Path $records $leaf),[byte[]](1))
+}
+Assert-NoInventory
+& {
+    . (Join-Path $PSScriptRoot '../Install-CompletionWatcher.ps1')
+    . (Join-Path $PSScriptRoot '../Test-InstalledCredentialIsolation.ps1')
+    $fixtureReceipt = Join-Path $FixtureRoot 'result'
+    $expectedDigest = 'f'*64
+    [IO.File]::WriteAllText($fixtureReceipt,$expectedDigest)
+    Assert-TrialDigest $fixtureReceipt $expectedDigest
+    foreach ($length in @(0,63,64,65,65536)) {
+        [IO.File]::WriteAllBytes($fixtureReceipt,[byte[]]::new($length))
+        $failed = $false
+        try { Assert-TrialDigest $fixtureReceipt $expectedDigest } catch { $failed=$true }
+        if (!$failed) { throw 'Invalid trial digest accepted' }
+    }
+}

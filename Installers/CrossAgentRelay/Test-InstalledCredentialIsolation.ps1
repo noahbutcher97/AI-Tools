@@ -7,6 +7,22 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = Join-Path $PSHOME 'Modules'
+function Assert-TrialDigest($file,$expected) {
+    Assert-PlainPath $file
+    $stream = [IO.File]::Open($file,'Open','Read','Read')
+    try {
+        if ($stream.Length -ne 64) { throw 'Unexpected trial receipt size' }
+        $bytes = [byte[]]::new(64)
+        $offset = 0
+        while ($offset -lt 64) {
+            $n = $stream.Read($bytes,$offset,64-$offset)
+            if (!$n) { throw 'Incomplete trial receipt' }
+            $offset += $n
+        }
+        if ([Text.Encoding]::ASCII.GetString($bytes) -cne $expected) { throw 'Unexpected trial digest' }
+    } finally { $stream.Dispose() }
+}
+if ($MyInvocation.InvocationName -eq '.') { return }
 $trialId = [guid]::NewGuid()
 . (Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1') -Stage Run -TrialId $trialId -ExpectedPackage $ExpectedPackage
 $directory = Join-Path $root 'branch-credential-trial'
@@ -14,6 +30,7 @@ $challenge = Join-Path $directory 'challenge.bin'
 $receipt = Join-Path $root 'completion-health/branch-challenge.sha256'
 $readerReceipt = Join-Path $root 'completion-health/branch-reader.sha256'
 $store = Join-Path $directory 'branch-credentials'
+$trialRecord = Join-Path $directory 'trial.json'
 $record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -73,9 +90,11 @@ try {
         $bound = [Security.Cryptography.ProtectedData]::Protect($marker,$binding,'LocalMachine')
         $TrialMember = ([BitConverter]::ToString($binding).Replace('-','')+'-'+[BitConverter]::ToString($sha.ComputeHash($bound)).Replace('-','')).ToLowerInvariant()
         $boundFile = Join-Path $store ($TrialMember+'.bin')
+        [IO.File]::WriteAllText($trialRecord,(@{v=1;task=$name;member=$TrialMember;package=$ExpectedPackage} | ConvertTo-Json -Compress))
         [IO.File]::WriteAllBytes($boundFile,$bound)
     } finally { $sha.Dispose(); $rng.Dispose(); [Array]::Clear($marker,0,$marker.Length) }
     $def = $scheduler.NewTask(0)
+    $def.RegistrationInfo.Description = $name+' '+$ExpectedPackage
     $def.Principal.UserId = $desktopSid
     $def.Principal.LogonType = 3
     $def.Principal.RunLevel = 0
@@ -98,29 +117,31 @@ try {
         Start-Sleep -Milliseconds 200
     } while ($true)
     Restart-TrialBroker 'reports_only'
-    if (![IO.File]::Exists($receipt) -or [IO.File]::ReadAllText($receipt) -cne $expected) {
-        throw 'Broker challenge response unproved'
-    }
-    if (![IO.File]::Exists($readerReceipt) -or [IO.File]::ReadAllText($readerReceipt) -cne $readerExpected) {
-        throw 'Bound repository reader response unproved'
-    }
+    Assert-TrialDigest $receipt $expected
+    Assert-TrialDigest $readerReceipt $readerExpected
 } finally {
+    $cleanupFailed = $false
     try {
         if ($task) {
             if ($task.State -in 2,4) { $task.Stop(0) }
             $folder.DeleteTask($name,0)
         }
-    } finally {
+    } catch { $cleanupFailed=$true } finally {
         try {
             if ($created) {
-                [IO.File]::Delete($challenge)
-                if ($boundFile) { [IO.File]::Delete($boundFile) }
-                if ([IO.Directory]::Exists($store)) { [IO.Directory]::Delete($store,$false) }
-                [IO.Directory]::Delete($directory,$false)
-                [IO.File]::Delete($receipt)
-                [IO.File]::Delete($readerReceipt)
+                foreach ($file in @($challenge,$boundFile,$receipt,$readerReceipt)) {
+                    if ($file) { try { [IO.File]::Delete($file) } catch { $cleanupFailed=$true } }
+                }
+                if ([IO.Directory]::Exists($store)) {
+                    try { [IO.Directory]::Delete($store,$false) } catch { $cleanupFailed=$true }
+                }
+                if (!$cleanupFailed) {
+                    [IO.File]::Delete($trialRecord)
+                    [IO.Directory]::Delete($directory,$false)
+                }
             }
         } finally { $lock.Dispose() }
     }
+    if ($cleanupFailed) { throw 'Trial cleanup incomplete. Inspect the protected trial record and remaining artifacts.' }
 }
 'Installed broker matched both synthetic records. The ordinary desktop was denied read and write access to both.'

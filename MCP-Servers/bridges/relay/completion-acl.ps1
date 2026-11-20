@@ -52,10 +52,10 @@ function Get-BranchCredentialBindings($root,$admin,$brokerSid) {
     $directory = Join-Path $root 'branch-credentials'
     if (![IO.Directory]::Exists($directory)) { return }
     Assert-BrokerAcl $directory $admin -Readers @($brokerSid)
-    $files = @(Get-ChildItem -LiteralPath $directory -Force)
-    if ($files.Count -gt 32) { throw 'Unexpected branch credential inventory' }
     $seen = @{}
-    foreach ($file in $files) {
+    foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+        if ($seen.Count -ge 32) { throw 'Unexpected branch credential inventory' }
+        $file = Get-Item -LiteralPath $entry -Force
         if ($file.PSIsContainer -or $file.Name -cnotmatch '^([a-f0-9]{64})-[a-f0-9]{64}\.bin$' -or
             $seen.ContainsKey($Matches[1])) { throw 'Unexpected branch credential record' }
         $seen[$Matches[1]] = $true
@@ -203,7 +203,7 @@ function Get-CompletionRoot {
         }
     }
     $git = $null
-    if ($installed) {
+    if ($installed -and $enabled) {
         try { $git = Get-BranchGit $root $admin $identity.User.Value } catch { $git = $null }
     }
     [pscustomobject]@{root=$root; installed=$installed; enabled=$enabled; health=$health; handoff=$handoff;git=$git;trialBindings=$trialBindings} | ConvertTo-Json -Compress

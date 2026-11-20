@@ -83,6 +83,10 @@ To qualify the Windows credential reader on an existing branch-capable installat
 
 Run a protected copy of `Test-InstalledCredentialIsolation.ps1 -ExpectedPackage <digest>` alongside the matching installer and Codex watcher trial script. The existing reports-only broker must return the expected digests for two fresh machine-sealed random values. The second value goes through the repository reader in a separate trial directory with a fixed synthetic repository binding. The ordinary desktop must receive access denied on read and write opens of both files. Success removes the temporary task, records and receipts. Machine-scoped encryption relies on the file ACL to isolate accounts. The trial performs no Git request and requires no repository credential.
 
+If a terminated trial or failed cleanup leaves artifacts, recover from an elevated shell using the matching protected scripts. Acquire the exclusive watcher install lock and verify the installed package, principals, empty policy, disabled delivery and fresh reports-only heartbeat. Inspect the administrator-owned `branch-credential-trial` directory. Its `trial.json` records the package, temporary task name and exact ciphertext member before task registration. Match these to the installed journal and the task description, desktop principal, interactive least-privilege logon, protected script action and `-DesktopRead` arguments. Stop and remove only that matching task if it exists.
+
+Inspect the directory and file ACLs and reject reparse points before removal. The expected trial files are `challenge.bin`, the recorded member under the trial's own `branch-credentials` directory and `trial.json`. The two trial receipts are `branch-challenge.sha256` and `branch-reader.sha256` in the watcher health directory. Remove only those files, removing the trial record last, then remove the empty directories nonrecursively. Preserve unexpected entries, mismatched tasks or an unverifiable record for inspection. Release the lock and confirm that the task and trial artifacts are absent before retrying. The production credential directory has a different parent.
+
 ## Deactivate and retain state
 
 ```text
