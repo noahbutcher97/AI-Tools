@@ -1,12 +1,41 @@
 [
   {
+    "id": "private-movement-cleanup-retry-review",
+    "worker": "independent trial reviewer",
+    "scope": "Check the final cleanup retry and prior findings against the pinned code. Synthetic checks only.",
+    "acceptance": "Verify retained tasks after a transient deletion error and safe completion on retry. Return a source disposition.",
+    "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "private-movement-arguments-operator",
+    "worker": "constrained setup operator",
+    "scope": "Reread the movement command and identify each argument and its source using only the public operator guide.",
+    "acceptance": "Check whether all flags and the masked input can be identified at the point of use.",
+    "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "private-movement-correction-review",
     "worker": "independent trial reviewer",
     "scope": "Review both lifecycle repairs and recipient-side input counting. Synthetic tests only.",
     "acceptance": "Verify the former blockers, proof limits, stopped task retention, ordinary recovery and release messaging. Return stage disposition.",
     "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+      "verdict": "Previous findings resolved. Hold interrupted cleanup for a retry fix.",
+      "evidence": "Three synthetic suites passed. A transient scheduler deletion failure left a stopped task and removed exchange. Retry then failed on the missing exchange.",
+      "limitations": "Source and disposable fixtures only. The input count measures a single observation window."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Previous findings resolved. Hold interrupted cleanup for a retry fix.",
+      "next": "Exercise retry after scheduler failure and return to the reviewer."
+    }
   },
   {
     "id": "private-movement-correction-operator",
@@ -15,7 +44,18 @@
     "acceptance": "Decide when to release the writer and classify a duplicate, missing notice or interrupted client. Identify the next action and any blockers.",
     "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+      "verdict": "Accept the guide-only walkthrough.",
+      "evidence": "The operator distinguished exact-message proof, bounded input count and hosted successor. Wrong machine, repeated input, zero input, uncertain count and interruption had identifiable dispositions.",
+      "limitations": "No real account, desktop client or masked input was exercised. The private reader argument names still required a lookup."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the guide-only walkthrough.",
+      "next": "List the arguments at the point of use and rerun that part of the guide."
+    }
   },
   {
     "id": "private-movement-recovery-fix",
