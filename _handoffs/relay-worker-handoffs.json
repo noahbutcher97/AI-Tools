@@ -6,7 +6,18 @@
     "acceptance": "Pass the negative subprocess controls and confirm the thread filter covers completion.",
     "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+      "verdict": "Pass on the corrected implementation.",
+      "evidence": "Nineteen synthetic tests passed. Both negative subprocesses reached the intended fixed errors and omitted all private sentinels. A synthetic listener replay rejected unrelated starts and completions in study mode and preserved ordinary handling.",
+      "limitations": "Synthetic source review. The coordinator repeated the live trial separately."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Both prior findings resolved.",
+      "next": "Maintain suppression pending independent evidence of turn origin."
+    }
   },
   {
     "id": "turn-metadata-operator-replay",
@@ -15,7 +26,18 @@
     "acceptance": "Identify the version guard, cost, partial evidence and safe recovery given an ambiguous disposable thread.",
     "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+      "verdict": "Unassisted documentation walkthrough passed.",
+      "evidence": "The operator identified the version guard, two-turn cost, missed sample and restart limits, and correct recovery for ambiguous archive matches.",
+      "limitations": "Documentation simulation only. Archive recovery and a real human operator were unexercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The corrected guide resolved the prior operator findings.",
+      "next": "Use this guide when repeating the opt-in qualification."
+    }
   },
   {
     "id": "turn-metadata-premise-review",

@@ -22,6 +22,8 @@ node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs "$image" --turn-meta
 
 Check the exit code and the archive confirmation after the JSON report. For example, `coldReadMatched: true` with `sampledInProgress: false` for either turn means the fresh reader recovered the recorded state and polling missed that busy interval. Neither observation identifies who caused the turn. If interrupted, keep the run inconclusive. Inspect the provider's local session history for the disposable `relay-check-` thread created at the trial start time. Confirm its archive status before repeating, and archive only an unambiguously identified trial thread. If several match, leave them untouched and record cleanup as pending. Each repeat spends another two model turns.
 
+At `a32a054` the corrected runner completed a third two-turn trial on the same build. Both busy samples were present, the scheduled notice was consumed once, the fresh read matched and the provider acknowledged archival. Independent review replayed unrelated thread events and checked that failed comparisons withheld identifiers from both output streams. A second documentation walkthrough resolved executable selection and interrupted-run recovery. Only the coordinator ran a live client. [Review returns](relay-worker-handoffs.json)
+
 ### Completed branch watcher trial
 
 The live operator asked which window needed their input after receiving the masked-prompt instructions. The coordinator showed how to open an interactive SSH PowerShell window, paste the prepared command there and enter the reader at the fixture ref prompt. The operator completed that sequence from the initiating desktop. For another timed trial, include those instructions together before starting the five-minute client deadline.
