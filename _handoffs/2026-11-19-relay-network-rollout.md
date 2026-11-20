@@ -6,7 +6,7 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
-Both installed watchers passed the public-ref trial at `b359edb` with the grant recheck in place. The next checkpoint is authorization to read a protected repository credential. Private repository authentication and delivery after branch movement remain open.
+Both installed watchers passed the public-ref trial at `b359edb` and the bound Windows credential reader trial at `893853d`. The next live checkpoint is a private baseline on a disposable repository using a separate read-only credential. Delivery after branch movement remains open.
 
 The existing branch migration refused an already branch-capable base before creating a staging directory. Candidate `a09422d` added a refresh limited to the three modules implementing the grant recheck. An independent review and a constrained setup operator passed at that revision. The installer suite passed six tests. The relay suite passed 371 with one opt-in skip. See the [worker returns](relay-worker-handoffs.json) for recovery coverage and limits.
 

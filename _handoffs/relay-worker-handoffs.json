@@ -1,12 +1,32 @@
 [
   {
+    "id": "relay-private-trial-lock-review",
+    "revision": "db10a959ae91ed2af8aa5f35f93e7744049e5b64",
+    "worker": "independent grant reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of locked package and task validation for normal trials and recovery.",
+    "acceptance": "Verify both paths hold the same lock through validation and state changes, reject stale packages and release on refusal. Use synthetic fixtures only.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-private-trial-fix-review",
     "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
     "worker": "independent grant reviewer",
     "coordinator": "relay coordinator",
     "scope": "Recheck protected process startup, scope preflight, durable recovery record and stale-state refusal in the credentialed baseline trial.",
     "acceptance": "Verify the fixes with isolated fixtures and report the remaining hosted and operator checks. No real credentials or installation.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
+      "verdict": "Preflight and interruption fixes passed, with a remaining package-validation race.",
+      "evidence": "Fourteen focused tests passed. The fixture verified the clean child, declined v5, restored before and after activation, and preserved unrelated credentials. The reviewer found the installed digest and task checks preceded lock acquisition.",
+      "limitations": "The environment fixture used synthetic validators. The reviewer separately exercised the real validator; an additional local harness was blocked by execution review."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. Moved the installed package and task identity checks under the common install lock.",
+      "next": "Verify lock lifetime and stale package refusal on the final revision."
+    }
   },
   {
     "id": "relay-private-trial-recovery-operator",
@@ -15,7 +35,18 @@
     "coordinator": "relay coordinator",
     "scope": "Repeat the credential prompt mismatch and interrupted private trial scenarios using only operator documentation.",
     "acceptance": "Identify safe cancellation, issuer revocation, the recovery selector, and the exit condition for retry. No live actions.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
+      "verdict": "Pass for prompt mismatch and interrupted-trial tabletop.",
+      "evidence": "The operator selected cancellation before secret entry, issuer revocation before recovery, the recorded trial ID and installed digest, and held retry on foreign state.",
+      "limitations": "No real prompt, token, issuer change or live recovery was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for operator guidance.",
+      "next": "Exercise the normal private baseline check only after provisioning a repository-scoped reader."
+    }
   },
   {
     "id": "relay-private-grant-review",
