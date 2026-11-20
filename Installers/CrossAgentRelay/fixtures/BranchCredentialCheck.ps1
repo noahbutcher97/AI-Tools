@@ -176,7 +176,14 @@ Assert-NoInventory
         $extra=[IO.File]::Open($lockFile,'Open','ReadWrite','None'); $extra.Dispose()
     }
     $approved = @{v=6;branches=@(@{condition=$condition.ToString('D')})}|ConvertTo-Json -Depth 3 -Compress
-    foreach ($state in @('before-grant','after-activation','unrelated')) {
+    $draft = Join-Path $root 'publication.pending'
+    $published = Join-Path $root 'publication'
+    Publish-TrialFile $published $draft ([byte[]](1,2,3))
+    if (([IO.File]::ReadAllBytes($published) -join ',') -cne '1,2,3' -or [IO.File]::Exists($draft)) { throw 'Incomplete publication' }
+    $denied = $false
+    try { Publish-TrialFile $published $draft ([byte[]](4)) } catch [IO.IOException] { $denied = $true }
+    if (!$denied -or ([IO.File]::ReadAllBytes($published) -join ',') -cne '1,2,3') { throw 'Existing publication changed' }
+    foreach ($state in @('before-grant','partial-credential','partial-profile','after-activation','unrelated')) {
         $null = [IO.Directory]::CreateDirectory($trial)
         $null = [IO.Directory]::CreateDirectory($store)
         $file = Join-Path $store 'temp'
@@ -185,7 +192,28 @@ Assert-NoInventory
         [IO.File]::Move($file,(Join-Path $store $leaf))
         $plan = @{v=1;condition=$condition.ToString('D');package=$PackageHash;member=$leaf;profile='fixture';policy=$approved}
         [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
-        if ($state -eq 'before-grant') {
+        $staging = 'branch-'+$condition.ToString('N')+'.pending'
+        $profileStage = Join-Path $root $staging
+        if ($state -eq 'unrelated') {
+            $plan.v = 2
+            $plan.staging = 'publication'
+            [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+            $denied = $false
+            try { Restore-PrivateBranchTrial } catch { $denied = $_.Exception.Message -ceq 'Unrecognized trial staging name' }
+            if (!$denied -or ([IO.File]::ReadAllBytes($published) -join ',') -cne '1,2,3') { throw 'Recovery accepted an unrelated staging name' }
+            $plan.staging = $staging
+            [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+        }
+        if ($state -like 'partial-*') {
+            $plan.v = 2
+            $plan.staging = $staging
+            [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+            if ($state -eq 'partial-credential') {
+                [IO.File]::Delete((Join-Path $store $leaf))
+                [IO.File]::WriteAllBytes((Join-Path $store $staging),[byte[]](1))
+            } else { [IO.File]::WriteAllBytes($profileStage,[byte[]]::new(0)) }
+        }
+        if ($state -in @('before-grant','partial-credential','partial-profile')) {
             [IO.File]::WriteAllText($flagFile,$off); [IO.File]::WriteAllText($policyFile,$empty)
         } else {
             [IO.File]::WriteAllText($flagFile,$on); [IO.File]::WriteAllText($policyFile,$approved)
@@ -198,7 +226,7 @@ Assert-NoInventory
             if (!$denied -or ![IO.File]::Exists($recovery) -or [IO.File]::ReadAllText($flagFile) -cne $on) { throw 'Foreign record changed during recovery' }
         } else {
             Restore-PrivateBranchTrial
-            if ([IO.Directory]::Exists($trial) -or [IO.Directory]::Exists($store) -or [IO.File]::Exists($gitFile) -or
+            if ([IO.Directory]::Exists($trial) -or [IO.Directory]::Exists($store) -or [IO.File]::Exists($gitFile) -or [IO.File]::Exists($profileStage) -or
                 [IO.File]::ReadAllText($flagFile) -cne $off -or [IO.File]::ReadAllText($policyFile) -cne $empty) { throw 'Incomplete private recovery' }
         }
     }

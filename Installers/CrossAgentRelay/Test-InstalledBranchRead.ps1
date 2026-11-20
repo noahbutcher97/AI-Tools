@@ -63,12 +63,17 @@ function Enter-BranchTrial {
         return [pscustomobject]@{lock=$handle;record=$installed}
     } catch { $handle.Dispose(); throw }
 }
+function Publish-TrialFile([string]$destination,[string]$staging,[byte[]]$bytes) {
+    $stream = [IO.File]::Open($staging,'CreateNew','Write','None')
+    try { $stream.Write($bytes,0,$bytes.Length); $stream.Flush($true) } finally { $stream.Dispose() }
+    [IO.File]::Move($staging,$destination)
+}
 function Restore-PrivateBranchTrial {
     Assert-Protected $trial
     Assert-Protected $recovery
     if ((Get-Item -LiteralPath $recovery).Length -gt 16384) { throw 'Oversize private trial record' }
     $plan = [IO.File]::ReadAllText($recovery) | ConvertFrom-Json
-    if ($plan.v -ne 1 -or $plan.package -cne $PackageHash -or $plan.condition -cne $condition.ToString('D') -or
+    if ($plan.v -notin @(1,2) -or $plan.package -cne $PackageHash -or $plan.condition -cne $condition.ToString('D') -or
         $plan.member -cnotmatch '^[a-f0-9]{64}-[a-f0-9]{64}\.bin$') { throw 'Private trial identity mismatch' }
     $grantPolicy = $plan.policy | ConvertFrom-Json
     if ($grantPolicy.v -ne 6 -or $grantPolicy.branches.Count -ne 1 -or $grantPolicy.branches[0].condition -cne $plan.condition) {
@@ -79,12 +84,24 @@ function Restore-PrivateBranchTrial {
         Assert-Protected $item
     }
     $member = Join-Path $store $plan.member
+    $credentialStage = $null
+    $profileStage = $null
+    if ($plan.v -eq 2) {
+        if ($plan.staging -cne ('branch-'+$condition.ToString('N')+'.pending')) { throw 'Unrecognized trial staging name' }
+        $credentialStage = Join-Path $store $plan.staging
+        $profileStage = Join-Path $root $plan.staging
+        if (Test-Path -LiteralPath $profileStage) {
+            Assert-Protected $profileStage
+            if (![IO.File]::Exists($profileStage) -or (Test-Path -LiteralPath $gitFile)) { throw 'Unexpected staged Git profile' }
+        }
+    }
     if (Test-Path -LiteralPath $store) {
         Assert-Protected $store
         foreach ($item in [IO.Directory]::EnumerateFileSystemEntries($store)) {
-            if ($item -cne $member) { throw 'Unrelated credential present' }
+            if ($item -cne $member -and $item -cne $credentialStage) { throw 'Unrelated credential present' }
             Assert-Protected $item
-            if ((Get-FileHash -LiteralPath $item).Hash -ine $plan.member.Substring(65,64)) { throw 'Credential record changed' }
+            if ($item -ceq $credentialStage -and (![IO.File]::Exists($item) -or (Test-Path -LiteralPath $member))) { throw 'Unexpected staged credential' }
+            if ($item -ceq $member -and (Get-FileHash -LiteralPath $item).Hash -ine $plan.member.Substring(65,64)) { throw 'Credential record changed' }
         }
     }
     $currentPolicy = [IO.File]::ReadAllText($policyFile)
@@ -98,7 +115,9 @@ function Restore-PrivateBranchTrial {
     if ($currentFlag -ceq $on) { Set-ApprovedText $flagFile $on $off }
     Restart-TrialBroker 'reports_only'
     [IO.File]::Delete($gitFile)
+    if ($profileStage) { [IO.File]::Delete($profileStage) }
     if ([IO.Directory]::Exists($store)) {
+        if ($credentialStage) { [IO.File]::Delete($credentialStage) }
         [IO.File]::Delete($member)
         [IO.Directory]::Delete($store,$false)
     }
@@ -153,6 +172,9 @@ try {
     if ($ReaderUser) {
         # The trial must never replace an enrolled record or share its directory.
         if (Test-Path -LiteralPath $store) { throw 'Private trial needs an unused credential directory' }
+        $staging = 'branch-'+$condition.ToString('N')+'.pending'
+        $profileStage = Join-Path $root $staging
+        if (Test-Path -LiteralPath $profileStage) { throw 'Private trial needs an unused staging name' }
         foreach ($script in @($PSCommandPath,(Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1'),
             (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1'))) { Assert-Protected $script }
         if ($Endpoint.OriginalString -cne $Endpoint.AbsoluteUri) { throw 'Use the exact canonical repository URL' }
@@ -209,16 +231,18 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
     $version = if ($ReaderUser) { 6 } else { 5 }
     $approved = @{v=$version;grants=@();schedules=@();files=@();branches=@($grant)} | ConvertTo-Json -Depth 4 -Compress
     if ($ReaderUser) {
-        $plan = @{v=1;package=$PackageHash;condition=$condition.ToString('D');member=$leaf;profile=$git;policy=$approved}
+        $plan = @{v=2;package=$PackageHash;condition=$condition.ToString('D');member=$leaf;profile=$git;policy=$approved;staging=$staging}
         [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress),$utf)
         $recorded = $true
         Write-Host ('Private trial recovery ID '+$condition.ToString('D'))
         New-AccessDirectory $store "(A;OICI;GRGX;;;$brokerSid)"
-        [IO.File]::WriteAllBytes((Join-Path $store $leaf),$sealed)
+        Publish-TrialFile (Join-Path $store $leaf) (Join-Path $store $staging) $sealed
+        Publish-TrialFile $gitFile $profileStage ($utf.GetBytes($git))
+    } else {
+        $stream = [IO.File]::Open($gitFile,'CreateNew','Write','None')
+        $profileCreated = $true
+        try { $bytes=$utf.GetBytes($git); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
     }
-    $stream = [IO.File]::Open($gitFile,'CreateNew','Write','None')
-    $profileCreated = $true
-    try { $bytes=$utf.GetBytes($git); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
     Assert-Protected $gitFile
     Set-ApprovedText $policyFile $empty $approved
     $policyChanged = $true
