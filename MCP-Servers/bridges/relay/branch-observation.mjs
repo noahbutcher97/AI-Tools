@@ -63,9 +63,15 @@ async function verifyGitPins(root, profile, signal) {
   }
 }
 
-export async function sampleInstalledBranch(root, profile, grant, signal, run = runProvider) {
+export async function sampleInstalledBranch(root, profile, grant, signal, { canObserve, run = runProvider } = {}) {
   if (!profile || grant.credential !== null || !validBranchResource(grant.endpoint, grant.ref)) throw Error("branch observation unavailable");
-  try { await verifyGitPins(root, profile, signal); }
+  try {
+    if (canObserve() !== true) throw Error();
+    await verifyGitPins(root, profile, signal);
+    signal?.throwIfAborted();
+    // No await between the fresh synchronous policy read and the Git spawn.
+    if (canObserve() !== true) throw Error();
+  }
   catch { throw Error("branch observation unavailable"); }
   return sampleAnonymousBranch(profile, grant.endpoint, grant.ref, signal, run);
 }

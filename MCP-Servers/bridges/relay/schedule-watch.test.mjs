@@ -3,7 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { sampleInstalledBranch } from "./branch-observation.mjs";
 import { parseArgs } from "./client.mjs";
 import { listenForJobReports, reportJob, startCompletionBroker } from "./completion-broker.mjs";
 import { initializeCompletionJobs, openCompletionJobs } from "./completion-jobs.mjs";
@@ -44,7 +45,7 @@ async function fixture(t, fileWatch = false) {
     f.store?.close();
     f.store = await openCompletionJobs(file, { now: () => f.now, schedules: { root, policy: () => f.policy,
       sampleFile: fileWatch ? grant => f.sample(grant) : undefined,
-      sampleBranch: fileWatch === "branch" ? grant => f.readRef(grant) : undefined },
+      sampleBranch: fileWatch === "branch" ? (...args) => f.readRef(...args) : undefined },
       send: (...args) => f.send(...args), status: async h => { assert.equal(h, handle); f.proofs++; return f.proof; } });
     f.store.watches.provision();
     listener = await listenForJobReports(f.store.acceptFrame, { port: 0 });
@@ -140,6 +141,45 @@ test("confirmed disappearance spends one notice and unavailable storage spends n
   f.now += 10000;
   await f.observe();
   assert.deepEqual(f.rows(), []);
+});
+
+test("installed branch observation rechecks the active grant after pin verification", async t => {
+  const f = await fixture(t, "branch");
+  const pin = createHash("sha256").update("fixture").digest("hex");
+  for (const name of ["completion-git.json", "git.exe", "git-remote-https.exe"]) {
+    fs.writeFileSync(path.join(f.root, name), "fixture");
+  }
+  const profile = { image: path.join(f.root, "git.exe"), execPath: f.root, cwd: f.root,
+    windows: f.root, profileHash: pin, imageHash: pin, transportHash: pin };
+  let launches = 0;
+  const run = async () => {
+    launches++;
+    return { code: 0, stdout: "a".repeat(40) + "\t" + f.g.ref + "\n" };
+  };
+  let change;
+  f.readRef = (grant, signal, canObserve) => {
+    const result = sampleInstalledBranch(f.root, profile, grant, signal, { canObserve, run });
+    // The sampler yields on its first asynchronous file open. Change the
+    // authority before any of the three pin reads can complete.
+    change();
+    return result;
+  };
+  assert.equal((await f.subscribe()).ok, true);
+  change = () => {};
+  await f.observe();
+  assert.equal(launches, 1);
+  launches = 0;
+  for (change of [
+    () => { f.policy = []; },
+    () => { f.policy = [{ ...f.g, ref: "refs/heads/other" }]; },
+    () => { f.now = Date.parse(f.g.expiresAt); },
+  ]) {
+    f.policy = [f.g];
+    f.now += 60000;
+    await f.observe();
+    assert.equal(launches, 0);
+    assert.equal(f.sends, 0);
+  }
 });
 
 test("branch polling excludes failed observations, pins its resource and coalesces a file change", async t => {
