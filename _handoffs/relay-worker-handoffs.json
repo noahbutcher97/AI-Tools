@@ -1,5 +1,23 @@
 [
   {
+    "id": "relay-branch-refresh-review",
+    "revision": "a09422db97a2de76f3e1cbe7d31ee57860edb09a",
+    "worker": "independent installer reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of the branch package refresh, updater and tests.",
+    "acceptance": "Check the allowed delta, base validation, restart and rollback. Return findings, evidence and limits.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-branch-refresh-walkthrough",
+    "revision": "a09422db97a2de76f3e1cbe7d31ee57860edb09a",
+    "worker": "constrained setup operator",
+    "coordinator": "relay coordinator",
+    "scope": "Exercise staging with public operator documentation and an isolated synthetic package. No elevation, network, implementation access or installation.",
+    "acceptance": "Discover staging, recover from an incorrect digest, verify the resulting package and identify the read-only installation check. Record friction and limits.",
+    "state": "assigned"
+  },
+  {
     "id": "branch-observation-prelaunch-review",
     "revision": "3f07523dca1dec5fa420deda7c2f5581d19d66d7",
     "worker": "independent branch observation reviewer",
