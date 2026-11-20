@@ -200,7 +200,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
         .run(deadline, g.condition, row.next_poll).changes) continue;
       if (!canObserve()) continue;
       let sample;
-      try { sample = await observe(g, signal); } catch { continue; }
+      try { sample = await observe(g, signal, canObserve); } catch { continue; }
       if (branch ? !matches(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/, sample) :
         sample !== "absent" && !matches(/^[a-f0-9]{48}:[a-f0-9]{16}:[a-f0-9]{16}$/, sample)) continue;
       transaction(() => {

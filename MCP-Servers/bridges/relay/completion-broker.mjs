@@ -320,7 +320,8 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       console.log("Authenticated desktop worker ready.");
     } else {
       const delivery = checked.enabled === true ? sessionDelivery(checked.root) : undefined;
-      const sampleBranch = checked.git ? (g, signal) => sampleInstalledBranch(checked.root, checked.git, g, signal) : undefined;
+      const sampleBranch = checked.git ? (g, signal, canObserve) =>
+        sampleInstalledBranch(checked.root, checked.git, g, signal, { canObserve }) : undefined;
       const broker = await startCompletionBroker(checked.root, { delivery, sampleBranch, publishHealth: checked.health === true, listenerWaitMs: 15000 });
       for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => void broker.close());
     }

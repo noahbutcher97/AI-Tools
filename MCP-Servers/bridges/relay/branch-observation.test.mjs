@@ -59,17 +59,23 @@ test("removed machine approval or a replaced HTTPS transport prevents a Git laun
   const grant = { endpoint, ref, credential: null };
   let launches = 0;
   const run = async () => { launches++; return { code: 0, stdout: revision + "\t" + ref + "\n" }; };
+  const permitted = { run, canObserve: () => true };
+  for (const canObserve of [undefined, () => false, async () => true, () => { throw Error(); }]) {
+    await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, { run, canObserve }),
+      { message: "branch observation unavailable" });
+  }
+  assert.equal(launches, 0);
   if (process.platform === "win32") {
-    assert.equal(await sampleInstalledBranch(root, installed, grant, undefined, run), revision);
+    assert.equal(await sampleInstalledBranch(root, installed, grant, undefined, permitted), revision);
     assert.equal(launches, 1);
   }
   launches = 0;
   for (const file of files) {
     fs.writeFileSync(file, "changed");
-    await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, run), { message: "branch observation unavailable" });
+    await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, permitted), { message: "branch observation unavailable" });
     fs.writeFileSync(file, "fixture");
   }
   fs.unlinkSync(files[0]);
-  await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, run), { message: "branch observation unavailable" });
+  await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, permitted), { message: "branch observation unavailable" });
   assert.equal(launches, 0);
 });
