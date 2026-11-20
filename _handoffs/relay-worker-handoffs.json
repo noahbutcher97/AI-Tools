@@ -6,7 +6,18 @@
     "acceptance": "Verify empty and nonempty unregistered cleanup, retained task evidence, bounded database wait and source integration.",
     "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+      "verdict": "Pass for the final edge case corrections.",
+      "evidence": "Three Windows suites passed. An early registration failure retained an unexpected file and allowed removal of an empty exchange. The actual verifier recovered after a brief exclusive SQLite lock and declined a persistent lock within the child deadline.",
+      "limitations": "The database wait is per SQLite operation. No installed resource or private account was used."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source integration.",
+      "next": "Complete the installed credentialed movement trial."
+    }
   },
   {
     "id": "private-movement-deadline",
@@ -15,7 +26,18 @@
     "acceptance": "Distinguish the grant publication deadline from its duration after issuance.",
     "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+      "verdict": "Pass for the operator deadline walkthrough.",
+      "evidence": "The operator identified the client publication deadline from the target timestamp, withheld the writer after a late publication and distinguished the subsequent five-minute grant lifetime.",
+      "limitations": "Read-only guide walkthrough without an installed client or reader."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source integration.",
+      "next": "Complete the installed credentialed movement trial."
+    }
   },
   {
     "id": "private-movement-cleanup-retry-review",
