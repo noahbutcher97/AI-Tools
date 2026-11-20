@@ -6,7 +6,18 @@
     "coordinator": "relay coordinator",
     "scope": "Read-only review of the branch package refresh, updater and tests.",
     "acceptance": "Check the allowed delta, base validation, restart and rollback. Return findings, evidence and limits.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a09422db97a2de76f3e1cbe7d31ee57860edb09a",
+      "verdict": "Pass for the package refresh.",
+      "evidence": "Two focused Windows tests passed. The reviewer traced the complete base and output checks, three permitted modules, protected directory swap, startup check and rollback.",
+      "limitations": "Recovery fixtures exercise the shared swap routine through the schedule update. Abrupt interruption during an individual staging copy and installed operation were untested."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the package and updater change. A partial staging file can require operator inspection before a retry.",
+      "next": "Check installed package membership, reports-only startup and observation on each desktop."
+    }
   },
   {
     "id": "relay-branch-refresh-walkthrough",
@@ -15,7 +26,18 @@
     "coordinator": "relay coordinator",
     "scope": "Exercise staging with public operator documentation and an isolated synthetic package. No elevation, network, implementation access or installation.",
     "acceptance": "Discover staging, recover from an incorrect digest, verify the resulting package and identify the read-only installation check. Record friction and limits.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a09422db97a2de76f3e1cbe7d31ee57860edb09a",
+      "verdict": "Pass for the constrained staging and recovery walkthrough.",
+      "evidence": "Using the operator guide and public CLI, the agent chose the refresh command, observed refusal of an incorrect digest and no output directory, recovered with the journal digest and independently verified the new digest. It identified the read-only Plan command.",
+      "limitations": "The CLI verification error alone did not identify the wrong digest. The guide supplied recovery. The operator used a synthetic package and did not run the installed Plan or represent a human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. Keep a common verification error for a mismatched digest or damaged package. The guide gives the safe recovery for either case.",
+      "next": "Exercise Plan and Apply with the installed packages and check the journal and heartbeat independently."
+    }
   },
   {
     "id": "branch-observation-prelaunch-review",
