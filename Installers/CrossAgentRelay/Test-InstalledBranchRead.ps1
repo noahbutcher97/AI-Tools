@@ -1,17 +1,18 @@
 # Run from protected copies of the three reviewed trial and setup scripts.
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName='Read')]
 param(
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$PackageHash,
-    [Parameter(Mandatory)][uri]$Endpoint,
-    [Parameter(Mandatory)][string]$Ref,
-    [Parameter(Mandatory)][ValidatePattern('^([a-f0-9]{40}|[a-f0-9]{64})$')][string]$ExpectedRevision,
-    [Parameter(Mandatory)][ValidateSet('ucrt64','mingw64')][string]$Edition,
-    [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ImageHash,
-    [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$TransportHash,
-    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$ReaderUser
+    [Parameter(Mandatory,ParameterSetName='Read')][uri]$Endpoint,
+    [Parameter(Mandatory,ParameterSetName='Read')][string]$Ref,
+    [Parameter(Mandatory,ParameterSetName='Read')][ValidatePattern('^([a-f0-9]{40}|[a-f0-9]{64})$')][string]$ExpectedRevision,
+    [Parameter(Mandatory,ParameterSetName='Read')][ValidateSet('ucrt64','mingw64')][string]$Edition,
+    [Parameter(Mandatory,ParameterSetName='Read')][ValidatePattern('^[a-f0-9]{64}$')][string]$ImageHash,
+    [Parameter(Mandatory,ParameterSetName='Read')][ValidatePattern('^[a-f0-9]{64}$')][string]$TransportHash,
+    [Parameter(ParameterSetName='Read')][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$ReaderUser,
+    [Parameter(Mandatory,ParameterSetName='Recover')][guid]$RecoverTrial
 )
 $ErrorActionPreference = 'Stop'
-if (!$Endpoint.IsAbsoluteUri -or $Endpoint.Scheme -cne 'https' -or $Endpoint.UserInfo -or $Endpoint.Query -or $Endpoint.Fragment) {
+if (!$RecoverTrial -and (!$Endpoint.IsAbsoluteUri -or $Endpoint.Scheme -cne 'https' -or $Endpoint.UserInfo -or $Endpoint.Query -or $Endpoint.Fragment)) {
     throw 'Expected an HTTPS repository without embedded credentials'
 }
 function Protect-TrialReader([securestring]$Password,[string]$Username,[byte[]]$Binding) {
@@ -33,8 +34,66 @@ function Protect-TrialReader([securestring]$Password,[string]$Username,[byte[]]$
         [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
     }
 }
+function Assert-PrivateBranchSupport($inputGrant) {
+    $validate = @'
+const fs=require('node:fs'), path=require('node:path'), {pathToFileURL}=require('node:url');
+const input=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+const dir=path.join(path.dirname(path.dirname(process.execPath)),'relay');
+const load=name=>import(pathToFileURL(path.join(dir,name+'.mjs')));
+Promise.all([load('branch-observation'),load('schedule-watch')]).then(([m,s])=>{
+  if(typeof m.installedCredentialRecord==='function' && s.validBranchWatch(input,true))process.stdout.write('valid');
+}).catch(()=>{process.exitCode=1});
+'@
+    [IO.File]::WriteAllText($verifier,$validate,$utf)
+    [IO.File]::WriteAllText($paramsFile,($inputGrant|ConvertTo-Json -Compress),$utf)
+    if ((Get-TrialOutcome $paramsFile $condition.ToString('D')) -cne 'valid') {
+        throw 'Invalid repository or ref, or installed credential reader unavailable'
+    }
+}
+function Restore-PrivateBranchTrial {
+    Assert-Protected $trial
+    Assert-Protected $recovery
+    if ((Get-Item -LiteralPath $recovery).Length -gt 16384) { throw 'Oversize private trial record' }
+    $plan = [IO.File]::ReadAllText($recovery) | ConvertFrom-Json
+    if ($plan.v -ne 1 -or $plan.package -cne $PackageHash -or $plan.condition -cne $condition.ToString('D') -or
+        $plan.member -cnotmatch '^[a-f0-9]{64}-[a-f0-9]{64}\.bin$') { throw 'Private trial identity mismatch' }
+    $grantPolicy = $plan.policy | ConvertFrom-Json
+    if ($grantPolicy.v -ne 6 -or $grantPolicy.branches.Count -ne 1 -or $grantPolicy.branches[0].condition -cne $plan.condition) {
+        throw 'Invalid private trial grant'
+    }
+    foreach ($item in [IO.Directory]::EnumerateFileSystemEntries($trial)) {
+        if ($item -notin @($paramsFile,$verifier,$recovery)) { throw 'Unexpected trial artifact' }
+        Assert-Protected $item
+    }
+    $member = Join-Path $store $plan.member
+    if (Test-Path -LiteralPath $store) {
+        Assert-Protected $store
+        foreach ($item in [IO.Directory]::EnumerateFileSystemEntries($store)) {
+            if ($item -cne $member) { throw 'Unrelated credential present' }
+            Assert-Protected $item
+            if ((Get-FileHash -LiteralPath $item).Hash -ine $plan.member.Substring(65,64)) { throw 'Credential record changed' }
+        }
+    }
+    $currentPolicy = [IO.File]::ReadAllText($policyFile)
+    $currentFlag = [IO.File]::ReadAllText($flagFile)
+    if ($currentPolicy -cnotin @($empty,$plan.policy) -or $currentFlag -cnotin @($on,$off)) { throw 'Watcher authority changed' }
+    if (Test-Path -LiteralPath $gitFile) {
+        Assert-Protected $gitFile
+        if ([IO.File]::ReadAllText($gitFile) -cne $plan.profile) { throw 'Git profile changed' }
+    }
+    if ($currentPolicy -cne $empty) { Set-ApprovedText $policyFile $plan.policy $empty }
+    if ($currentFlag -ceq $on) { Set-ApprovedText $flagFile $on $off }
+    Restart-TrialBroker 'reports_only'
+    [IO.File]::Delete($gitFile)
+    if ([IO.Directory]::Exists($store)) {
+        [IO.File]::Delete($member)
+        [IO.Directory]::Delete($store,$false)
+    }
+    foreach ($file in @($verifier,$paramsFile,$recovery)) { [IO.File]::Delete($file) }
+    [IO.Directory]::Delete($trial,$false)
+}
 if ($MyInvocation.InvocationName -eq '.') { return }
-$condition = [guid]::NewGuid()
+$condition = if ($RecoverTrial) { $RecoverTrial } else { [guid]::NewGuid() }
 . (Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1') -Stage Run -TrialId $condition -ExpectedPackage $PackageHash
 $fixtureTarget = [guid]::NewGuid()
 $record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
@@ -52,6 +111,7 @@ foreach ($file in @($journal,$policyFile,$flagFile,$node,$lockFile)) { Assert-Pr
 $trial = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) ('RelayBranchTrial-'+$condition.ToString('N'))
 $verifier = Join-Path $trial 'verify.cjs'
 $paramsFile = Join-Path $trial 'parameters.json'
+$recovery = Join-Path $trial 'recovery.json'
 $empty = '{"v":1,"grants":[]}'
 $off = '{"v":1,"enabled":false}'
 $on = '{"v":1,"enabled":true}'
@@ -59,12 +119,21 @@ $git = @{v=1;edition=$Edition;imageHash=$ImageHash;transportHash=$TransportHash}
 $utf = [Text.UTF8Encoding]::new($false)
 $created = $false
 $profileCreated = $false
-$storeCreated = $false
+$recorded = $false
 $credential = $null
 $store = Join-Path $root 'branch-credentials'
 $policyChanged = $false
 $flagChanged = $false
 $lock = [IO.File]::Open($lockFile,'Open','ReadWrite','None')
+if ($RecoverTrial) {
+    try {
+        foreach ($script in @($PSCommandPath,(Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1'),
+            (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1'))) { Assert-Protected $script }
+        Restore-PrivateBranchTrial
+    } finally { $lock.Dispose() }
+    'Recovered private branch trial in reports-only mode.'
+    return
+}
 try {
     if ([IO.File]::ReadAllText($flagFile) -cne $off -or [IO.File]::ReadAllText($policyFile) -cne $empty -or
         [IO.File]::Exists($gitFile)) { throw 'Trial requires idle policy and an unused Git profile' }
@@ -75,19 +144,12 @@ try {
         if (Test-Path -LiteralPath $store) { throw 'Private trial needs an unused credential directory' }
         foreach ($script in @($PSCommandPath,(Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1'),
             (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1'))) { Assert-Protected $script }
-        $validate = @'
-const fs=require('node:fs'), path=require('node:path'), {pathToFileURL}=require('node:url');
-const input=JSON.parse(fs.readFileSync(0,'utf8'));
-const modulePath=path.join(path.dirname(path.dirname(process.execPath)),'relay','branch-observation.mjs');
-import(pathToFileURL(modulePath)).then(m=>{
-  if(typeof m.installedCredentialRecord!=='function'||!m.validBranchResource(input.endpoint,input.ref))process.exitCode=1;
-}).catch(()=>{process.exitCode=1});
-'@
         if ($Endpoint.OriginalString -cne $Endpoint.AbsoluteUri) { throw 'Use the exact canonical repository URL' }
-        @{endpoint=$Endpoint.AbsoluteUri;ref=$Ref} | ConvertTo-Json -Compress | & $node -e $validate
-        if ($LASTEXITCODE -ne 0) { throw 'Invalid repository or ref, or installed credential reader unavailable' }
-        $brokerSid = [Security.Principal.SecurityIdentifier]::new($record.brokerSid).Value
         $credential = [guid]::NewGuid().ToString('D')
+        $inputGrant = @{condition=$condition.ToString('D');target=$fixtureTarget.ToString('D');provider='codex';scope='thread-branch-change';
+            endpoint=$Endpoint.AbsoluteUri;ref=$Ref;credential=$credential;expiresAt=[DateTime]::UtcNow.AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')}
+        Assert-PrivateBranchSupport $inputGrant
+        $brokerSid = [Security.Principal.SecurityIdentifier]::new($record.brokerSid).Value
         $tuple = ConvertTo-Json -InputObject @('branch-basic-v1',$credential,$Endpoint.AbsoluteUri,$Ref) -Compress
         $sha = [Security.Cryptography.SHA256]::Create()
         try {
@@ -98,10 +160,6 @@ import(pathToFileURL(modulePath)).then(m=>{
             $sealedHash = [BitConverter]::ToString($sha.ComputeHash($sealed)).Replace('-','').ToLowerInvariant()
             $leaf = $bindingHex+'-'+$sealedHash+'.bin'
         } finally { $sha.Dispose() }
-        New-AccessDirectory $store "(A;OICI;GRGX;;;$brokerSid)"
-        $storeCreated = $true
-        $sealedFile = Join-Path $store $leaf
-        [IO.File]::WriteAllBytes($sealedFile,$sealed)
     }
     $parameters = @{target=$fixtureTarget.ToString('D');revision=$ExpectedRevision} | ConvertTo-Json -Compress
     [IO.File]::WriteAllText($paramsFile,$parameters,$utf)
@@ -132,10 +190,6 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
 })().catch(() => {process.exitCode=1});
 '@
     [IO.File]::WriteAllText($verifier,$source,$utf)
-    $stream = [IO.File]::Open($gitFile,'CreateNew','Write','None')
-    $profileCreated = $true
-    try { $bytes=$utf.GetBytes($git); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
-    Assert-Protected $gitFile
     # The minimum observation interval is one minute. This fixture expires
     # before a second sample and cannot generate a change notification.
     $expires = [DateTime]::UtcNow.AddSeconds(50).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
@@ -143,6 +197,18 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
         endpoint=$Endpoint.AbsoluteUri;ref=$Ref;credential=$credential;expiresAt=$expires}
     $version = if ($ReaderUser) { 6 } else { 5 }
     $approved = @{v=$version;grants=@();schedules=@();files=@();branches=@($grant)} | ConvertTo-Json -Depth 4 -Compress
+    if ($ReaderUser) {
+        $plan = @{v=1;package=$PackageHash;condition=$condition.ToString('D');member=$leaf;profile=$git;policy=$approved}
+        [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress),$utf)
+        $recorded = $true
+        Write-Host ('Private trial recovery ID '+$condition.ToString('D'))
+        New-AccessDirectory $store "(A;OICI;GRGX;;;$brokerSid)"
+        [IO.File]::WriteAllBytes((Join-Path $store $leaf),$sealed)
+    }
+    $stream = [IO.File]::Open($gitFile,'CreateNew','Write','None')
+    $profileCreated = $true
+    try { $bytes=$utf.GetBytes($git); $stream.Write($bytes,0,$bytes.Length) } finally { $stream.Dispose() }
+    Assert-Protected $gitFile
     Set-ApprovedText $policyFile $empty $approved
     $policyChanged = $true
     Set-ApprovedText $flagFile $off $on
@@ -157,6 +223,9 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
         Start-Sleep -Milliseconds 500
     } while ($true)
 } finally {
+  if ($recorded) {
+    try { Restore-PrivateBranchTrial } finally { $lock.Dispose() }
+  } else {
     try {
         try {
             if ($policyChanged) { Set-ApprovedText $policyFile $approved $empty }
@@ -169,16 +238,12 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
         }
     } finally {
         try {
-          if ($storeCreated) {
-            Assert-Protected $store
-            if ($sealedFile -and [IO.File]::Exists($sealedFile)) { Assert-Protected $sealedFile; [IO.File]::Delete($sealedFile) }
-            [IO.Directory]::Delete($store,$false)
-          }
           if ($created) {
             foreach ($file in @($verifier,$paramsFile)) { if ([IO.File]::Exists($file)) { Assert-Protected $file; [IO.File]::Delete($file) } }
             [IO.Directory]::Delete($trial,$false)
           }
         } finally { $lock.Dispose() }
     }
+  }
 }
 'Installed broker matched the expected branch revision with no notice.'
