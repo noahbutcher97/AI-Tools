@@ -1,5 +1,23 @@
 [
   {
+    "id": "relay-bound-storage-review",
+    "revision": "b094098f92f49fa35d5df56c877c8b6d6040db4a",
+    "worker": "independent storage reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of Windows ciphertext inventory, bounded opening, decryption, offline trial and restoration. Use synthetic data only.",
+    "acceptance": "Identify authority, disclosure and recovery gaps. Check that the trial cannot operate on production records and report limits separately from the installed trial.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-bound-storage-walkthrough",
+    "revision": "b094098f92f49fa35d5df56c877c8b6d6040db4a",
+    "worker": "constrained installation operator",
+    "coordinator": "relay coordinator",
+    "scope": "Stage the package chain using a synthetic base, the public operator guide and normal package CLI. No live installer, elevation or network.",
+    "acceptance": "Verify the final package, identify the correct digest for the protected trial, exercise recovery from a mistaken base digest and record friction.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-branch-credential-read-review",
     "revision": "a15fce11dac2de755a0daebdafd118719007fcb3",
     "worker": "independent credential boundary reviewer",
