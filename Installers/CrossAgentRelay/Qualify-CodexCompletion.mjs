@@ -9,7 +9,7 @@ import { createInterface } from "node:readline";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
-import { discoverTargets } from "../../MCP-Servers/bridges/relay/client.mjs";
+import { discoverTargets, sendMessage } from "../../MCP-Servers/bridges/relay/client.mjs";
 import { initializeCompletionJobs, openCompletionJobs, threadStatusBinding } from "../../MCP-Servers/bridges/relay/completion-jobs.mjs";
 import { listenForJobReports } from "../../MCP-Servers/bridges/relay/completion-broker.mjs";
 import { startRun } from "../../MCP-Servers/bridges/relay/run-job.mjs";
@@ -26,7 +26,8 @@ import { trialInputCount } from "./trial-input-count.mjs";
 const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
-const schedule = process.argv[3] === "--schedule";
+const turnStudy = process.argv[3] === "--turn-metadata";
+const schedule = turnStudy || process.argv[3] === "--schedule";
 const checkMcp = process.argv[3] === "--mcp-watch";
 const installedBranch = ["--installed-branch","--installed-mcp-branch"].includes(process.argv[3]);
 const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file","--installed-mcp-branch"].includes(process.argv[3]);
@@ -51,6 +52,9 @@ const params = { model, cwd: checkMcp || installedMcp ? mcpWorkspace : workspace
   config: { model_reasoning_effort: "low" } };
 const sessionName = "relay-check-" + (installedBranch ? preparedTrial : randomUUID());
 let provider, store, listener, id;
+let stopSampling;
+const indexedBusy = new Set();
+const startedSignals = new Map();
 const providers = [];
 const ownedOutputs = new Set();
 async function until(check, ms, reason) {
@@ -80,6 +84,13 @@ async function startProvider() {
     const msg = JSON.parse(line);
     if (msg.id && inbox.has(msg.id)) inbox.get(msg.id)(msg);
     if (msg.method === "turn/completed") turns.set(msg.params.turn.id, msg.params.turn.status);
+    if (turnStudy) {
+      if (msg.method === "turn/started" && msg.params.threadId === id) {
+        const turn = msg.params.turn;
+        startedSignals.set(turn.id, { status: turn.status, fields: Object.keys(turn).sort() });
+      }
+      return;
+    }
     if (msg.method === "item/completed") {
       const { turnId, item } = msg.params;
       const evidence = diagnostics.get(turnId) ?? { items: [], refusalReported: false, shellUnavailableReported: false };
@@ -171,6 +182,17 @@ async function runTrial() {
     assert.equal(started.approvalPolicy, "never");
   }
   await provider.call("thread/name/set", { threadId: id, name: sessionName });
+  if (turnStudy) {
+    const { sampleTurnStatus } = await import("./fixtures/ReadTurnMetadata.mjs");
+    const timer = setInterval(() => {
+      try {
+        for (const row of sampleTurnStatus(id)) {
+          if (row.status === "inProgress") indexedBusy.add(row.turn_id);
+        }
+      } catch { /* An unavailable sample supplies no evidence of activity. */ }
+    }, 250);
+    stopSampling = () => clearInterval(timer);
+  }
   if (checkMcp || installedMcp) assert.equal(started.approvalPolicy, "never");
   if (checkMcp) {
     await callWatch(randomUUID(), "unconfirmed");
@@ -186,13 +208,19 @@ async function runTrial() {
     const file = path.join(root, "jobs.sqlite");
     await initializeCompletionJobs(file);
     fs.mkdirSync(path.join(root, "completion-grants"));
-    const grant = { provider: "codex", scope: "thread-schedule", condition: randomUUID(), target: id, intervalSeconds: 60,
+    const grant = { provider: "codex", scope: "thread-schedule", condition: randomUUID(), target: id, intervalSeconds: turnStudy ? 86400 : 60,
       startsAt: new Date(Date.now() + 8000).toISOString(), expiresAt: new Date(Date.now() + 180000).toISOString() };
     let submissions = 0, proofs = 0;
+    let queueId;
     const open = () => openCompletionJobs(file, { schedules: { root, policy: () => [grant] },
       send: (to, text, options) => {
         assert.equal(to, id); assert.equal(text, scheduleNotice);
-        return sendProvedNotice(to, text, { ...options, runQueue: (dest, envelope) => {
+        const observeSend = async request => {
+          const result = await sendMessage(request);
+          queueId = result.queuedId;
+          return result;
+        };
+        return sendProvedNotice(to, text, { ...options, send: turnStudy ? observeSend : sendMessage, runQueue: (dest, envelope) => {
           assert.equal(dest, id); submissions++;
           return runProvider(image, ["queue", "--thread", dest, "--message", envelope], { cwd: root });
         } });
@@ -225,6 +253,29 @@ async function runTrial() {
     }, 55000, "No consumed schedule notice after resume");
     assert.equal(submissions, 1);
     assert.equal(store.watches.subscriptions([grant])[0].state, "waiting");
+    if (turnStudy) {
+      // Completion of delivery can precede completion of the recipient's turn.
+      const turnId = await until(() => [...provider.turns].find(([turn, status]) =>
+        turn !== seed.turn.id && status === "completed")?.[0], 90000, "Recipient turn did not finish");
+      const { readTrialMetadata, summarizeTrial } = await import("./fixtures/ReadTurnMetadata.mjs");
+      const live = await until(() => {
+        const sample = readTrialMetadata(id, grant.condition, file);
+        return sample.turns.length === 2 && sample.turns.every(t => t.status === "completed") && sample;
+      }, 10000, "Completed turns unavailable in provider metadata");
+      store.close(); store = null;
+      const reader = fileURLToPath(new URL("./fixtures/ReadTurnMetadata.mjs", import.meta.url));
+      const cold = spawnSync(process.execPath, [reader, id, grant.condition, file], {
+        encoding: "utf8", windowsHide: true, timeout: 5000, maxBuffer: 32768
+      });
+      assert.equal(cold.status, 0, "Fresh observer could not read the trial metadata");
+      assert.deepEqual(JSON.parse(cold.stdout), live, "Metadata changed across observer restart");
+      const report = summarizeTrial(live, seed.turn.id, turnId, queueId);
+      for (const [kind, turn] of [["ordinary", seed.turn.id], ["watcher", turnId]]) {
+        report[kind].sampledInProgress = indexedBusy.has(turn);
+        report[kind].startSignal = startedSignals.get(turn) ?? null;
+      }
+      console.log(JSON.stringify({ ...report, coldReadMatched: true }));
+    }
     console.log("Resumed disposable thread consumed exactly one scheduled notice after store restart.");
     return;
   }
@@ -372,6 +423,7 @@ async function runTrial() {
 try {
   await runTrial();
 } finally {
+  stopSampling?.();
   let archived = false;
   if (id && provider) {
     try {
