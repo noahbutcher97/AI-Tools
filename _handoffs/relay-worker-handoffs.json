@@ -1,5 +1,23 @@
 [
   {
+    "id": "turn-metadata-source-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck comparison failure handling, private sentinels and session-scoped completion in the corrected candidate.",
+    "acceptance": "Pass the negative subprocess controls and confirm the thread filter covers completion.",
+    "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "turn-metadata-operator-replay",
+    "worker": "constrained qualification operator",
+    "scope": "Repeat the executable selection, output interpretation and interrupted archive walkthrough using the revised journal.",
+    "acceptance": "Identify the version guard, cost, partial evidence and safe recovery given an ambiguous disposable thread.",
+    "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "turn-metadata-premise-review",
     "worker": "independent source reviewer",
     "scope": "Review the opt-in Codex metadata comparison, cold observation, synthetic test and design decision. Use synthetic tests and the supplied redacted live receipt only.",
