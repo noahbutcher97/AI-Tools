@@ -1,5 +1,14 @@
 [
   {
+    "id": "relay-branch-credential-read-review",
+    "revision": "a15fce11dac2de755a0daebdafd118719007fcb3",
+    "worker": "independent credential boundary reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Review the branch sampler, its trusted reader contract and the synthetic authorization checks. Use isolated fixtures only.",
+    "acceptance": "Trace exact resource and authority checks to the record open, decryption and process launch. Check errors and credential exposure, the installed default and the distinction between source and live evidence.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-branch-refresh-review",
     "revision": "a09422db97a2de76f3e1cbe7d31ee57860edb09a",
     "worker": "independent installer reviewer",
