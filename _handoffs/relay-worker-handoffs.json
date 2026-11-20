@@ -1,5 +1,23 @@
 [
   {
+    "id": "turn-metadata-premise-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the opt-in Codex metadata comparison, cold observation, synthetic test and design decision. Use synthetic tests and the supplied redacted live receipt only.",
+    "acceptance": "Check scoped reads, ground-truth independence, limits of attribution, replay acceptance and compatibility with the ordinary schedule probe.",
+    "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "turn-metadata-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Use only the rollout instructions and design note to walk through the optional qualification decision. No live client or credential.",
+    "acceptance": "Identify how to run the study, its cost, how to interpret matching observations and how to handle unknown origin or restart.",
+    "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "private-movement-edge-cases",
     "worker": "independent trial reviewer",
     "scope": "Inspect the final small automated-review fixes to the scripts, Windows fixtures and verifier.",
