@@ -1,5 +1,23 @@
 [
   {
+    "id": "relay-private-grant-review",
+    "revision": "5584f56d333109382b84a39df648d3ae66c27f53",
+    "worker": "independent grant reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Trace v5 and v6 grant admission, subscription and the interactive private setup trial using synthetic data only.",
+    "acceptance": "Check operator-supplied secrets, exact destination, package and cleanup, recipient disclosure, and limits before hosted use.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-private-grant-walkthrough",
+    "revision": "5584f56d333109382b84a39df648d3ae66c27f53",
+    "worker": "constrained trial operator",
+    "coordinator": "relay coordinator",
+    "scope": "Use the public setup guide to plan the private baseline check in an isolated operator scenario. No secret, account, network or elevated task.",
+    "acceptance": "Identify prerequisites, where to enter the password, proof of read-only scope versus proof of reading, and recovery if the prompt names a different repository.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-trial-retention-review",
     "revision": "95f526b2edbb291d52f91c52df941886b1400b9c",
     "worker": "independent recovery reviewer",
