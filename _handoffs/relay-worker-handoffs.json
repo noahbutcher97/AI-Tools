@@ -1,5 +1,125 @@
 [
   {
+    "id": "relay-private-publication-review",
+    "revision": "7bbbb82596c6162890262bcdf7c383fdee4acc0c",
+    "worker": "independent grant reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Inspect private trial file publication and recovery across interruption, using synthetic Windows fixtures only.",
+    "acceptance": "Check publication, incomplete writes, fixed staging names, unrelated-file preservation and compatibility with earlier records. Report limitations.",
+    "state": "accepted",
+    "result": {
+      "revision": "7bbbb82596c6162890262bcdf7c383fdee4acc0c",
+      "verdict": "Pass for interrupted private publication and guarded recovery.",
+      "evidence": "Two Windows suites passed. Fixtures exercised complete publication, refusal to overwrite, a partial credential, an empty staged profile, altered staging names, unrelated records and earlier recovery plans. The reviewer traced both same-directory moves and the protected inventory checks before recovery effects.",
+      "limitations": "Interrupted states were constructed with real files and a recording broker restart. No forced termination, power loss or live credential was exercised. Interruption while writing the initial recovery record can leave protected scratch before publication."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source closure. The six installer tests also passed locally.",
+      "next": "Install the reviewed candidate and exercise private baseline access using the disposable fixture."
+    }
+  },
+  {
+    "id": "relay-private-trial-lock-review",
+    "revision": "db10a959ae91ed2af8aa5f35f93e7744049e5b64",
+    "worker": "independent grant reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of locked package and task validation for normal trials and recovery.",
+    "acceptance": "Verify both paths hold the same lock through validation and state changes, reject stale packages and release on refusal. Use synthetic fixtures only.",
+    "state": "accepted",
+    "result": {
+      "revision": "db10a959ae91ed2af8aa5f35f93e7744049e5b64",
+      "verdict": "Pass for lock ownership and stale-package refusal.",
+      "evidence": "Both Windows fixture suites passed. A competing open failed during task validation. A stale package released the lock on refusal. Both normal and recovery paths held the same lock through their state changes.",
+      "limitations": "The reviewer used synthetic fixtures. No hosted reader credential, installed private baseline or live interruption was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the reviewed source and Windows fixtures.",
+      "next": "Qualify the protected private trial with a disposable repository, an independently checked ref and an issuer-scoped reader."
+    }
+  },
+  {
+    "id": "relay-private-trial-fix-review",
+    "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
+    "worker": "independent grant reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Recheck protected process startup, scope preflight, durable recovery record and stale-state refusal in the credentialed baseline trial.",
+    "acceptance": "Verify the fixes with isolated fixtures and report the remaining hosted and operator checks. No real credentials or installation.",
+    "state": "accepted",
+    "result": {
+      "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
+      "verdict": "Preflight and interruption fixes passed, with a remaining package-validation race.",
+      "evidence": "Fourteen focused tests passed. The fixture verified the clean child, declined v5, restored before and after activation, and preserved unrelated credentials. The reviewer found the installed digest and task checks preceded lock acquisition.",
+      "limitations": "The environment fixture used synthetic validators. The reviewer separately exercised the real validator; an additional local harness was blocked by execution review."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. Moved the installed package and task identity checks under the common install lock.",
+      "next": "Verify lock lifetime and stale package refusal on the final revision."
+    }
+  },
+  {
+    "id": "relay-private-trial-recovery-operator",
+    "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
+    "worker": "constrained trial operator",
+    "coordinator": "relay coordinator",
+    "scope": "Repeat the credential prompt mismatch and interrupted private trial scenarios using only operator documentation.",
+    "acceptance": "Identify safe cancellation, issuer revocation, the recovery selector, and the exit condition for retry. No live actions.",
+    "state": "accepted",
+    "result": {
+      "revision": "ffcc36f97485d996852bfe9fa9ee0c0eea9c754c",
+      "verdict": "Pass for prompt mismatch and interrupted-trial tabletop.",
+      "evidence": "The operator selected cancellation before secret entry, issuer revocation before recovery, the recorded trial ID and installed digest, and held retry on foreign state.",
+      "limitations": "No real prompt, token, issuer change or live recovery was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for operator guidance.",
+      "next": "Exercise the normal private baseline check only after provisioning a repository-scoped reader."
+    }
+  },
+  {
+    "id": "relay-private-grant-review",
+    "revision": "5584f56d333109382b84a39df648d3ae66c27f53",
+    "worker": "independent grant reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Trace v5 and v6 grant admission, subscription and the interactive private setup trial using synthetic data only.",
+    "acceptance": "Check operator-supplied secrets, exact destination, package and cleanup, recipient disclosure, and limits before hosted use.",
+    "state": "accepted",
+    "result": {
+      "revision": "5584f56d333109382b84a39df648d3ae66c27f53",
+      "verdict": "Hold real credential entry pending isolated preflight and interruption recovery.",
+      "evidence": "The reviewer traced v6 admission and authenticated activation, observed process environment inheritance with a harmless canary, and identified the missing ownership record and older-package preflight gap.",
+      "limitations": "No elevated or hosted trial. Matching a revision alone cannot prove issuer permissions or that anonymous access is denied."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. Use the existing isolated verifier, check v6 admission before prompting, and record exact intended changes before the first credential write.",
+      "next": "Recheck isolated startup and guarded recovery at the fixed revision."
+    }
+  },
+  {
+    "id": "relay-private-grant-walkthrough",
+    "revision": "5584f56d333109382b84a39df648d3ae66c27f53",
+    "worker": "constrained trial operator",
+    "coordinator": "relay coordinator",
+    "scope": "Use the public setup guide to plan the private baseline check in an isolated operator scenario. No secret, account, network or elevated task.",
+    "acceptance": "Identify prerequisites, where to enter the password, proof of read-only scope versus proof of reading, and recovery if the prompt names a different repository.",
+    "state": "accepted",
+    "result": {
+      "revision": "5584f56d333109382b84a39df648d3ae66c27f53",
+      "verdict": "Pass for tabletop preparation and cancellation on a target mismatch.",
+      "evidence": "The operator identified issuer permissions, the canonical URL and ref, the masked desktop prompt, and the independently expected revision.",
+      "limitations": "Cancellation on mismatch was implicit. No participant entered a credential or ran the installed trial."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. The revision makes cancellation explicit and includes a recovery command.",
+      "next": "Repeat the affected scenarios under the revised guide."
+    }
+  },
+  {
     "id": "relay-trial-retention-review",
     "revision": "95f526b2edbb291d52f91c52df941886b1400b9c",
     "worker": "independent recovery reviewer",

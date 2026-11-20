@@ -6,7 +6,7 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
-Both installed watchers passed the public-ref trial at `b359edb` with the grant recheck in place. The next checkpoint is authorization to read a protected repository credential. Private repository authentication and delivery after branch movement remain open.
+Both installed watchers passed the public-ref trial at `b359edb` and the bound Windows credential reader trial at `893853d`. The next live checkpoint is a private baseline on a disposable repository using a separate read-only credential. Delivery after branch movement remains open.
 
 The existing branch migration refused an already branch-capable base before creating a staging directory. Candidate `a09422d` added a refresh limited to the three modules implementing the grant recheck. An independent review and a constrained setup operator passed at that revision. The installer suite passed six tests. The relay suite passed 371 with one opt-in skip. See the [worker returns](relay-worker-handoffs.json) for recovery coverage and limits.
 
@@ -16,7 +16,11 @@ The next credential check must bind the exact repository and ref before opening 
 
 The sampler passed independent source review at `a15fce1`. A synthetic reader opened once and decrypted once for an approved observation. Expiry during the first pin check produced zero opens. Withdrawal immediately after opening prevented decryption. Withdrawal during decryption or the second pin check prevented Git launch. The recorded command arguments contained no credential. The credential was present in the intended child environment. Clearing the returned buffer does not establish erasure of runtime or child copies. The installed policy still accepts anonymous grants only. The protected reader, installed credentialed transport and hosted fixture remain separate checkpoints.
 
-The Windows reader passed source-level storage review at `ec8035e`, with the final cleanup check at `95f526b`. The fixture used Windows DPAPI, verified that another binding could not decrypt a sealed record and rejected substituted ciphertext, hard links, unexpected readers and oversized inputs. Independent fixtures exercised the bounded inventory and trial cleanup. The local relay suite passed 373 tests with one opt-in skip, and all six installer tests passed. Installed credential reader trials remain pending. The qualified Basic credential format requires a nonempty username and password.
+The Windows reader passed source-level storage review at `ec8035e`, with the final cleanup check at `95f526b`. The fixture used Windows DPAPI, verified that another binding could not decrypt a sealed record and rejected substituted ciphertext, hard links, unexpected readers and oversized inputs. Independent fixtures exercised the bounded inventory and trial cleanup. The local relay suite passed 373 tests with one opt-in skip, and all six installer tests passed. The qualified Basic credential format requires a nonempty username and password.
+
+Both installed brokers subsequently matched two synthetic records with distinct bindings. The ordinary desktop account on each machine was denied read and write access. The installed packages matched their manifests. Both watchers returned to reports-only with fresh heartbeats and zero subscriptions, and neither retained trial material. If final removal of an already empty trial directory fails, an operator may need to remove the empty directory after verifying cleanup. Abrupt interruption of a live credential trial remains unexercised.
+
+The private trial at `db10a95` holds the updater lock across package and task checks, activation, rollback and cleanup. Independent Windows fixtures exercised lock contention and stale-package refusal. The relay suite passed 374 tests with one opt-in skip and the installer suite passed six. A separate writer established the disposable private branch baseline. Anonymous Git discovery returned HTTP 401. Authenticated reading still requires a separately issued read-only credential scoped to the fixture. The baseline trial expects zero doorbells.
 
 | Assignment | Scope and acceptance |
 | --- | --- |

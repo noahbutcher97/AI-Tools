@@ -87,6 +87,16 @@ If a terminated trial or failed cleanup leaves artifacts, recover from an elevat
 
 Inspect the directory and file ACLs and reject reparse points before removal. The expected trial files are `challenge.bin`, the recorded member under the trial's own `branch-credentials` directory and `trial.json`. The two trial receipts are `branch-challenge.sha256` and `branch-reader.sha256` in the watcher health directory. Preserve the trial record alongside any unexpected entry or mismatched task so the next operator can identify the interrupted run. Keep an unverifiable record for inspection. Once the inventory matches, remove only the identified files, removing the trial record last, then remove the empty directories nonrecursively. Release the lock and confirm that the task and trial artifacts are absent before retrying. The production credential directory has a different parent.
 
+### Private branch trial
+
+Use a disposable repository with synthetic commits and a separate writer. After the installed credential isolation check passes, issue a short-lived read-only credential for that repository. The issuer's permissions establish its read-only scope. A successful Git read establishes access to the branch.
+
+From the protected installation tools, run `Test-InstalledBranchRead.ps1` with the package digest, Git pins, canonical repository URL, exact ref and independently checked revision. Add `-ReaderUser <reader-login>`. Cancel if the repository or ref shown in the masked desktop prompt differs from the approved target. The check requires empty policy, disabled delivery and an unused credential directory. It creates a temporary version 6 grant and seals the reader's password to this machine and resource. The trial removes the record and restores reports-only mode after checking one baseline. Revoke the disposable credential at its issuer after the live checks.
+
+If the private check is interrupted, revoke its credential at the issuer. Using the same protected script, run `Test-InstalledBranchRead.ps1 -PackageHash <installed-digest> -RecoverTrial <trial-id>`. Setup prints the ID before publishing any encrypted credential or grant. It also appears in the administrator-owned trial directory's recovery record. Recovery checks the installed package, policy, flag, profile and file inventory under the install lock before restoring reports-only mode. Preserve the record for inspection if another grant, a changed profile or an unrelated credential prevents recovery.
+
+Private trials publish the sealed record and Git profile by renaming completed files. Recovery can remove an interrupted write under the staging name recorded for that trial. A stop during creation of the recovery record itself can leave an incomplete administrator-owned trial directory. At that point the trial has published neither file. Preserve an unreadable recovery record for inspection.
+
 ## Deactivate and retain state
 
 ```text

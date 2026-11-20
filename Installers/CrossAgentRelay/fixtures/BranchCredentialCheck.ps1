@@ -91,3 +91,143 @@ Assert-NoInventory
         if (!$failed) { throw 'Invalid trial digest accepted' }
     }
 }
+& {
+    $endpoint = 'https://'+(('fixture','invalid') -join '.')+'/fixture'
+    $parameters = @{PackageHash='a'*64;ImageHash='a'*64;TransportHash='b'*64;Edition='ucrt64';
+        Ref='refs/heads/fixture';ExpectedRevision='a'*40;Endpoint=$endpoint}
+    . (Join-Path $PSScriptRoot '../Test-InstalledBranchRead.ps1') @parameters
+    & {
+        . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Run -TrialId ([guid]::NewGuid()) -ExpectedPackage ('a'*64)
+        $trial = Join-Path $FixtureRoot 'reader-preflight'
+        $runtime = Join-Path $trial 'runtime'
+        $modules = Join-Path $trial 'relay'
+        $null = [IO.Directory]::CreateDirectory($runtime)
+        $null = [IO.Directory]::CreateDirectory($modules)
+        $node = Join-Path $runtime 'node.exe'
+        [IO.File]::Copy((Get-Command node.exe -CommandType Application | Select-Object -First 1).Source,$node)
+        $verifier = Join-Path $trial 'verify.cjs'
+        $paramsFile = Join-Path $trial 'input.json'
+        $condition = [guid]::NewGuid()
+        $utf = [Text.UTF8Encoding]::new($false)
+        [IO.File]::WriteAllText((Join-Path $modules 'branch-observation.mjs'),'export function installedCredentialRecord() {}')
+        $moduleFile = Join-Path $modules 'schedule-watch.mjs'
+        $env:NODE_OPTIONS='--require=missing-fixture-preload'
+        $env:RELAY_TRIAL_CANARY='fixture'
+        try {
+            [IO.File]::WriteAllText($moduleFile,'export const validBranchWatch=(g,opt)=>opt===true && g.credential==="fixture" && !process.env.RELAY_TRIAL_CANARY;')
+            Assert-PrivateBranchSupport @{credential='fixture'}
+            [IO.File]::WriteAllText($moduleFile,'export const validBranchWatch=g=>g.credential===null;')
+            $failed=$false
+            try { Assert-PrivateBranchSupport @{credential='fixture'} } catch { $failed=$true }
+            if (!$failed) { throw 'Old anonymous-only package accepted a credentialed preflight' }
+        } finally {
+            Remove-Item Env:NODE_OPTIONS,Env:RELAY_TRIAL_CANARY -ErrorAction SilentlyContinue
+        }
+    }
+    $binding = [byte[]]::new(32)
+    $secret = ConvertTo-SecureString 'synthetic-password' -AsPlainText -Force
+    try {
+        $sealed = Protect-TrialReader $secret 'fixture' $binding
+        $plain = [Security.Cryptography.ProtectedData]::Unprotect($sealed,$binding,'LocalMachine')
+        if ([Text.Encoding]::ASCII.GetString($plain) -cne 'fixture:synthetic-password') { throw 'Credential mismatch' }
+        [Array]::Clear($plain,0,$plain.Length)
+    } finally { $secret.Dispose() }
+    # Installed ownership and ACLs have separate checks. Exercise recovery
+    # transactions against real files with a recording restart.
+    function Assert-Protected($p) { if (!(Test-Path -LiteralPath $p)) { throw 'Missing fixture artifact' } }
+    function Restart-TrialBroker($mode) { if ($mode -cne 'reports_only') { throw 'Unexpected recovery mode' } }
+    function Set-ApprovedText($p,$before,$after) {
+        if ([IO.File]::ReadAllText($p) -cne $before) { throw 'Fixture changed' }
+        [IO.File]::WriteAllText($p,$after)
+    }
+    $root = Join-Path $FixtureRoot 'private-recovery'
+    $null = [IO.Directory]::CreateDirectory($root)
+    $store = Join-Path $root 'branch-credentials'
+    $trial = Join-Path $root 'trial'
+    $recovery = Join-Path $trial 'recovery.json'
+    $paramsFile = Join-Path $trial 'parameters.json'
+    $verifier = Join-Path $trial 'verify.cjs'
+    $flagFile = Join-Path $root 'worker.json'
+    $policyFile = Join-Path $root 'policy.json'
+    $gitFile = Join-Path $root 'git.json'
+    $condition = [guid]::NewGuid()
+    $empty='{"v":1,"grants":[]}'; $on='{"v":1,"enabled":true}'; $off='{"v":1,"enabled":false}'
+    & {
+        $lockFile=Join-Path $root 'lock'
+        $journal=Join-Path $root 'journal'
+        $node=Join-Path $root 'image'
+        foreach ($file in @($lockFile,$flagFile,$policyFile,$node)) { [IO.File]::WriteAllText($file,'fixture') }
+        $desktopSid='fixture-principal'; $workerTask='worker'; $brokerTask='broker'
+        $folder=[pscustomobject]@{}
+        $folder | Add-Member ScriptMethod GetTask {param($name) return $name}
+        function Assert-RegisteredTask($task,$installed) {
+            try { $extra=[IO.File]::Open($lockFile,'Open','ReadWrite','None') } catch [IO.IOException] { return }
+            $extra.Dispose(); throw 'Task identity checked outside lock'
+        }
+        $installed=@{package=$PackageHash;status='installed';sessionSid=$desktopSid}
+        [IO.File]::WriteAllText($journal,($installed|ConvertTo-Json))
+        $verified=Enter-BranchTrial
+        $verified.lock.Dispose()
+        $installed.package='0'*64
+        [IO.File]::WriteAllText($journal,($installed|ConvertTo-Json))
+        $rejected=$false
+        try { $unexpected=Enter-BranchTrial; $unexpected.lock.Dispose() } catch { $rejected=$_.Exception.Message -eq 'Installation mismatch' }
+        if (!$rejected) { throw 'Stale package accepted' }
+        $extra=[IO.File]::Open($lockFile,'Open','ReadWrite','None'); $extra.Dispose()
+    }
+    $approved = @{v=6;branches=@(@{condition=$condition.ToString('D')})}|ConvertTo-Json -Depth 3 -Compress
+    $draft = Join-Path $root 'publication.pending'
+    $published = Join-Path $root 'publication'
+    Publish-TrialFile $published $draft ([byte[]](1,2,3))
+    if (([IO.File]::ReadAllBytes($published) -join ',') -cne '1,2,3' -or [IO.File]::Exists($draft)) { throw 'Incomplete publication' }
+    $denied = $false
+    try { Publish-TrialFile $published $draft ([byte[]](4)) } catch [IO.IOException] { $denied = $true }
+    if (!$denied -or ([IO.File]::ReadAllBytes($published) -join ',') -cne '1,2,3') { throw 'Existing publication changed' }
+    foreach ($state in @('before-grant','partial-credential','partial-profile','after-activation','unrelated')) {
+        $null = [IO.Directory]::CreateDirectory($trial)
+        $null = [IO.Directory]::CreateDirectory($store)
+        $file = Join-Path $store 'temp'
+        [IO.File]::WriteAllText($file,'synthetic-ciphertext')
+        $leaf = ('a'*64)+'-'+(Get-FileHash $file).Hash.ToLowerInvariant()+'.bin'
+        [IO.File]::Move($file,(Join-Path $store $leaf))
+        $plan = @{v=1;condition=$condition.ToString('D');package=$PackageHash;member=$leaf;profile='fixture';policy=$approved}
+        [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+        $staging = 'branch-'+$condition.ToString('N')+'.pending'
+        $profileStage = Join-Path $root $staging
+        if ($state -eq 'unrelated') {
+            $plan.v = 2
+            $plan.staging = 'publication'
+            [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+            $denied = $false
+            try { Restore-PrivateBranchTrial } catch { $denied = $_.Exception.Message -ceq 'Unrecognized trial staging name' }
+            if (!$denied -or ([IO.File]::ReadAllBytes($published) -join ',') -cne '1,2,3') { throw 'Recovery accepted an unrelated staging name' }
+            $plan.staging = $staging
+            [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+        }
+        if ($state -like 'partial-*') {
+            $plan.v = 2
+            $plan.staging = $staging
+            [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress))
+            if ($state -eq 'partial-credential') {
+                [IO.File]::Delete((Join-Path $store $leaf))
+                [IO.File]::WriteAllBytes((Join-Path $store $staging),[byte[]](1))
+            } else { [IO.File]::WriteAllBytes($profileStage,[byte[]]::new(0)) }
+        }
+        if ($state -in @('before-grant','partial-credential','partial-profile')) {
+            [IO.File]::WriteAllText($flagFile,$off); [IO.File]::WriteAllText($policyFile,$empty)
+        } else {
+            [IO.File]::WriteAllText($flagFile,$on); [IO.File]::WriteAllText($policyFile,$approved)
+            [IO.File]::WriteAllText($gitFile,'fixture')
+        }
+        if ($state -eq 'unrelated') {
+            [IO.File]::WriteAllText((Join-Path $store 'other'),'preserve')
+            $denied=$false
+            try { Restore-PrivateBranchTrial } catch { $denied=$true }
+            if (!$denied -or ![IO.File]::Exists($recovery) -or [IO.File]::ReadAllText($flagFile) -cne $on) { throw 'Foreign record changed during recovery' }
+        } else {
+            Restore-PrivateBranchTrial
+            if ([IO.Directory]::Exists($trial) -or [IO.Directory]::Exists($store) -or [IO.File]::Exists($gitFile) -or [IO.File]::Exists($profileStage) -or
+                [IO.File]::ReadAllText($flagFile) -cne $off -or [IO.File]::ReadAllText($policyFile) -cne $empty) { throw 'Incomplete private recovery' }
+        }
+    }
+}

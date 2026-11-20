@@ -22,9 +22,9 @@ const fileScope = g => g.scope === "thread-file-change";
 const branchScope = g => g.scope === "thread-branch-change";
 const isChange = g => fileScope(g) || branchScope(g);
 const branchFields = ["condition","target","provider","scope","endpoint","ref","credential","expiresAt"];
-export function validBranchWatch(g) {
+export function validBranchWatch(g, credentialed = false) {
   return exactKeys(g, branchFields) && matches(UUID, g.condition) && matches(UUID, g.target) &&
-    g.provider === "codex" && branchScope(g) && g.credential === null &&
+    g.provider === "codex" && branchScope(g) && (g.credential === null || credentialed === true && matches(UUID, g.credential)) &&
     validBranchResource(g.endpoint, g.ref) && date(g.expiresAt);
 }
 function relativeName(name) {
@@ -63,7 +63,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
   const lookup = db.prepare("SELECT * FROM schedule_watches WHERE condition=?");
   function current() {
     const grants = policy();
-    if (!Array.isArray(grants) || grants.length > 32 || !grants.every(g => validSchedule(g) || validFileWatch(g) || validBranchWatch(g)) ||
+    if (!Array.isArray(grants) || grants.length > 32 || !grants.every(g => validSchedule(g) || validFileWatch(g) || validBranchWatch(g, true)) ||
         new Set(grants.map(g => g.condition)).size !== grants.length) throw new Error("invalid schedule authority");
     return grants.filter(g => Date.parse(g.expiresAt) > now());
   }
