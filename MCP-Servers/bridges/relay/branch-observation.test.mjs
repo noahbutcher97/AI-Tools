@@ -3,7 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sampleAnonymousBranch, sampleInstalledBranch, validBranchResource } from "./branch-observation.mjs";
 
 const endpoint = "https://" + ["fixture","invalid"].join(".") + "/fixture/repo";
@@ -47,6 +47,72 @@ test("only a successful exact ref result exposes a revision", async () => {
     await assert.rejects(sampleAnonymousBranch(profile, endpoint, ref, undefined, async () => ({ code, stdout })),
       { message: "branch observation unavailable" });
   }
+});
+
+test("a private observation must retain its exact grant before reading and before sending", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-private-ref-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const name of ["completion-git.json", "git.exe", "git-remote-https.exe"]) {
+    fs.writeFileSync(path.join(root, name), "fixture");
+  }
+  const hash = createHash("sha256").update("fixture").digest("hex");
+  const installed = { ...profile, image: path.join(root, "git.exe"), execPath: root,
+    profileHash: hash, imageHash: hash, transportHash: hash };
+  const grant = { endpoint, ref, credential: randomUUID() };
+  const marker = "fixture:synthetic-reader";
+  let reads = 0, launches = 0, allowed = true, change = () => {};
+  let returned, observed;
+  const credentialRecord = {
+    id: grant.credential, endpoint, ref,
+    readSealed() { reads++; return Buffer.from("sealed fixture"); },
+    async unseal(sealed) {
+      assert.equal(sealed.toString(), "sealed fixture");
+      await Promise.resolve();
+      change();
+      returned = Buffer.from(marker);
+      return returned;
+    },
+  };
+  const options = { credentialRecord, canObserve: () => allowed, run: async (cmd, argv, { env }) => {
+    launches++;
+    observed = { cmd, argv, env: { ...env } };
+    return { code: 0, stdout: revision + "\t" + ref + "\n" };
+  } };
+  const query = (g = grant, opts = options) => sampleInstalledBranch(root, installed, g, undefined, opts);
+  const refused = { message: "branch observation unavailable" };
+  for (const g of [{ ...grant, endpoint: endpoint + "/nested" }, { ...grant, ref: ref + "-other" },
+    { ...grant, credential: randomUUID() }, { ...grant, credential: "../private" }]) {
+    await assert.rejects(query(g), refused);
+  }
+  await assert.rejects(query(grant, { ...options, credentialRecord: undefined }), refused);
+  allowed = false;
+  await assert.rejects(query(), refused);
+  allowed = true;
+  const inFlight = query();
+  allowed = false;
+  await assert.rejects(inFlight, refused);
+  assert.deepEqual([reads, launches], [0, 0]);
+
+  allowed = true;
+  change = () => { allowed = false; };
+  await assert.rejects(query(), refused);
+  assert.deepEqual([reads, launches], [1, 0]);
+  assert.ok(returned.every(byte => byte === 0));
+  allowed = true;
+  change = () => {};
+  assert.equal(await query(), revision);
+  assert.deepEqual([reads, launches], [2, 1]);
+  assert.ok(returned.every(byte => byte === 0));
+  const encoded = Buffer.from(marker).toString("base64");
+  assert.equal(observed.env.GIT_CONFIG_KEY_0, "http." + endpoint + ".extraHeader");
+  assert.equal(observed.env.GIT_CONFIG_VALUE_0, "Authorization: Basic " + encoded);
+  assert.deepEqual(observed.argv.slice(-2), [endpoint, ref]);
+  assert.ok(!observed.argv.some(arg => arg.includes(marker) || arg.includes(encoded)));
+  await assert.rejects(query(grant, { ...options, run: () => { throw Error(encoded); } }), refused);
+  change = () => { fs.writeFileSync(path.join(root, "completion-git.json"), "replaced"); };
+  await assert.rejects(query(), refused);
+  assert.equal(launches, 1);
+  assert.ok(returned.every(byte => byte === 0));
 });
 
 test("removed machine approval or a replaced HTTPS transport prevents a Git launch", async t => {
