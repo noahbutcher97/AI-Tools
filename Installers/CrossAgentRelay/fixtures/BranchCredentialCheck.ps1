@@ -228,7 +228,10 @@ try {
             function Start-Sleep($Milliseconds) {}
             function Write-Host($message) { $announcements.Add($message) }
             Wait-BranchMovement $db ([DateTimeOffset]::UtcNow.AddSeconds(3))
-            if ($outcomes.Count -ne 0 -or $announcements.Count -ne 1) { throw 'Unexpected writer handoff' }
+            if ($outcomes.Count -ne 0 -or $announcements.Count -ne 1 -or
+                $announcements[0] -cnotlike '*Before advancing*resumed raw target is addressable*hosted ref still has the expected starting revision*') {
+                throw 'Writer cue omitted an independent gate'
+            }
             $expired=$false
             try { Wait-BranchMovement $db ([DateTimeOffset]::UtcNow) }
             catch { $expired=$_.Exception.Message -ceq 'Private branch movement delivery unproved before grant expiry' }

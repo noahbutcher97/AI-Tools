@@ -144,7 +144,7 @@ function Wait-BranchMovement($db,[DateTimeOffset]$deadline) {
         $result = Get-TrialOutcome $db $condition.ToString('D')
         if ([DateTimeOffset]::UtcNow -ge $deadline) { break }
         if ($result -ceq 'armed') {
-            if (!$armed) { Write-Host 'Private branch baseline matched. The separate writer can now advance the watched branch.' }
+            if (!$armed) { Write-Host 'Private branch baseline matched. Before advancing the ref, independently verify the resumed raw target is addressable and the hosted ref still has the expected starting revision.' }
             $armed = $true
         } elseif ($armed -and $result -ceq 'proved') {
             return

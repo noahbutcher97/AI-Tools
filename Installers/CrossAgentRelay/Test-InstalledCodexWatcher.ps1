@@ -1,7 +1,7 @@
 # Run the three stages from an administrator-controlled copy beside the reviewed installer.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('Prepare','Start','Run','Cleanup')][string]$Stage,
+    [Parameter(Mandatory)][ValidateSet('Prepare','Start','Run','Cleanup','RecoverSession')][string]$Stage,
     [Parameter(Mandatory)][guid]$TrialId,
     [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{64}$')][string]$ExpectedPackage,
     [string]$SessionScript,
@@ -10,6 +10,8 @@ param(
     [switch]$Schedule,
     [switch]$FileWatch,
     [switch]$BranchWatch,
+    [switch]$ArchiveVerified,
+    [Nullable[long]]$RecordedTaskResult,
     [switch]$Mcp,
     [string]$McpClientImage,
     [ValidatePattern('^[a-f0-9]{64}$')][string]$McpClientDigest
@@ -32,16 +34,78 @@ function Register-TrialTask($name,$principal,$type,$arguments,$password) {
     $action.WorkingDirectory = $root
     $action.Arguments = $arguments
     $acl = 'O:BAG:BAD:P(A;;FA;;;SY)(A;;FA;;;BA)'
+    if ($BranchWatch -and $name -ceq $runner -and $type -eq 3 -and $principal -ceq $desktopSid) {
+        $acl += "(A;;GR;;;$desktopSid)"
+    }
     return $folder.RegisterTaskDefinition($name,$def,18,$principal,$password,$type,$acl)
 }
 
-function Remove-TrialTask($name) {
+function Get-StoppedTrialTask($name) {
     $task = @($folder.GetTasks(1) | Where-Object Name -eq $name)
     if (!$task.Count) { return }
     if ($task.Count -ne 1 -or $task[0].Definition.RegistrationInfo.Description -cne $tag -or
         $task[0].Definition.Actions.Item(1).Path -ne $node) { throw 'Unexpected trial task' }
-    if ($task[0].State -in 2,4) { throw 'Trial task is still running' }
-    $folder.DeleteTask($name,0)
+    if ($task[0].State -notin 1,3) { throw 'Trial task is running or its stopped state is unknown' }
+    return $task[0]
+}
+
+function Remove-TrialTask($name) {
+    if (Get-StoppedTrialTask $name) { $folder.DeleteTask($name,0) }
+}
+
+function Remove-ArchivedExchangeFiles {
+    $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Use ordinary desktop PowerShell for session recovery' }
+    if (!$ArchiveVerified -or !$Target -or $Target -eq [guid]::Empty) { throw 'Independently verify the archived trial name and raw target in the provider before recovery' }
+    Assert-RecoveryEnrollment
+    $task = Get-StoppedTrialTask $runner
+    if (!$task -or (Resolve-Principal $task.Definition.Principal.UserId) -ne $desktopSid -or
+        $task.Definition.Principal.LogonType -ne 3 -or $task.Definition.Principal.RunLevel -ne 0) { throw 'Expected the stopped desktop trial task' }
+    Remove-VerifiedExchangeFiles $exchange $Target
+}
+
+function Assert-RecoveryEnrollment {
+    Assert-Protected $journal
+    $enrollment = [IO.File]::ReadAllText($journal) | ConvertFrom-Json
+    if ($enrollment.status -cne 'installed' -or $enrollment.package -cne $ExpectedPackage -or
+        $enrollment.sessionSid -cne $desktopSid) { throw 'Installation mismatch' }
+}
+
+function Remove-VerifiedExchangeFiles($directory,[guid]$archived) {
+    Assert-PlainPath $directory
+    $files = @()
+    foreach ($file in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+        $name = [IO.Path]::GetFileName($file)
+        if ($name -cnotin @('target.json','resumed.json','target.json.tmp','resumed.json.tmp')) { throw 'Unexpected exchange entry; preserve for inspection' }
+        Assert-PlainPath $file
+        $item = Get-Item -LiteralPath $file -Force
+        if ($item -isnot [IO.FileInfo] -or $item.Length -gt 1024) { throw 'Unexpected exchange entry; preserve for inspection' }
+        if ($name.EndsWith('.json')) {
+            $data = [IO.File]::ReadAllText($file) | ConvertFrom-Json
+            if ($data.id -cne $archived.ToString('D')) { throw 'Exchange receipt differs from the independently verified archive' }
+        }
+        $files += $file
+    }
+    foreach ($file in $files) { [IO.File]::Delete($file) }
+}
+
+function Remove-SessionTrial {
+    $sessionTask = Get-StoppedTrialTask $runner
+    $null = Get-StoppedTrialTask $issuer
+    if ($BranchWatch) {
+        if (!$sessionTask) { throw 'Expected the stopped desktop trial task' }
+        $result = $sessionTask.LastTaskResult
+        if ($null -eq $result -or ($null -ne $RecordedTaskResult -and $RecordedTaskResult -ne $result)) { throw 'Recorded task result does not match' }
+        if ($result -ne 0 -and $null -eq $RecordedTaskResult) {
+            throw "Trial failed with task result $result. Keep this result, verify the archived session and complete ordinary desktop recovery before cleanup."
+        }
+    }
+    Assert-PlainPath $exchange
+    # Never inspect or traverse the desktop's files from the administrator.
+    try { [IO.Directory]::Delete($exchange,$false) }
+    catch [IO.IOException] { throw 'Exchange could not be removed. Preserve the task and finish ordinary desktop recovery.' }
+    Remove-TrialTask $issuer
+    Remove-TrialTask $runner
 }
 
 function Set-ApprovedText($file,$expected,$replacement) {
@@ -111,8 +175,8 @@ function Assert-McpClient($image,$digest) {
 
 function Get-TrialClientMode {
     if ($BranchWatch) {
-        if ($Stage -notin @('Start','Cleanup') -or $Schedule -or $FileWatch -or $RotateBrokerPassword) {
-            throw 'Use the branch client only for Start or Cleanup with a single condition'
+        if ($Stage -notin @('Start','Cleanup','RecoverSession') -or $Schedule -or $FileWatch -or $RotateBrokerPassword) {
+            throw 'Use the branch client only for Start, Cleanup or RecoverSession with a single condition'
         }
         if ($Mcp) { return '--installed-mcp-branch' }
         return '--installed-branch'
@@ -127,25 +191,32 @@ function Get-TrialClientMode {
 }
 if ($MyInvocation.InvocationName -eq '.') { return }
 $modeFlag = Get-TrialClientMode
-$record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
-$account = Get-LocalUser -Name $accountName
-if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
-    $record.brokerSid -ne $account.SID.Value -or $account.Description -cne $record.tag -or
-    !$account.Enabled -or $record.sessionSid -ne $desktopSid -or $desktopSid -eq $record.brokerSid) { throw 'Installation mismatch' }
-$scheduler = New-Object -ComObject Schedule.Service
-$scheduler.Connect()
-$folder = $scheduler.GetFolder('\')
-$broker = $folder.GetTask($brokerTask)
-Assert-Protected $root
-Assert-Protected $journal
-Assert-RegisteredTask $broker $record
-Assert-RegisteredTask ($folder.GetTask($workerTask)) $record
+if (($ArchiveVerified -or $Stage -eq 'RecoverSession') -and (!$BranchWatch -or $Stage -ne 'RecoverSession')) { throw 'Archive verification requires branch session recovery' }
+if ($null -ne $RecordedTaskResult -and (!$BranchWatch -or $Stage -ne 'Cleanup')) { throw 'Record the failed task result during branch cleanup' }
 $tag = 'RelayWatcherTrial-' + $TrialId.ToString('N')
 $trial = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) $tag
 $exchange = Join-Path $trial 'session'
 $runner = $tag + '-Session'
 $issuer = $tag + '-Grant'
 $node = Join-Path $root 'runtime/node.exe'
+$scheduler = New-Object -ComObject Schedule.Service
+$scheduler.Connect()
+$folder = $scheduler.GetFolder('\')
+if ($Stage -eq 'RecoverSession') {
+    Assert-Protected $trial
+    Remove-ArchivedExchangeFiles
+    return
+}
+$record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
+$account = Get-LocalUser -Name $accountName
+if ($record.status -cne 'installed' -or $record.package -cne $ExpectedPackage -or
+    $record.brokerSid -ne $account.SID.Value -or $account.Description -cne $record.tag -or
+    !$account.Enabled -or $record.sessionSid -ne $desktopSid -or $desktopSid -eq $record.brokerSid) { throw 'Installation mismatch' }
+$broker = $folder.GetTask($brokerTask)
+Assert-Protected $root
+Assert-Protected $journal
+Assert-RegisteredTask $broker $record
+Assert-RegisteredTask ($folder.GetTask($workerTask)) $record
 $providerImage = Join-Path $root 'provider/codex.exe'
 $brokerModule = Join-Path $root 'relay/completion-broker.mjs'
 $policyFile = Join-Path $root 'completion-policy.json'
@@ -181,11 +252,7 @@ if ($Stage -eq 'Start') {
 }
 Assert-Protected $trial
 if ($Stage -eq 'Cleanup') {
-    Remove-TrialTask $issuer
-    Remove-TrialTask $runner
-    Assert-PlainPath $exchange
-    # The unelevated runner cleans its output. Never traverse its files for deletion.
-    [IO.Directory]::Delete($exchange,$false)
+    Remove-SessionTrial
     if ($FileWatch) {
         $resource = Join-Path $trial 'resource'
         if ([IO.Directory]::Exists($resource)) {
