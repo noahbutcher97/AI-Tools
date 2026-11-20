@@ -34,6 +34,12 @@ Journal the task outcome (unassisted, assisted or blocked), the step that caused
 
 First automated observation at `58f43a9`: invoking the relay CLI with `--help` exited with code 2 and printed only `relay: unknown flag "--help"`. First-use help is an open discoverability issue for the walkthrough. No provider session or model turn was required.
 
+Run the [operator walkthrough](../Installers/CrossAgentRelay/operator-walkthrough.mjs) when a checkpoint changes the user-facing CLI. From the repository root, run `node Installers/CrossAgentRelay/operator-walkthrough.mjs --agent first-use` and repeat with `--agent recovery`. Use Node 22.20 or later with module-mock support and a signed-in Claude CLI supporting safe mode. The low-effort Haiku operator receives an ordinary goal and up to seven decisions within two minutes. It sees one bounded screen of command output per action and can look back at its terminal history. It has no relay source, fixture answers, shell tools or coaching. Other operator adapters can use the same decision interface.
+
+Both scenarios use the public command parser and renderer with an isolated synthetic fleet and receipt store. Score the operator's claim against the intended recipient, submission count and visible proof. Record a blocked attempt, a guess or a second wake as a distinct outcome. Run deterministic replays in CI without model calls. At provider-facing milestones, repeat the applicable tasks through the actual signed-in CLI or in-session relay tools. Keep those observations and person-at-keyboard feedback separate from the terminal simulation.
+
+In the initial model runs, first use stopped after unsuccessful help and local discovery. The recovery operator saw an uncertain probe and stopped without duplicating it. After adding built-in help and showing the status command beside an uncertain probe receipt, fresh runs of both tasks reached visible delivery proof with one simulated wake each. The recovery operator also tried the session ID as a receipt after obtaining proof. Watch for that confusion in the next walkthrough. No real recipient was woken.
+
 ### Independent implementation review
 
 The coordinator received the read-only retrospective on `ec46bad`. The findings below remain open. The reviewer inspected source, tests and the rollout record without exercising a live desktop or credential.

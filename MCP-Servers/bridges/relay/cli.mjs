@@ -25,6 +25,21 @@ import { resolveCallerIdentity } from "./identity.mjs";
 import { receive } from "./receive.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 
+const help = `Usage: relay <command> [options]
+
+  list                         List sessions in the current workspace
+  list --scope all             List sessions in all local workspaces
+  list --all-hosts             List sessions on enrolled machines
+  send <target> --message TEXT Send a notice; --dry-run previews the destination
+  ping <target>                Wake the session once and check for delivery
+  ping --status <receipt>      Check the existing receipt without waking it again
+  doctor                       Check readiness; --all-hosts includes peers
+  watch --notify <id> <condition-id>  Activate an approved watch
+  run -- <command> [args...]   Run an approved job with completion notification
+
+Use the host-qualified ID shown by list --all-hosts for a remote session.
+A queue receipt confirms acceptance. A delivered probe confirms arrival.`;
+
 // node:sqlite is experimental and announces itself on every load. The warning
 // is noise here and would be noise in a bridge log, so it is filtered while
 // every other warning still prints.
@@ -42,9 +57,16 @@ async function main() {
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
+  const args = process.argv.slice(2);
+  if (args.length === 1 && ["help", "-h", "--help"].includes(args[0]) ||
+      args.length === 2 && ["list","send","ping","doctor","watch","run"].includes(args[0]) &&
+      ["-h","--help"].includes(args[1])) {
+    console.log(help);
+    return;
+  }
   let options;
   try {
-    options = parseArgs(process.argv.slice(2));
+    options = parseArgs(args);
   } catch (err) {
     console.error(`relay: ${err.message}`);
     process.exitCode = 2;

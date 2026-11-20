@@ -87,5 +87,6 @@ export async function pingTarget(to, { directory = loadDirectory, query = reques
     const status = await sendStatus(handle, { directory: () => fleet, query });
     state = status.state ?? "unknown";
   }
-  return { ok: state === "delivered", handle, to, state, detail: "Delivery probe: " + state + ". Receipt " + handle };
+  const followUp = ["pending", "unknown"].includes(state) ? ". Check without resending: relay ping --status " + handle : "";
+  return { ok: state === "delivered", handle, to, state, detail: "Delivery probe: " + state + ". Receipt " + handle + followUp };
 }

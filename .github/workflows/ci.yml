@@ -23,6 +23,16 @@ on:
 #      `npm ci --dry-run`. Catches lockfile drift before it hits an installer.
 
 jobs:
+  relay-operator:
+    name: Relay operator walkthrough replays
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs
+
   relay-handoffs:
     name: Relay handoff records
     runs-on: ubuntu-latest
