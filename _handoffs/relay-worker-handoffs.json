@@ -6,7 +6,18 @@
     "acceptance": "Verify retained tasks after a transient deletion error and safe completion on retry. Return a source disposition.",
     "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+      "verdict": "Accept source integration.",
+      "evidence": "The reviewer verified the transient task deletion fixture, surviving original result, successful retry and repeated cleanup. All three correction suites passed. The running-task and nonempty-exchange guards remain.",
+      "limitations": "No installed client, private ref access or credential was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the reviewed scope.",
+      "next": "Retain the live installed credentialed movement gate."
+    }
   },
   {
     "id": "private-movement-arguments-operator",
@@ -15,7 +26,18 @@
     "acceptance": "Check whether all flags and the masked input can be identified at the point of use.",
     "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+      "verdict": "Accept the documented invocation.",
+      "evidence": "The operator reconstructed the eight private arguments, the two identifiers and the masked-input and mismatch handling from the guide.",
+      "limitations": "Guide-only walkthrough without a provider, account or machine effects."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the reviewed scope.",
+      "next": "Retain the live installed credentialed movement gate."
+    }
   },
   {
     "id": "private-movement-correction-review",
