@@ -1,12 +1,32 @@
 [
   {
+    "id": "private-movement-recovery-fix",
+    "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+    "worker": "trial recovery implementer",
+    "coordinator": "relay coordinator",
+    "scope": "Repair the writer release cue and interrupted desktop cleanup in the trial scripts and synthetic fixtures.",
+    "acceptance": "Preserve scheduler evidence and permit bounded ordinary desktop recovery of the exact disposable session. Keep cleanup free of elevated traversal.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-installed-private-movement-review",
     "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
     "worker": "independent trial reviewer",
     "coordinator": "relay coordinator",
     "scope": "Inspect the installed private movement trial, grant issuance, normal client, release sequence and failure cleanup. Synthetic fixtures only.",
     "acceptance": "Verify baseline before movement, exact recipient and durable delivery after movement. Identify any incorrect proof, confinement or lifecycle behavior.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+      "verdict": "Hold for two lifecycle findings.",
+      "evidence": "The reviewer reproduced removal of the stopped task before a nonempty exchange failed deletion. The baseline release message also preceded the resume check.",
+      "limitations": "Twenty synthetic tests passed. No live install or account action."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Hold live operation for the documented findings.",
+      "next": "Repair the release cue and interrupted cleanup and repeat independent review."
+    }
   },
   {
     "id": "relay-installed-private-movement-operator",
@@ -15,7 +35,18 @@
     "coordinator": "relay coordinator",
     "scope": "Use only public operator instructions to walk through private branch movement and interruption. No account, credential or installation actions.",
     "acceptance": "Select the machine, reader, client, target and writer gates, distinguish consumption from client cleanup, and report concrete friction or blockers.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+      "verdict": "Hold for missing notice count evidence.",
+      "evidence": "The operator identified both writer gates and the protected recovery procedure. The guide gave no independent way to detect two consumed notices.",
+      "limitations": "Agent walkthrough of the public guide without installed clients, grants or credentials."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Hold live operation for the documented findings.",
+      "next": "Add a bounded recipient-side count and repeat the walkthrough."
+    }
   },
   {
     "id": "relay-private-movement-trial",
