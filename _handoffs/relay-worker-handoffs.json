@@ -6,7 +6,18 @@
     "coordinator": "relay coordinator",
     "scope": "Inspect private trial file publication and recovery across interruption, using synthetic Windows fixtures only.",
     "acceptance": "Check publication, incomplete writes, fixed staging names, unrelated-file preservation and compatibility with earlier records. Report limitations.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "7bbbb82596c6162890262bcdf7c383fdee4acc0c",
+      "verdict": "Pass for interrupted private publication and guarded recovery.",
+      "evidence": "Two Windows suites passed. Fixtures exercised complete publication, refusal to overwrite, a partial credential, an empty staged profile, altered staging names, unrelated records and earlier recovery plans. The reviewer traced both same-directory moves and the protected inventory checks before recovery effects.",
+      "limitations": "Interrupted states were constructed with real files and a recording broker restart. No forced termination, power loss or live credential was exercised. Interruption while writing the initial recovery record can leave protected scratch before publication."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source closure. The six installer tests also passed locally.",
+      "next": "Install the reviewed candidate and exercise private baseline access using the disposable fixture."
+    }
   },
   {
     "id": "relay-private-trial-lock-review",

@@ -95,6 +95,8 @@ From the protected installation tools, run `Test-InstalledBranchRead.ps1` with t
 
 If the private check is interrupted, revoke its credential at the issuer. Using the same protected script, run `Test-InstalledBranchRead.ps1 -PackageHash <installed-digest> -RecoverTrial <trial-id>`. Setup prints the ID before publishing any encrypted credential or grant. It also appears in the administrator-owned trial directory's recovery record. Recovery checks the installed package, policy, flag, profile and file inventory under the install lock before restoring reports-only mode. Preserve the record for inspection if another grant, a changed profile or an unrelated credential prevents recovery.
 
+Private trials publish the sealed record and Git profile by renaming completed files. Recovery can remove an interrupted write under the staging name recorded for that trial. A stop during creation of the recovery record itself can leave an incomplete administrator-owned trial directory. At that point the trial has published neither file. Preserve an unreadable recovery record for inspection.
+
 ## Deactivate and retain state
 
 ```text
