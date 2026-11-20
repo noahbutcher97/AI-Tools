@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { isDeepStrictEqual } from "node:util";
 import { pathToFileURL } from "node:url";
 import { matches, UUID } from "../../../MCP-Servers/bridges/relay/delivery-protocol.mjs";
 
@@ -41,16 +42,23 @@ export function sampleTurnStatus(thread) {
     db.prepare("SELECT turn_id, status FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal LIMIT 3").all(thread));
 }
 
+export function confirmReadback(live, cold) {
+  if (!isDeepStrictEqual(live, cold)) throw Error("Metadata changed across observer restart");
+}
+
 // Only the experiment coordinator knows which turn it started and what the
 // queue acknowledged. Publish comparisons, never raw identifiers or times.
 export function summarizeTrial(sample, seed, wake, queueId) {
   assert.ok([seed, wake, queueId].every(value => matches(UUID, value)) && seed !== wake);
-  assert.deepEqual(sample.turns.map(t => t.turn_id), [seed, wake]);
+  if (sample.turns.length !== 2 || sample.turns[0].turn_id !== seed || sample.turns[1].turn_id !== wake) {
+    throw Error("Observed turns did not match the trial order");
+  }
   assert.equal(sample.watch.state, "waiting");
   assert.equal(sample.watch.hasHandle, 0);
   assert.equal(sample.watch.hasBatch, 0);
   const observations = sample.turns.map(t => {
     assert.equal(t.inputs.length, 1);
+    assert.ok(typeof t.inputs[0] === "string" && t.inputs[0].length > 0, "Missing trial input identifier");
     return {
       status: t.status, started: t.started_at !== null, ended: t.completed_at !== null,
       root: t.root_turn_id === null ? "absent" : t.root_turn_id === t.turn_id ? "self" : "other",

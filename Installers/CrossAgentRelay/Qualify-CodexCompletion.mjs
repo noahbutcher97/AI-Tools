@@ -83,7 +83,9 @@ async function startProvider() {
   lines.on("line", line => {
     const msg = JSON.parse(line);
     if (msg.id && inbox.has(msg.id)) inbox.get(msg.id)(msg);
-    if (msg.method === "turn/completed") turns.set(msg.params.turn.id, msg.params.turn.status);
+    if (msg.method === "turn/completed" && (!turnStudy || msg.params.threadId === id)) {
+      turns.set(msg.params.turn.id, msg.params.turn.status);
+    }
     if (turnStudy) {
       if (msg.method === "turn/started" && msg.params.threadId === id) {
         const turn = msg.params.turn;
@@ -214,14 +216,14 @@ async function runTrial() {
     let queueId;
     const open = () => openCompletionJobs(file, { schedules: { root, policy: () => [grant] },
       send: (to, text, options) => {
-        assert.equal(to, id); assert.equal(text, scheduleNotice);
+        assert.ok(to === id && text === scheduleNotice, "Unexpected schedule delivery");
         const observeSend = async request => {
           const result = await sendMessage(request);
           queueId = result.queuedId;
           return result;
         };
         return sendProvedNotice(to, text, { ...options, send: turnStudy ? observeSend : sendMessage, runQueue: (dest, envelope) => {
-          assert.equal(dest, id); submissions++;
+          assert.ok(dest === id, "Unexpected schedule destination"); submissions++;
           return runProvider(image, ["queue", "--thread", dest, "--message", envelope], { cwd: root });
         } });
       },
@@ -246,7 +248,7 @@ async function runTrial() {
     store.close(); store = await open();
     provider = await startProvider();
     const resumed = await provider.call("thread/resume", { ...params, threadId: id, excludeTurns: true });
-    assert.equal(resumed.thread.id, id); assert.equal(resumed.model, model);
+    assert.ok(resumed.thread.id === id, "Resumed a different thread"); assert.equal(resumed.model, model);
     await until(async () => {
       await store.watches.dispatchDue();
       return proofs === 1;
@@ -257,7 +259,7 @@ async function runTrial() {
       // Completion of delivery can precede completion of the recipient's turn.
       const turnId = await until(() => [...provider.turns].find(([turn, status]) =>
         turn !== seed.turn.id && status === "completed")?.[0], 90000, "Recipient turn did not finish");
-      const { readTrialMetadata, summarizeTrial } = await import("./fixtures/ReadTurnMetadata.mjs");
+      const { confirmReadback, readTrialMetadata, summarizeTrial } = await import("./fixtures/ReadTurnMetadata.mjs");
       const live = await until(() => {
         const sample = readTrialMetadata(id, grant.condition, file);
         return sample.turns.length === 2 && sample.turns.every(t => t.status === "completed") && sample;
@@ -268,7 +270,7 @@ async function runTrial() {
         encoding: "utf8", windowsHide: true, timeout: 5000, maxBuffer: 32768
       });
       assert.equal(cold.status, 0, "Fresh observer could not read the trial metadata");
-      assert.deepEqual(JSON.parse(cold.stdout), live, "Metadata changed across observer restart");
+      confirmReadback(live, JSON.parse(cold.stdout));
       const report = summarizeTrial(live, seed.turn.id, turnId, queueId);
       for (const [kind, turn] of [["ordinary", seed.turn.id], ["watcher", turnId]]) {
         report[kind].sampledInProgress = indexedBusy.has(turn);
@@ -429,6 +431,7 @@ try {
     try {
       await provider.call("thread/archive", { threadId: id });
       archived = true;
+      if (turnStudy) console.log("Disposable qualification thread archived.");
     } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();

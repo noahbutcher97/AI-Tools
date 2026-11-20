@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -53,4 +54,24 @@ test("the observer needs only scoped metadata and preserves a positive queue-ID 
   }
   assert.throws(() => summarizeTrial(sample, wake, ordinary, wakeItem));
   assert.throws(() => readTrialMetadata("invalid", condition, file, root));
+});
+
+test("failed comparisons keep private identifiers and timestamps out of process output", () => {
+  const reader = new URL("./fixtures/ReadTurnMetadata.mjs", import.meta.url).href;
+  const seed = randomUUID(), wake = randomUUID(), queue = randomUUID();
+  const stamp = "2099-12-31T23:59:59Z";
+  const sample = { turns: [{ turn_id: wake, started_at: stamp }, { turn_id: seed }] };
+  for (const [call, reason] of [
+    ["confirmReadback(sample, {})", "Metadata changed across observer restart"],
+    ["summarizeTrial(sample, ...labels)", "Observed turns did not match the trial order"],
+  ]) {
+    const program = `import { confirmReadback, summarizeTrial } from ${JSON.stringify(reader)};
+      const [sample, labels] = JSON.parse(process.argv[1]);
+      ${call}`;
+    const run = spawnSync(process.execPath, ["--input-type=module", "-e", program,
+      JSON.stringify([sample, [seed, wake, queue]])], { encoding: "utf8", timeout: 5000 });
+    assert.equal(run.status, 1);
+    assert.ok(run.stderr.includes(reason));
+    for (const value of [seed, wake, queue, stamp]) assert.ok(!(run.stdout + run.stderr).includes(value));
+  }
 });

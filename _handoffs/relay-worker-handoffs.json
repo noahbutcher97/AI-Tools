@@ -6,7 +6,18 @@
     "acceptance": "Check scoped reads, ground-truth independence, limits of attribution, replay acceptance and compatibility with the ordinary schedule probe.",
     "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+      "verdict": "Fix comparison failure output before closure.",
+      "evidence": "Synthetic mismatches printed complete comparison operands. The reviewer also identified an unscoped completion listener. Eighteen synthetic checks passed.",
+      "limitations": "Source and synthetic checks only. The reviewer received redacted live results."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted both findings. Emit fixed errors and restrict the completion listener to the trial thread.",
+      "next": "Repeat source review on the corrected candidate."
+    }
   },
   {
     "id": "turn-metadata-operator",
@@ -15,7 +26,18 @@
     "acceptance": "Identify how to run the study, its cost, how to interpret matching observations and how to handle unknown origin or restart.",
     "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+      "verdict": "Operator could interpret the result and suppression decision. Executable discovery and interrupted-run cleanup were unclear.",
+      "evidence": "The operator found the journal from repository guidance and identified the two-turn cost, matching signals and restart limits. The example left executable selection and partial-result interpretation unresolved.",
+      "limitations": "Agent simulating an operator from documentation. No live provider or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Add a version-checked PowerShell example, partial report interpretation and interrupted archive recovery.",
+      "next": "Replay the documentation task on the corrected instructions."
+    }
   },
   {
     "id": "private-movement-edge-cases",

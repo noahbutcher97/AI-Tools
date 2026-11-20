@@ -10,6 +10,18 @@ The session-state premise check is complete for one Windows Codex build. Two dis
 
 To repeat the check, run `node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs <installed-codex-executable> --turn-metadata`. This opt-in trial creates and archives one low-cost thread, runs one ordinary turn and one scheduled wake, and reads only that thread's indexed metadata for the comparison. The normal private delivery-proof reader confirms the exact inbound message. The restarted observer has no live connection or experiment labels. Its bounded raw-ID projection stays inside the local child pipe. The public report contains comparisons. No installed watcher task, remote peer, Claude recipient or live watch loop was exercised.
 
+On an enrolled Windows x64 desktop with the default signed-in profile and the tested managed release installed, run this from the checkout root in PowerShell. The version check happens before either model turn. If the release is absent, leave the repeat pending or qualify the available version separately.
+
+```powershell
+$release = Join-Path $env:USERPROFILE '.codex/packages/app-server-daemon/releases/0.170.0-x86_64-pc-windows-msvc'
+$image = Join-Path $release 'bin/codex.exe'
+if (!(Test-Path -LiteralPath $image -PathType Leaf)) { throw 'Tested Codex release is unavailable' }
+if ((& $image --version) -ne 'codex-cli 0.170.0') { throw 'Codex version differs from the tested release' }
+node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs "$image" --turn-metadata
+```
+
+Check the exit code and the archive confirmation after the JSON report. For example, `coldReadMatched: true` with `sampledInProgress: false` for either turn means the fresh reader recovered the recorded state and polling missed that busy interval. Neither observation identifies who caused the turn. If interrupted, keep the run inconclusive. Inspect the provider's local session history for the disposable `relay-check-` thread created at the trial start time. Confirm its archive status before repeating, and archive only an unambiguously identified trial thread. If several match, leave them untouched and record cleanup as pending. Each repeat spends another two model turns.
+
 ### Completed branch watcher trial
 
 The live operator asked which window needed their input after receiving the masked-prompt instructions. The coordinator showed how to open an interactive SSH PowerShell window, paste the prepared command there and enter the reader at the fixture ref prompt. The operator completed that sequence from the initiating desktop. For another timed trial, include those instructions together before starting the five-minute client deadline.
