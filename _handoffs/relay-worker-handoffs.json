@@ -1,5 +1,23 @@
 [
   {
+    "id": "private-movement-edge-cases",
+    "worker": "independent trial reviewer",
+    "scope": "Inspect the final small automated-review fixes to the scripts, Windows fixtures and verifier.",
+    "acceptance": "Verify empty and nonempty unregistered cleanup, retained task evidence, bounded database wait and source integration.",
+    "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "private-movement-deadline",
+    "worker": "constrained setup operator",
+    "scope": "Repeat the private movement timing and timeout walkthrough from the guide only.",
+    "acceptance": "Distinguish the grant publication deadline from its duration after issuance.",
+    "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "private-movement-cleanup-retry-review",
     "worker": "independent trial reviewer",
     "scope": "Check the final cleanup retry and prior findings against the pinned code. Synthetic checks only.",
