@@ -19,6 +19,7 @@ import { subscribeWatch } from "../../MCP-Servers/bridges/relay/watch-client.mjs
 import { scheduleNotice } from "../../MCP-Servers/bridges/relay/completion-protocol.mjs";
 import { branchBinding } from "../../MCP-Servers/bridges/relay/schedule-watch.mjs";
 import { readWatcher } from "../../MCP-Servers/bridges/relay/watcher-health.mjs";
+import { trialInputCount } from "./trial-input-count.mjs";
 
 // Opt-in live check. The installed provider uses its signed-in desktop profile.
 // Only the disposable thread created below receives a turn or is archived.
@@ -48,7 +49,7 @@ const model = "gpt-6-luna";
 const mcpWorkspace = fileURLToPath(new URL("../../", import.meta.url));
 const params = { model, cwd: checkMcp || installedMcp ? mcpWorkspace : workspace, sandbox: fromShell ? "workspace-write" : "read-only", approvalPolicy: "never",
   config: { model_reasoning_effort: "low" } };
-const sessionName = "relay-check-" + randomUUID();
+const sessionName = "relay-check-" + (installedBranch ? preparedTrial : randomUUID());
 let provider, store, listener, id;
 const providers = [];
 const ownedOutputs = new Set();
@@ -157,6 +158,7 @@ async function callWatch(condition, expected) {
   assert.equal(call.condition, condition);
   assert.deepEqual(call.result, expected === "subscribed" ? { ok: true, state: expected, condition, target: id } :
     { ok: false, state: expected });
+  return turn.turn.id;
 }
 async function runTrial() {
   provider = await startProvider();
@@ -257,9 +259,9 @@ async function runTrial() {
     delete env.CLAUDE_CODE_SESSION_ID;
     const command = installedWatch ? ["watch", "--notify", id, installedBranch ? preparedTrial : fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
       ["run", "--", process.execPath, "-e", "process.exit(23)"];
-    let job;
+    let job, activation;
     if (installedMcp) {
-      await callWatch(command.at(-1), "subscribed");
+      activation = await callWatch(command.at(-1), "subscribed");
     } else {
       const result = spawnSync(process.execPath, [cli, ...command], {
         cwd: workspace, env, input: "", encoding: "utf8", timeout: 15000, windowsHide: true,
@@ -282,9 +284,12 @@ async function runTrial() {
       write("job.json", { id: job.id });
     }
     if (installedBranch) {
-      // The protected verifier owns the delivery verdict. This signal only
-      // ends the disposable writer after the operator restores the broker.
       await until(() => readWatcher(installRoot).state === "reports_only", 360000, "Branch trial cleanup timed out");
+      // Let the resumed writer drain after the broker loses delivery authority.
+      // Only the protected verifier can establish what the one input contained.
+      await delay(5000);
+      const count = await trialInputCount(id, seed.turn.id, activation);
+      if (count !== "one") process.exitCode = { none: 20, extra: 21, unknown: 22 }[count];
       return;
     }
     await until(() => fs.existsSync(path.join(signals, "finished")), installedMcp ? 240000 : 150000, "Installed delivery was not confirmed");
@@ -367,11 +372,17 @@ async function runTrial() {
 try {
   await runTrial();
 } finally {
+  let archived = false;
   if (id && provider) {
-    try { await provider.call("thread/archive", { threadId: id }); } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
+    try {
+      await provider.call("thread/archive", { threadId: id });
+      archived = true;
+    } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();
-  for (const file of ownedOutputs) fs.rmSync(file, { force: true });
+  if (!installedBranch || archived) {
+    for (const file of ownedOutputs) fs.rmSync(file, { force: true });
+  }
   await listener?.close();
   store?.close();
   fs.rmSync(root, { recursive: true, force: true });

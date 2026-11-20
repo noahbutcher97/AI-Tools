@@ -6,6 +6,8 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+The installed private branch movement checkpoint is open. Independent source review at `3fa5d28` reproduced loss of the stopped client task record during interrupted cleanup and found that the baseline message released the writer before the resume check. An operator walking through the guide also found that the protected delivery line could not distinguish one consumed message from two. The candidate now adds a recipient-side count from the disposable thread's item metadata. Keep the fixture branch at its initial revision until the release and recovery fixes pass independent review and the live recipient is ready.
+
 Both installed brokers matched the disposable private branch with zero notices. On the second desktop the owner ran the protected trial at `0de3b5a`. A subsequent read-only check of that trial's database row found the expected baseline digest, a waiting state and no reserved delivery handle. The writer independently confirmed the hosted revision. Both watchers returned fresh reports-only heartbeats with zero active subscriptions. The temporary credential stores, Git profiles and trial directories were absent on both desktops.
 
 During the peer trial the operator first ran the peer command on the initiating desktop. The script stopped at package validation before prompting for a credential. Checking the shell's computer name identified the mismatch. Running the guarded command on the enrolled peer reached the masked prompt and passed. Check the destination machine and enrolled Windows account before asking an operator to enter a reader credential.
