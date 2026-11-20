@@ -6,7 +6,18 @@
     "coordinator": "relay coordinator",
     "scope": "Read-only review of locked package and task validation for normal trials and recovery.",
     "acceptance": "Verify both paths hold the same lock through validation and state changes, reject stale packages and release on refusal. Use synthetic fixtures only.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "db10a959ae91ed2af8aa5f35f93e7744049e5b64",
+      "verdict": "Pass for lock ownership and stale-package refusal.",
+      "evidence": "Both Windows fixture suites passed. A competing open failed during task validation. A stale package released the lock on refusal. Both normal and recovery paths held the same lock through their state changes.",
+      "limitations": "The reviewer used synthetic fixtures. No hosted reader credential, installed private baseline or live interruption was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the reviewed source and Windows fixtures.",
+      "next": "Qualify the protected private trial with a disposable repository, an independently checked ref and an issuer-scoped reader."
+    }
   },
   {
     "id": "relay-private-trial-fix-review",
