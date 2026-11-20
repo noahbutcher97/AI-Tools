@@ -25,6 +25,19 @@ Either enrolled desktop may host a separate visible CLI chat. Prefer the local d
 
 The [handoff register](relay-worker-handoffs.json) records assignments, returns and acknowledgments. CI checks the structure and rejects an accepted handoff with a missing return, mismatched reviewed revision or missing coordinator acknowledgment. Acceptance here means that the coordinator accepts the returned work. Stage closure separately requires resolution of outstanding findings. The coordinator checks evidence quality and reviewer independence.
 
+### Commit, push and merge
+
+Use a short-lived branch for each independently reviewable relay checkpoint. If the shared checkout contains other work, use a separate worktree and stage only the intended files. The coordinator owns integration and may complete routine pushes and merges under the owner's standing approval.
+
+| Decision | When to act | Evidence to keep |
+| --- | --- | --- |
+| Commit locally | A small, coherent change can be explained and verified on its own. Keep its regression coverage with the change. Inspect the staged diff for scope and public suitability. | Record the focused check and its outcome. A deliberately failing test can be a private work-in-progress checkpoint. |
+| Push the branch | The candidate is safe to share and ready for CI, an independent reviewer or another machine. Push before handing it off. Open a draft PR if implementation or qualification is incomplete. | Give the worker the exact candidate SHA, scope, expected result and known gaps. A new push identifies a new candidate. |
+| Merge to main | The coordinator verifies the PR head, applicable CI, relevant local tests and acceptance evidence. Resolve blocking findings. For a stage or trust-boundary change, retain the independent review of the affected bytes. For an operator-facing change, include the constrained walkthrough. | In the PR or journal identify the tested revision, actual outcomes, unexercised cases and disposition. Refresh affected checks and reviews after code or base changes. Merge through the PR against the verified head. |
+| Sync and qualify | After merge, fast-forward both desktop checkouts, preserving unrelated work. Verify the resulting main SHA on each. Install or activate only through the separately authorized setup path. | Record source sync, installed package and live evidence separately. An offline desktop stays pending. If the merged result needs reversal, use a reviewed revert and record affected installations. |
+
+Keep a multi-checkpoint feature behind its existing disabled or fail-closed boundary until its live gates pass. A source-only PR may merge with explicitly deferred installed trials when it preserves that boundary. Keep the deployment or stage checkpoint open. Record independent agent reviews as such, including the SHA and verdict; a review performed through the owner's account does not constitute a second GitHub approving identity. GitHub branch rules are repository-wide settings and their enforcement must be verified separately.
+
 ### Human usability checkpoints
 
 At the next visible worker handoff, give the participant a goal in ordinary language: “Find the intended session, send it a harmless notice, and tell when it arrived.” Let them start from their normal provider CLI and use the available help. Observe their first attempt before coaching. Run the same task in Codex and Claude Code as each route qualifies, and reuse it when adding another provider CLI. Either desktop can host the walkthrough. Record the provider, entry point (in-session relay tool or shell command), revision and desktop coverage for each result.
