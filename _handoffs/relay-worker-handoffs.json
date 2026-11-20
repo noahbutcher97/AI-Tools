@@ -1,5 +1,25 @@
 [
   {
+    "id": "branch-observation-prelaunch-review",
+    "revision": "3f07523dca1dec5fa420deda7c2f5581d19d66d7",
+    "worker": "independent branch observation reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of the grant recheck and regression at the pinned candidate. Check the normal broker path, live authority, cancellation, test validity and the limits of the source-only conclusion.",
+    "acceptance": "Report approval or blockers and the evidence and limits for source integration. Use only synthetic tests.",
+    "state": "accepted",
+    "result": {
+      "revision": "3f07523dca1dec5fa420deda7c2f5581d19d66d7",
+      "verdict": "Pass for source integration of the anonymous prelaunch authorization fix.",
+      "evidence": "The reviewer traced the broker policy read, subscription state, pin checks and process spawn. In an independent synthetic probe, a permitted grant launched once. Withdrawal, policy read error, an asynchronous authorization result and cancellation at the final pin launched zero times. An omitted check opened no pins.",
+      "limitations": "No live provider, installed broker, network or private credential was used. The policy read and OS process creation are separate operations. The fix closes the asynchronous pin-verification window."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the reviewed code. The public CLI and MCP interactions are unchanged. The coordinator also exercised the subscription and poll path with the recording adapter.",
+      "next": "Verify the updated installed package before enabling that path. Design and qualify the distinct credential-read authorization before provisioning a real credential."
+    }
+  },
+  {
     "id": "relay-retrospective-ab-watcher",
     "revision": "ec46badb2a92397ee9844010c71dca16fde4e0be",
     "worker": "independent implementation reviewer",
