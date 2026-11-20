@@ -1,12 +1,41 @@
 [
   {
+    "id": "relay-installed-private-movement-review",
+    "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+    "worker": "independent trial reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Inspect the installed private movement trial, grant issuance, normal client, release sequence and failure cleanup. Synthetic fixtures only.",
+    "acceptance": "Verify baseline before movement, exact recipient and durable delivery after movement. Identify any incorrect proof, confinement or lifecycle behavior.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-installed-private-movement-operator",
+    "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+    "worker": "constrained setup operator",
+    "coordinator": "relay coordinator",
+    "scope": "Use only public operator instructions to walk through private branch movement and interruption. No account, credential or installation actions.",
+    "acceptance": "Select the machine, reader, client, target and writer gates, distinguish consumption from client cleanup, and report concrete friction or blockers.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-private-movement-trial",
     "revision": "0de3b5a40e5bbdc3e15a75830d46e1077b04ccd9",
     "worker": "installed trial implementer",
     "coordinator": "relay coordinator",
     "scope": "Extend the protected private branch trial and its synthetic Windows fixtures to qualify a separate writer, live raw target and one proved notice. No installation or live credentials.",
     "acceptance": "Preserve baseline-only and recovery behavior. Pin the target, condition and starting revision. Activation comes through the desktop relay client. Report scoped verification and limitations.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "0de3b5a40e5bbdc3e15a75830d46e1077b04ccd9",
+      "verdict": "Implemented the private movement probe and Windows fixtures on the assigned base.",
+      "evidence": "Synthetic SQLite exercised the actual watch transitions and the protected verifier. A matching baseline permits the separate writer to advance. Proof requires the pinned grant, delivered state and retired handle.",
+      "limitations": "The implementation worker used synthetic credentials and test doubles for network and recipient activity."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Integrated at 3fa5d28 with the disposable client modes and operator guide. All six installer tests passed and the relay suite passed with one opt-in skip.",
+      "next": "Independent source review, constrained operator walkthrough and installed live qualification."
+    }
   },
   {
     "id": "relay-private-publication-review",
