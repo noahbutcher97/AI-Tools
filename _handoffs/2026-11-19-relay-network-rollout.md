@@ -24,6 +24,16 @@ Either enrolled desktop may host a separate visible CLI chat. Prefer the local d
 
 The [handoff register](relay-worker-handoffs.json) records assignments, returns and acknowledgments. CI checks the structure and rejects an accepted handoff with a missing return, mismatched reviewed revision or missing coordinator acknowledgment. Acceptance here means that the coordinator accepts the returned work. Stage closure separately requires resolution of outstanding findings. The coordinator checks evidence quality and reviewer independence.
 
+### Human usability checkpoints
+
+At the next visible worker handoff, give the participant a goal in ordinary language: “Find the intended session, send it a harmless notice, and tell when it arrived.” Let them start from their normal provider CLI and use the available help. Observe their first attempt before coaching. Run the same task in Codex and Claude Code as each route qualifies, and reuse it when adding another provider CLI. Either desktop can host the walkthrough. Record the provider, entry point (in-session relay tool or shell command), revision and desktop coverage for each result.
+
+Watch where the participant hesitates or needs help: finding the relay, distinguishing similar targets, interpreting folder trust or approval prompts, and telling queued, delivered and unknown outcomes apart. On a disposable target, include one recovery task, such as checking an uncertain outcome without sending twice. For later user-facing checkpoints, use the same approach when names, watch activation or health reporting first become usable.
+
+Journal the task outcome (unassisted, assisted or blocked), the step that caused friction, what the participant expected, and what they tried. Keep examples synthetic. Give each finding a fix or a reason to defer, then repeat the task after a fix. Automated CLI checks can establish behavior. Record human usability as pending until a person has tried the task.
+
+First automated observation at `58f43a9`: invoking the relay CLI with `--help` exited with code 2 and printed only `relay: unknown flag "--help"`. First-use help is an open discoverability issue for the walkthrough. No provider session or model turn was required.
+
 ### Independent implementation review
 
 The coordinator received the read-only retrospective on `ec46bad`. The findings below remain open. The reviewer inspected source, tests and the rollout record without exercising a live desktop or credential.
