@@ -12,7 +12,7 @@ import { digest, exactKeys, matches, UUID } from "./delivery-protocol.mjs";
 import { writeHeartbeat } from "./watcher-health.mjs";
 import { publishRunHandoff } from "./run-handoff.mjs";
 import { validBranchWatch, validFileWatch, validSchedule } from "./schedule-watch.mjs";
-import { sampleInstalledBranch } from "./branch-observation.mjs";
+import { installedCredentialRecord, sampleInstalledBranch } from "./branch-observation.mjs";
 import { sampleInstalledFile } from "./file-watch.mjs";
 
 const PORT = 44197;
@@ -319,6 +319,25 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
       if (!checked.installed || !await sessionDelivery(checked.root).check()) throw new Error();
       console.log("Authenticated desktop worker ready.");
     } else {
+      if (checked.enabled === false && checked.trialBindings?.length === 1) {
+        // Offline setup only. The isolated trial directory and fixed synthetic
+        // binding exclude all repository records. Only a digest can be written.
+        const trial = path.join(checked.root, "branch-credential-trial");
+        const record = installedCredentialRecord(trial, { windows: process.env.SystemRoot,
+          cwd: path.join(checked.root, "worker-cwd"), credentialBindings: checked.trialBindings }, {
+          credential: "00000000-0000-4000-8000-000000000000", endpoint: "https://" + ["fixture","invalid"].join(".") + "/fixture",
+          ref: "refs/heads/fixture",
+        });
+        if (record) {
+          let marker;
+          try {
+            marker = await record.unseal(record.readSealed());
+            if (marker.length === 32) fs.writeFileSync(path.join(checked.root, "completion-health", "branch-reader.sha256"),
+              digest(marker), { flag: "wx" });
+          } catch { /* Setup verifies receipt freshness and reports the trial failure. */ }
+          finally { marker?.fill(0); }
+        }
+      }
       const delivery = checked.enabled === true ? sessionDelivery(checked.root) : undefined;
       const sampleBranch = checked.git ? (g, signal, canObserve) =>
         sampleInstalledBranch(checked.root, checked.git, g, signal, { canObserve }) : undefined;

@@ -4,7 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createHash, randomUUID } from "node:crypto";
-import { sampleAnonymousBranch, sampleInstalledBranch, validBranchResource } from "./branch-observation.mjs";
+import { execFileSync } from "node:child_process";
+import { branchCredentialBinding, installedCredentialRecord, sampleAnonymousBranch, sampleInstalledBranch, validBranchResource } from "./branch-observation.mjs";
 
 const endpoint = "https://" + ["fixture","invalid"].join(".") + "/fixture/repo";
 const ref = "refs/heads/fixture";
@@ -144,4 +145,52 @@ test("removed machine approval or a replaced HTTPS transport prevents a Git laun
   fs.unlinkSync(files[0]);
   await assert.rejects(sampleInstalledBranch(root, installed, grant, undefined, permitted), { message: "branch observation unavailable" });
   assert.equal(launches, 0);
+});
+
+test("Windows branch reader limits file access and decrypts only the bytes opened for its binding", {
+  skip: process.platform !== "win32",
+}, async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-sealed-ref-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const id = randomUUID();
+  const binding = branchCredentialBinding(id, endpoint, ref);
+  const grant = { endpoint, ref, credential: id };
+  const directory = path.join(root, "branch-credentials");
+  fs.mkdirSync(directory);
+  const marker = "fixture:synthetic-reader";
+  const seal = `
+    $ErrorActionPreference='Stop'
+    Add-Type -AssemblyName System.Security
+    $binding=[Convert]::FromBase64String([Console]::ReadLine())
+    $marker=[Text.Encoding]::ASCII.GetBytes([Console]::ReadLine())
+    $sealed=[Security.Cryptography.ProtectedData]::Protect($marker,$binding,'LocalMachine')
+    [Console]::OpenStandardOutput().Write($sealed,0,$sealed.Length)`;
+  const blob = execFileSync(path.join(process.env.SystemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
+    ["-NoProfile", "-NonInteractive", "-Command", seal], { windowsHide: true, timeout: 5000,
+      input: Buffer.from(binding, "hex").toString("base64") + "\n" + marker + "\n" });
+  const hash = createHash("sha256").update(blob).digest("hex");
+  const member = binding + "-" + hash;
+  const file = path.join(directory, member + ".bin");
+  const machine = { ...profile, cwd: root, windows: process.env.SystemRoot, credentialBindings: [member] };
+  const record = installedCredentialRecord(root, machine, grant);
+  assert.equal(installedCredentialRecord(root, machine, { ...grant, endpoint: endpoint + "/sub" }), undefined);
+  assert.equal(installedCredentialRecord(root, machine, { ...grant, ref: ref + "-other" }), undefined);
+  assert.equal(installedCredentialRecord(root, machine, { ...grant, credential: randomUUID() }), undefined);
+  fs.writeFileSync(file, blob);
+  const bytes = record.readSealed();
+  assert.deepEqual(bytes, blob);
+  fs.unlinkSync(file);
+  assert.equal((await record.unseal(bytes)).toString(), marker);
+  assert.throws(() => record.unseal(Buffer.alloc(bytes.length)), { message: "branch observation unavailable" });
+  const other = { ...grant, ref: ref + "-other" };
+  machine.credentialBindings.push(branchCredentialBinding(id, endpoint, other.ref) + "-" + hash);
+  const different = installedCredentialRecord(root, machine, other);
+  await assert.rejects(different.unseal(bytes), { message: "branch observation unavailable" });
+  for (const length of [0, blob.length, 8193]) {
+    fs.writeFileSync(file, Buffer.alloc(length));
+    assert.throws(() => record.readSealed(), { message: "branch observation unavailable" });
+  }
+  fs.writeFileSync(file, blob);
+  fs.linkSync(file, path.join(root, "other.bin"));
+  assert.throws(() => record.readSealed(), { message: "branch observation unavailable" });
 });
