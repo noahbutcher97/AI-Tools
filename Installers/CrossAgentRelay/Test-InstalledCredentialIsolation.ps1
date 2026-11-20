@@ -136,6 +136,11 @@ try {
                     try { [IO.Directory]::Delete($store,$false) } catch { $cleanupFailed=$true }
                 }
                 if (!$cleanupFailed) {
+                    foreach ($item in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+                        if ($item -cne $trialRecord) { $cleanupFailed=$true; break }
+                    }
+                }
+                if (!$cleanupFailed) {
                     [IO.File]::Delete($trialRecord)
                     [IO.Directory]::Delete($directory,$false)
                 }
