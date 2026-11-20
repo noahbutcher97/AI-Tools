@@ -204,6 +204,19 @@ $PackageDigest=$NextDigest
     $alteredImage=@{}+$hashes
     $alteredImage['relay/FileObservation.exe']='3'*64
     Denied { Assert-BrokerDelta $fileBase $alteredImage } 'Unexpected file watch package change'
+    $Component='BranchUpdate'
+    $allowed=@($branchModule,'relay/schedule-watch.mjs','relay/completion-broker.mjs')
+    $changed=@{}+$hashes
+    foreach ($member in $allowed) { $changed[$member]='1'*64 }
+    Assert-BrokerDelta $hashes $changed
+    Denied { Assert-BrokerDelta $fileBase $changed } 'Expected complete branch packages'
+    Denied { Assert-BrokerDelta $hashes $fileBase } 'Expected complete branch packages'
+    Denied { Assert-BrokerDelta $hashes $hashes } 'Branch modules are unchanged'
+    foreach ($member in $members | Where-Object { $_ -cnotin $allowed }) {
+        $outside=@{}+$changed
+        $outside[$member]='2'*64
+        Denied { Assert-BrokerDelta $hashes $outside } 'Unexpected branch update member'
+    }
     $Component='Schedules'
     $root=Join-Path $FixtureRoot 'migration'
     $live=Join-Path $root 'relay'

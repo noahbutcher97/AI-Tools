@@ -6,6 +6,8 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+The existing branch migration refused an already branch-capable base before creating a staging directory. Candidate `a09422d` adds a refresh limited to the three modules implementing the grant recheck. An independent review and a constrained setup operator passed at that revision. The installer suite passed six tests. The relay suite passed 371 with one opt-in skip. Installed rollout and credential-read authorization remain open. See the [worker returns](relay-worker-handoffs.json) for the recovery task and limits.
+
 At `ec46bad`, both installed brokers passed anonymous branch observation and synthetic credential isolation. At `3f07523`, an independent reviewer accepted the source fix for grant withdrawal during Git pin verification. The next branch checkpoint is to qualify the updated installed package and the separate credential-read boundary before introducing a real credential. Private repository authentication and delivery of a branch-change notice remain unproved.
 
 | Assignment | Scope and acceptance |

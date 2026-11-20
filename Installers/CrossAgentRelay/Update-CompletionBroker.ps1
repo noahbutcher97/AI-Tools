@@ -4,7 +4,7 @@ param(
     [ValidateSet('Plan','Apply')][string]$Operation = 'Plan',
     [string]$PreviousPackage, [string]$PreviousDigest,
     [string]$NextPackage, [string]$NextDigest,
-    [ValidateSet('Broker','Jobs','Schedules','Files','Branches','Acl')][string]$Component = 'Broker'
+    [ValidateSet('Broker','Jobs','Schedules','Files','Branches','BranchUpdate','Acl')][string]$Component = 'Broker'
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
@@ -20,6 +20,18 @@ function Get-ReviewedHashes($dir,$PackageDigest,[switch]$AllowLegacy) {
 }
 
 function Assert-BrokerDelta($previous,$next) {
+    if ($Component -eq 'BranchUpdate') {
+        $allowed = @($branchModule,'relay/schedule-watch.mjs','relay/completion-broker.mjs')
+        $changed = $false
+        foreach ($member in $members) {
+            if (!$previous.ContainsKey($member) -or !$next.ContainsKey($member)) { throw 'Expected complete branch packages' }
+            if ($previous[$member] -eq $next[$member]) { continue }
+            if ($member -cnotin $allowed) { throw 'Unexpected branch update member' }
+            $changed = $true
+        }
+        if (!$changed) { throw 'Branch modules are unchanged' }
+        return
+    }
     if ($Component -in @('Files','Branches')) {
         $allowed = @('completion-broker','completion-jobs','completion-protocol','completion-session','schedule-watch','watcher-health') | ForEach-Object { "relay/$_.mjs" }
         $allowed += @('relay/completion-acl.ps1',$branchModule)
@@ -101,7 +113,7 @@ function Assert-ModuleTree($directory,$hashes) {
 
 function Update-ScheduleModules($previous,$next,$record) {
     $live = Join-Path $root 'relay'
-    $kind = if ($Component -eq 'Branches') { 'branch' } elseif ($Component -eq 'Files') { 'file' } else { 'schedule' }
+    $kind = if ($Component -in @('Branches','BranchUpdate')) { 'branch' } elseif ($Component -eq 'Files') { 'file' } else { 'schedule' }
     $stage = Join-Path $root ($kind+'-stage-'+$NextDigest)
     $backup = Join-Path $root ($kind+'-previous-'+$PreviousDigest)
     foreach ($dir in @($live,$stage,$backup)) {
@@ -175,7 +187,7 @@ function Invoke-BrokerUpdate($previous,$next) {
     }
     foreach ($member in $members) {
         if ($member -eq 'initial/jobs.sqlite') { continue }
-        if ($Component -in @('Branches','Files','Schedules') -and $member.StartsWith('relay/')) { continue }
+        if ($Component -in @('Branches','BranchUpdate','Files','Schedules') -and $member.StartsWith('relay/')) { continue }
         $file = Join-Path $root $member
         Assert-Protected $file
         $hash = (Get-FileHash $file).Hash
@@ -184,7 +196,7 @@ function Invoke-BrokerUpdate($previous,$next) {
             if ($current -notin @($previous[$member],$next[$member])) { throw 'Unrecognized installed broker' }
         } elseif ($hash -ne $previous[$member]) { throw 'Installed package member differs' }
     }
-    if ($Component -in @('Branches','Files','Schedules')) {
+    if ($Component -in @('Branches','BranchUpdate','Files','Schedules')) {
         Update-ScheduleModules $previous $next $record
         return
     }
