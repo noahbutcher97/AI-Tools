@@ -6,7 +6,18 @@
     "coordinator": "relay coordinator",
     "scope": "Inspect the final directory census and repeat the interrupted operator scenario using the revised guide and an isolated fixture.",
     "acceptance": "Verify that unexpected files preserve the trial record and block retry. Check the ordinary and interrupted cleanup paths and report untested cases.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "95f526b2edbb291d52f91c52df941886b1400b9c",
+      "verdict": "Pass for the final inventory check and recovery guidance.",
+      "evidence": "The operator repeated the interrupted scenario. The reviewer ran the committed cleanup conditional in two disposable Windows directories. Unknown content and the trial record survived byte-for-byte, while a clean trial was removed.",
+      "limitations": "No live crash, concurrent writer, protected ACL, scheduled task or installed recovery was exercised in this fixture."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the documented manual recovery and filesystem checks.",
+      "next": "Confirm normal cleanup separately after each installed trial."
+    }
   },
   {
     "id": "relay-bound-storage-fix-review",
@@ -15,7 +26,18 @@
     "coordinator": "relay coordinator",
     "scope": "Read-only recheck of digest and inventory limits, exact ciphertext validation, reports-only isolation and manual trial recovery.",
     "acceptance": "Verify dispositions against reviewed bytes and report residual gaps. Only synthetic checks are permitted.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ec8035e9ac73781939faa547b07cfc0732618131",
+      "verdict": "Pass for source-level storage and proceeding to installed synthetic trials.",
+      "evidence": "Six Windows tests passed. The reviewer confirmed the inventory stopped at entry 33, the receipt read was capped at 64 bytes, unseal rechecked the ciphertext digest and reports-only startup skipped production credential inventory.",
+      "limitations": "An abrupt stop before the recovery record is created or after its removal can leave a partial directory for manual inspection. No installed or hosted trial was run by the reviewer."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. No public credentialed grants are enabled. The final cleanup refinement has its own review.",
+      "next": "Install the reviewed module and verifier packages, then compare synthetic challenge receipts with independent expected values."
+    }
   },
   {
     "id": "relay-bound-storage-recovery-walkthrough",
