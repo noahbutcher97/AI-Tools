@@ -6,6 +6,8 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+The live operator asked which window needed their input after receiving the masked-prompt instructions. The coordinator repeated the task from the operator's starting point: open an interactive SSH PowerShell window, paste the prepared command there and enter the reader only at the fixture ref prompt. The operator completed that sequence from the initiating desktop. For another timed trial, include those instructions together before starting the five-minute client deadline.
+
 The installed private branch watcher passed the end-to-end delivery check on the second desktop at `007e246`. The operator entered the fixture reader at the protected prompt. The verifier matched the starting revision. The coordinator independently matched the resumed raw thread ID, provider name, low-cost model and unique addressable relay entry. Only then did the separate writer advance the watched ref with an exact old-revision lease and verify the hosted successor.
 
 The same grant revision moved from observing to delivered and retired its proof handle and batch. Five seconds after restoration, the disposable client's independent input count passed with task result zero. The provider index confirmed the exact thread was archived. A fresh reports-only heartbeat showed zero subscriptions. The credential copy, Git profile, trial task, exchange and temporary input record were removed. Both installed brokers passed private baseline reads. This movement check used the CLI on one desktop and a resumed Codex recipient. Interrupted recovery retains synthetic coverage.
