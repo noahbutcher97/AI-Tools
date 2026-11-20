@@ -6,7 +6,11 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
-Both installed watchers passed the public-ref trial at `b359edb` and the bound Windows credential reader trial at `893853d`. The next live checkpoint is a private baseline on a disposable repository using a separate read-only credential. Delivery after branch movement remains open.
+At `057f0f1` the owner ran the initiating desktop's installed broker against a disposable private branch. It matched the independently verified baseline with no notice. Anonymous Git access to the fixture had returned HTTP 401. The issuer showed one selected private repository, read-only Contents and required read-only Metadata. Both desktops then had matching installed package members, fresh reports-only heartbeats, zero subscriptions and no trial directory, credential directory or Git profile. The second desktop's authenticated baseline and installed private branch-movement delivery remain open.
+
+The operator reached the masked prompt before creating a token. The coordinator selected the single fixture repository in the issuer UI and verified its permissions. The owner entered the resulting token in the masked prompt. For future trials, confirm the scoped reader is available before opening the prompt and holding the install lock.
+
+For the movement check the separate writer prepared a disposable branch and a successor commit with identical file contents. Preserve the baseline until the exact target has subscribed and the broker has recorded it. A branch-only regression at `02f6cf9` checks that an unchanged baseline emits no notice, a moved branch emits one generic notice, and a restart or a receipt for a different thread leaves it awaiting proof without another send. The relay suite passed 375 tests with one opt-in skip. This regression uses synthetic observations and proof.
 
 The existing branch migration refused an already branch-capable base before creating a staging directory. Candidate `a09422d` added a refresh limited to the three modules implementing the grant recheck. An independent review and a constrained setup operator passed at that revision. The installer suite passed six tests. The relay suite passed 371 with one opt-in skip. See the [worker returns](relay-worker-handoffs.json) for recovery coverage and limits.
 
