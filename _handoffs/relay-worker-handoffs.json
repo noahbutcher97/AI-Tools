@@ -1,5 +1,14 @@
 [
   {
+    "id": "relay-trial-retention-review",
+    "revision": "95f526b2edbb291d52f91c52df941886b1400b9c",
+    "worker": "independent recovery reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Inspect the final directory census and repeat the interrupted operator scenario using the revised guide and an isolated fixture.",
+    "acceptance": "Verify that unexpected files preserve the trial record and block retry. Check the ordinary and interrupted cleanup paths and report untested cases.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-bound-storage-fix-review",
     "revision": "ec8035e9ac73781939faa547b07cfc0732618131",
     "worker": "independent storage reviewer",
@@ -15,7 +24,18 @@
     "coordinator": "relay coordinator",
     "scope": "Walk the interrupted trial recovery from the public guide using simulated status only. No production changes, elevation or worker source.",
     "acceptance": "Describe the evidence needed before removal, how to distinguish the two credential directories and when to preserve an unexpected artifact.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ec8035e9ac73781939faa547b07cfc0732618131",
+      "verdict": "Hold retry in the simulated interrupted trial.",
+      "evidence": "The operator identified the lock, installed digest, scoped task and trial evidence, distinguished the production directory, and retained the unexpected entry.",
+      "limitations": "Document walkthrough only. The guide left retention of the valid record alongside the unexpected entry implicit."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. The guide now explicitly retains the record, and cleanup checks for unknown entries before removing it.",
+      "next": "Repeat the affected recovery scenario and review the final cleanup change."
+    }
   },
   {
     "id": "relay-bound-storage-review",
