@@ -152,6 +152,29 @@ Assert-NoInventory
     $gitFile = Join-Path $root 'git.json'
     $condition = [guid]::NewGuid()
     $empty='{"v":1,"grants":[]}'; $on='{"v":1,"enabled":true}'; $off='{"v":1,"enabled":false}'
+    & {
+        $lockFile=Join-Path $root 'lock'
+        $journal=Join-Path $root 'journal'
+        $node=Join-Path $root 'image'
+        foreach ($file in @($lockFile,$flagFile,$policyFile,$node)) { [IO.File]::WriteAllText($file,'fixture') }
+        $desktopSid='fixture-principal'; $workerTask='worker'; $brokerTask='broker'
+        $folder=[pscustomobject]@{}
+        $folder | Add-Member ScriptMethod GetTask {param($name) return $name}
+        function Assert-RegisteredTask($task,$installed) {
+            try { $extra=[IO.File]::Open($lockFile,'Open','ReadWrite','None') } catch [IO.IOException] { return }
+            $extra.Dispose(); throw 'Task identity checked outside lock'
+        }
+        $installed=@{package=$PackageHash;status='installed';sessionSid=$desktopSid}
+        [IO.File]::WriteAllText($journal,($installed|ConvertTo-Json))
+        $verified=Enter-BranchTrial
+        $verified.lock.Dispose()
+        $installed.package='0'*64
+        [IO.File]::WriteAllText($journal,($installed|ConvertTo-Json))
+        $rejected=$false
+        try { $unexpected=Enter-BranchTrial; $unexpected.lock.Dispose() } catch { $rejected=$_.Exception.Message -eq 'Installation mismatch' }
+        if (!$rejected) { throw 'Stale package accepted' }
+        $extra=[IO.File]::Open($lockFile,'Open','ReadWrite','None'); $extra.Dispose()
+    }
     $approved = @{v=6;branches=@(@{condition=$condition.ToString('D')})}|ConvertTo-Json -Depth 3 -Compress
     foreach ($state in @('before-grant','after-activation','unrelated')) {
         $null = [IO.Directory]::CreateDirectory($trial)

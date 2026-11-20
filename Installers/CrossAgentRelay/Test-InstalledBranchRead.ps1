@@ -50,6 +50,19 @@ Promise.all([load('branch-observation'),load('schedule-watch')]).then(([m,s])=>{
         throw 'Invalid repository or ref, or installed credential reader unavailable'
     }
 }
+function Enter-BranchTrial {
+    Assert-Protected $lockFile
+    $handle = [IO.File]::Open($lockFile,'Open','ReadWrite','None')
+    try {
+        foreach ($file in @($journal,$policyFile,$flagFile,$node)) { Assert-Protected $file }
+        $installed = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
+        if ($installed.status -cne 'installed' -or $installed.package -cne $PackageHash -or $installed.sessionSid -ne $desktopSid) {
+            throw 'Installation mismatch'
+        }
+        foreach ($name in @($workerTask,$brokerTask)) { Assert-RegisteredTask ($folder.GetTask($name)) $installed }
+        return [pscustomobject]@{lock=$handle;record=$installed}
+    } catch { $handle.Dispose(); throw }
+}
 function Restore-PrivateBranchTrial {
     Assert-Protected $trial
     Assert-Protected $recovery
@@ -96,18 +109,14 @@ if ($MyInvocation.InvocationName -eq '.') { return }
 $condition = if ($RecoverTrial) { $RecoverTrial } else { [guid]::NewGuid() }
 . (Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1') -Stage Run -TrialId $condition -ExpectedPackage $PackageHash
 $fixtureTarget = [guid]::NewGuid()
-$record = Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
-if ($record.status -cne 'installed' -or $record.package -cne $PackageHash -or $record.sessionSid -ne $desktopSid) { throw 'Installation mismatch' }
 $scheduler = New-Object -ComObject Schedule.Service
 $scheduler.Connect()
 $folder = $scheduler.GetFolder('\')
-foreach ($name in @($workerTask,$brokerTask)) { Assert-RegisteredTask ($folder.GetTask($name)) $record }
 $policyFile = Join-Path $root 'completion-policy.json'
 $flagFile = Join-Path $root 'completion-worker.json'
 $gitFile = Join-Path $root 'completion-git.json'
 $node = Join-Path $root 'runtime/node.exe'
 $lockFile = Join-Path $root 'watcher-install.lock'
-foreach ($file in @($journal,$policyFile,$flagFile,$node,$lockFile)) { Assert-Protected $file }
 $trial = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) ('RelayBranchTrial-'+$condition.ToString('N'))
 $verifier = Join-Path $trial 'verify.cjs'
 $paramsFile = Join-Path $trial 'parameters.json'
@@ -124,7 +133,9 @@ $credential = $null
 $store = Join-Path $root 'branch-credentials'
 $policyChanged = $false
 $flagChanged = $false
-$lock = [IO.File]::Open($lockFile,'Open','ReadWrite','None')
+$verified = Enter-BranchTrial
+$lock = $verified.lock
+$record = $verified.record
 if ($RecoverTrial) {
     try {
         foreach ($script in @($PSCommandPath,(Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1'),
