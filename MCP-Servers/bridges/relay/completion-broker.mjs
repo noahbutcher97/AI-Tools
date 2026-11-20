@@ -121,7 +121,8 @@ function readJobPolicy(root, includeRevision = false) {
     if (includeRevision) revision = digest(contents);
   } finally { fs.closeSync(fd); }
   const automatic = policy?.v === 2;
-  const hasBranches = policy?.v === 5;
+  const credentialedBranches = policy?.v === 6;
+  const hasBranches = policy?.v === 5 || credentialedBranches;
   const hasFiles = policy?.v === 4 || hasBranches;
   const scheduled = policy?.v === 3 || hasFiles;
   const watchKeys = ["v","grants","schedules"];
@@ -147,7 +148,7 @@ function readJobPolicy(root, includeRevision = false) {
     }
     if (hasBranches) {
       if (!Array.isArray(policy.branches) || policy.branches.length + schedules.length > 32 ||
-          !policy.branches.every(validBranchWatch)) throw new Error("invalid branch authority");
+          !policy.branches.every(g => validBranchWatch(g, credentialedBranches))) throw new Error("invalid branch authority");
       schedules = [...schedules, ...policy.branches];
     }
     if (new Set(schedules.map(g => g.condition)).size !== schedules.length) throw new Error("ambiguous condition");

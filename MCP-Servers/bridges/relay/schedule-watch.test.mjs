@@ -14,7 +14,7 @@ import { branchBinding, fileBinding, scheduleBinding, validBranchWatch, validFil
 import { subscribeWatch } from "./watch-client.mjs";
 import { readWatcher } from "./watcher-health.mjs";
 
-async function fixture(t, fileWatch = false) {
+async function fixture(t, fileWatch = false, credential = null) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-schedule-"));
   const file = path.join(root, "completion-state", "jobs.sqlite");
   for (const dir of ["completion-state","completion-grants","completion-health"]) fs.mkdirSync(path.join(root, dir));
@@ -22,7 +22,7 @@ async function fixture(t, fileWatch = false) {
   const target = randomUUID(), start = Date.now();
   const common = { condition: randomUUID(), target, provider: "codex", expiresAt: new Date(start + 86400000).toISOString() };
   const g = fileWatch === "branch" ? { ...common, scope: "thread-branch-change", ref: "refs/heads/fixture",
-    endpoint: "https://" + ["fixture","invalid"].join(".") + "/fixture/repo", credential: null } :
+    endpoint: "https://" + ["fixture","invalid"].join(".") + "/fixture/repo", credential } :
     fileWatch ? { ...common, scope: "thread-file-change", volume: randomUUID(),
     directory: "fixture", rootId: "b".repeat(48), file: "item" } : { ...common, scope: "thread-schedule",
     startsAt: new Date(start).toISOString(), intervalSeconds: 60 };
@@ -297,6 +297,31 @@ test("schedule worker rechecks policy before submission and keeps interrupted re
   assert.equal(f.rows()[0].state, "unknown");
   assert.equal(await f.observe(), false);
   assert.equal(f.proofs, 0);
+});
+
+test("a protected v6 branch grant activates by condition ID and keeps its credential reference private", async t => {
+  const f = await fixture(t, "branch", randomUUID());
+  const file = path.join(f.root, "completion-policy.json");
+  const policy = { v: 5, grants: [], schedules: [], files: [], branches: [f.g] };
+  const launch = () => startCompletionBroker(f.root, { port: 0, publishHealth: true, sampleBranch: assert.fail });
+  fs.writeFileSync(file, JSON.stringify(policy));
+  await assert.rejects(launch(), /invalid branch authority/);
+  policy.v = 6;
+  fs.writeFileSync(file, JSON.stringify(policy));
+  let service = await launch();
+  t.after(() => service.close());
+  const request = { root: f.root, port: service.port };
+  assert.equal((await subscribeWatch(f.to, f.g.condition, { provider: "codex", id: f.to }, request)).ok, true);
+  await service.close();
+  service = await launch();
+  assert.deepEqual(readWatcher(f.root).record.subscriptions, [{ id: f.g.condition, target: f.to, condition: "branch", state: "waiting" }]);
+  await service.close();
+  policy.branches[0] = { ...f.g, credential: randomUUID() };
+  fs.writeFileSync(file, JSON.stringify(policy));
+  await assert.rejects(launch(), /changed schedule requires a new condition ID/);
+  policy.branches[0].credential = "../record";
+  fs.writeFileSync(file, JSON.stringify(policy));
+  await assert.rejects(launch(), /invalid branch authority/);
 });
 
 for (const kind of ["file", "branch", "schedule"]) {

@@ -91,3 +91,17 @@ Assert-NoInventory
         if (!$failed) { throw 'Invalid trial digest accepted' }
     }
 }
+& {
+    $endpoint = 'https://'+(('fixture','invalid') -join '.')+'/fixture'
+    $parameters = @{PackageHash='a'*64;ImageHash='a'*64;TransportHash='b'*64;Edition='ucrt64';
+        Ref='refs/heads/fixture';ExpectedRevision='a'*40;Endpoint=$endpoint}
+    . (Join-Path $PSScriptRoot '../Test-InstalledBranchRead.ps1') @parameters
+    $binding = [byte[]]::new(32)
+    $secret = ConvertTo-SecureString 'synthetic-password' -AsPlainText -Force
+    try {
+        $sealed = Protect-TrialReader $secret 'fixture' $binding
+        $plain = [Security.Cryptography.ProtectedData]::Unprotect($sealed,$binding,'LocalMachine')
+        if ([Text.Encoding]::ASCII.GetString($plain) -cne 'fixture:synthetic-password') { throw 'Credential mismatch' }
+        [Array]::Clear($plain,0,$plain.Length)
+    } finally { $secret.Dispose() }
+}

@@ -87,6 +87,12 @@ If a terminated trial or failed cleanup leaves artifacts, recover from an elevat
 
 Inspect the directory and file ACLs and reject reparse points before removal. The expected trial files are `challenge.bin`, the recorded member under the trial's own `branch-credentials` directory and `trial.json`. The two trial receipts are `branch-challenge.sha256` and `branch-reader.sha256` in the watcher health directory. Preserve the trial record alongside any unexpected entry or mismatched task so the next operator can identify the interrupted run. Keep an unverifiable record for inspection. Once the inventory matches, remove only the identified files, removing the trial record last, then remove the empty directories nonrecursively. Release the lock and confirm that the task and trial artifacts are absent before retrying. The production credential directory has a different parent.
 
+### Private branch trial
+
+Use a disposable repository with synthetic commits and a separate writer. After the installed credential isolation check passes, issue a short-lived read-only credential for that repository. The issuer's permissions establish its read-only scope. A successful Git read establishes access to the branch.
+
+From the protected installation tools, run `Test-InstalledBranchRead.ps1` with the normal package, Git pins, canonical repository URL, exact ref and independently checked revision. Add `-ReaderUser <reader-login>` and enter the credential in the masked PowerShell prompt on the desktop. Confirm the repository and ref shown by the prompt. The check requires empty policy, disabled delivery and an unused credential directory. It creates a temporary version 6 grant and seals the reader's password to this machine and resource. The trial removes the record and restores reports-only mode after checking one baseline. Revoke the disposable credential at its issuer after the live checks.
+
 ## Deactivate and retain state
 
 ```text
