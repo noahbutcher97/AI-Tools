@@ -329,6 +329,13 @@ Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database 
     Remove-SessionTrial
     Must (!([IO.Directory]::Exists($exchange)) -and !$script:registered.ContainsKey($runner) -and
         !$script:registered.ContainsKey($issuer)) 'Recovered trial still present'
+    $null=[IO.Directory]::CreateDirectory($exchange)
+    [IO.File]::WriteAllText($other,'fixture')
+    Denied { Remove-SessionTrial } 'Exchange could not be removed*'
+    Must ([IO.File]::Exists($other)) 'Setup failure lost an unexpected file'
+    [IO.File]::Delete($other)
+    Remove-SessionTrial
+    Must (![IO.Directory]::Exists($exchange)) 'Empty unregistered trial still present'
 }
 & {
     $image=Join-Path $FixtureRoot 'codex.exe'

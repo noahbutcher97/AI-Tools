@@ -111,7 +111,7 @@ const input = JSON.parse(fs.readFileSync(path.join(__dirname,'parameters.json'),
 const digest = value => createHash('sha256').update(value).digest('hex');
 const db = new DatabaseSync(file,{readOnly:true});
 function outcome() {
-  db.exec('PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
+  db.exec('PRAGMA busy_timeout=500; PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
   if (input.check === 'unused') {
     const used = db.prepare('SELECT condition FROM schedule_watches WHERE condition=? UNION ALL SELECT condition FROM file_samples WHERE condition=? LIMIT 1').get(condition,condition);
     return used ? 'used' : 'unused';

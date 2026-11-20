@@ -93,11 +93,8 @@ function Remove-SessionTrial {
     $sessionTask = Get-StoppedTrialTask $runner
     $grantTask = Get-StoppedTrialTask $issuer
     $hasExchange = Test-Path -LiteralPath $exchange -ErrorAction Stop
-    if ($BranchWatch) {
-        if (!$sessionTask) {
-            if ($hasExchange -or $grantTask) { throw 'Expected the stopped desktop trial task' }
-            return
-        }
+    if ($BranchWatch -and !$sessionTask -and $grantTask) { throw 'Expected the stopped desktop trial task' }
+    if ($BranchWatch -and $sessionTask) {
         $result = $sessionTask.LastTaskResult
         if ($null -eq $result -or ($null -ne $RecordedTaskResult -and $RecordedTaskResult -ne $result)) { throw 'Recorded task result does not match' }
         if ($result -ne 0 -and $null -eq $RecordedTaskResult) {

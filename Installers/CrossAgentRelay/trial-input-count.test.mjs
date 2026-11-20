@@ -8,7 +8,7 @@ import test from "node:test";
 import { trialInputCount } from "./trial-input-count.mjs";
 
 test("a disposable recipient counts consumed inputs without opening message contents", async t => {
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-count-"));
+  const profile = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "relay-count-"));
   t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
   const thread = randomUUID(), seed = randomUUID(), activation = randomUUID();
   const count = turn => trialInputCount(thread, seed, turn, profile);
