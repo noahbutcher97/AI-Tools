@@ -80,6 +80,38 @@ function Get-BranchGit($root,$admin) {
         profileHash=(Get-FileHash -LiteralPath $profile).Hash.ToLowerInvariant();imageHash=$policy.imageHash;transportHash=$policy.transportHash}
 }
 
+# This offline setup probe accepts only a fixed-size random challenge sealed in
+# its own DPAPI domain. It never opens a repository credential. Setup compares
+# the digest, then removes the record and receipt.
+function Test-BranchCredentialChallenge($root,$authorities,$brokerSid) {
+    $directory = Join-Path $root 'branch-credential-trial'
+    if (![IO.Directory]::Exists($directory)) { return }
+    Assert-BrokerAcl $directory $authorities -Readers @($brokerSid)
+    $file = Join-Path $directory 'challenge.bin'
+    Assert-BrokerAcl $file $authorities -Readers @($brokerSid)
+    Add-Type -AssemblyName System.Security
+    $entropy = [Text.Encoding]::ASCII.GetBytes('relay-branch-credential-challenge-v1')
+    $stream = [IO.File]::Open($file,'Open','Read','Read')
+    try {
+        if ($stream.Length -lt 1 -or $stream.Length -gt 1024) { throw 'Unexpected challenge size' }
+        $reader = [IO.BinaryReader]::new($stream)
+        $sealed = $reader.ReadBytes([int]$stream.Length)
+    } finally { $stream.Dispose() }
+    $marker = [Security.Cryptography.ProtectedData]::Unprotect($sealed,$entropy,'LocalMachine')
+    try {
+        if ($marker.Length -ne 32) { throw 'Unexpected challenge' }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try { $digest = [BitConverter]::ToString($sha.ComputeHash($marker)).Replace('-','').ToLowerInvariant() }
+        finally { $sha.Dispose() }
+    } finally { [Array]::Clear($marker,0,$marker.Length) }
+    $receipt = Join-Path $root 'completion-health/branch-challenge.sha256'
+    # CreateNew refuses existing files, including links. A new challenge gets
+    # its own independently generated expected value in the administrator process.
+    $out = [IO.File]::Open($receipt,'CreateNew','Write','None')
+    try { $bytes = [Text.Encoding]::ASCII.GetBytes($digest); $out.Write($bytes,0,$bytes.Length) }
+    finally { $out.Dispose() }
+}
+
 function Get-CompletionRoot {
     $root = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'CrossAgentRelay'
     $admin = @('S-1-5-18', 'S-1-5-32-544',
@@ -139,6 +171,11 @@ function Get-CompletionRoot {
         # Bearers may be read only by the assigned local user and the authorities.
         if ($agentSid.Value -notmatch '^S-1-5-21-(\d+-){3}\d+$') { throw 'Expected a session account SID' }
         Assert-GrantDirectory $grantPath $trusted $agentSid.Value
+    }
+    if ($health -and $installed -and !$enabled) {
+        try { Test-BranchCredentialChallenge $root $admin $identity.User.Value }
+        catch { # A failed setup probe leaves the normal reports-only broker available.
+        }
     }
     $git = $null
     if ($installed) {

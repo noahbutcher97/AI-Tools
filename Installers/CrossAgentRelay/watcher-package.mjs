@@ -118,7 +118,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
     changedMember === "branches" ? [...fileUpdates, ...branchChanges] : [changedMember]);
   let priorEntries;
   if (base !== undefined) {
-    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","schedules","files","branches"].includes(changedMember)) throw Error("Unsupported broker package member");
+    if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","relay/completion-acl.ps1","schedules","files","branches"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
     await verifyWatcherPackage(base, baseDigest, { allowLegacy: fileMigration || changedMember === "branches" });
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
@@ -193,9 +193,9 @@ if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === imp
     const [mode, out, ...rest] = process.argv.slice(2);
     if (mode === "build" && rest.length === 2) {
       console.log(await buildWatcherPackage(out, { node: process.execPath, codex: rest[0], claude: rest[1] }));
-    } else if (["stage-broker","stage-jobs","stage-schedules","stage-files","stage-branches"].includes(mode) && rest.length === 2) {
+    } else if (["stage-broker","stage-jobs","stage-schedules","stage-files","stage-branches","stage-acl"].includes(mode) && rest.length === 2) {
       const changedMember = { "stage-broker": "relay/completion-broker.mjs", "stage-jobs": "relay/completion-jobs.mjs",
-        "stage-schedules": "schedules", "stage-files": "files", "stage-branches": "branches" }[mode];
+        "stage-schedules": "schedules", "stage-files": "files", "stage-branches": "branches", "stage-acl": "relay/completion-acl.ps1" }[mode];
       console.log(await buildWatcherPackage(out, { base: rest[0], baseDigest: rest[1], changedMember }));
     } else if (mode === "verify" && rest.length === 1) {
       console.log(await verifyWatcherPackage(out, rest[0]));

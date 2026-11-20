@@ -75,6 +75,8 @@ For an installation with schedule support, stage the file watcher with `watcher-
 
 For anonymous branch watching, stage a file-capable package with `stage-branches` and update it with `-Component Branches`. A protected `completion-git.json` selects the installed Git edition and pins the Git and HTTPS transport SHA-256 hashes. Use an administrator-controlled copy of `Test-InstalledBranchRead.ps1` beside the reviewed setup and trial scripts to check an expected public ref from the installed broker. The script removes its temporary profile and grant and restores reports-only operation.
 
+To qualify credential isolation on a branch-capable installation, stage the verifier with `stage-acl` and apply the reviewed package with `-Component Acl`. Run a protected copy of `Test-InstalledCredentialIsolation.ps1 -ExpectedPackage <digest>` alongside the installer and Codex watcher trial script. The test uses the existing reports-only broker and a temporary least-privilege task for the signed-in desktop. The broker must decrypt a fresh machine-sealed random value and return its SHA-256 digest. The desktop must receive access denied on both read and write opens of the same record. The test removes the task, record and digest. Machine-scoped encryption depends on the file ACL for isolation between local accounts. Repository credential provisioning and hosted authentication require separate checks.
+
 ## Deactivate and retain state
 
 ```text

@@ -171,6 +171,15 @@ Must ((Get-Content $journal -Raw|ConvertFrom-Json).package -ceq $NextDigest -and
     (Get-FileHash $state).Hash -eq $beforeHash -and $script:registered.Count -eq 2) 'Interrupted update lost state'
 $PackageDigest=$NextDigest
 & {
+    $Component='Acl'
+    $brokerMember='relay/completion-acl.ps1'
+    $change=@{}+$hashes
+    $change[$brokerMember]='1'*64
+    Assert-BrokerDelta $hashes $change
+    $change['provider/codex.exe']='2'*64
+    Denied { Assert-BrokerDelta $hashes $change } 'This updater accepts only a broker module change'
+}
+& {
     $Component='Schedules'
     $PreviousDigest='1'*64
     $NextDigest=$Digest

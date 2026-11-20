@@ -4,11 +4,15 @@ param(
     [ValidateSet('Plan','Apply')][string]$Operation = 'Plan',
     [string]$PreviousPackage, [string]$PreviousDigest,
     [string]$NextPackage, [string]$NextDigest,
-    [ValidateSet('Broker','Jobs','Schedules','Files','Branches')][string]$Component = 'Broker'
+    [ValidateSet('Broker','Jobs','Schedules','Files','Branches','Acl')][string]$Component = 'Broker'
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Install-CompletionWatcher.ps1')
-$brokerMember = if ($Component -eq 'Jobs') { 'relay/completion-jobs.mjs' } else { 'relay/completion-broker.mjs' }
+$brokerMember = switch ($Component) {
+    'Jobs' { 'relay/completion-jobs.mjs' }
+    'Acl' { 'relay/completion-acl.ps1' }
+    default { 'relay/completion-broker.mjs' }
+}
 
 function Get-ReviewedHashes($dir,$PackageDigest,[switch]$AllowLegacy) {
     if (![IO.Path]::IsPathRooted($dir) -or $PackageDigest -cnotmatch '^[a-f0-9]{64}$') { throw 'Expected a reviewed package and digest' }
