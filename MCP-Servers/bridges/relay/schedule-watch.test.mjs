@@ -221,6 +221,45 @@ test("branch polling excludes failed observations, pins its resource and coalesc
   assert.equal(f.sends, 1);
 });
 
+test("a private branch moving alone wakes once and waits for proof from the granted thread", async t => {
+  const f = await fixture(t, "branch", randomUUID());
+  let revision = "a".repeat(40);
+  f.readRef = (grant, signal, canObserve) => {
+    assert.equal(canObserve(), true);
+    assert.deepEqual(grant, f.g);
+    return revision;
+  };
+  assert.equal((await f.subscribe()).state, "subscribed");
+  await f.observe();
+  f.now += 60000;
+  await f.observe();
+  assert.equal(f.sends, 0);
+
+  revision = "b".repeat(40);
+  f.now += 60000;
+  await f.observe();
+  assert.equal(f.sends, 1);
+  assert.equal(f.rows()[0].state, "observing");
+  await f.restart();
+  for (const proof of [{ state: "pending", to: f.to }, { state: "delivered", to: randomUUID() }]) {
+    f.now += 60000;
+    f.proof = proof;
+    await f.observe();
+    assert.equal(f.rows()[0].state, "observing");
+    assert.equal(f.sends, 1);
+  }
+  assert.equal(f.proofs, 2);
+  f.proof = { state: "delivered", to: f.to };
+  f.now += 60000;
+  await f.observe();
+  assert.deepEqual(f.rows(), []);
+  await f.restart();
+  revision = "c".repeat(40);
+  f.now += 60000;
+  await f.observe();
+  assert.equal(f.sends, 1);
+});
+
 test("schedule activation sets a baseline and missed ticks share one proved wake across restart", async t => {
   const f = await fixture(t);
   const other = { ...f.g, condition: randomUUID() };
