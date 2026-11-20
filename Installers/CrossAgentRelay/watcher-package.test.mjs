@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { buildWatcherPackage, verifyWatcherPackage, packageFiles } from "./watcher-package.mjs";
 
 test("watcher package contains a complete protected import closure and an empty job database", async t => {
@@ -42,6 +44,33 @@ test("watcher package contains a complete protected import closure and an empty 
   await assert.rejects(verifyWatcherPackage(out, digest), /Unexpected/);
   fs.unlinkSync(path.join(out, "relay", "package.json"));
   const legacy = path.join(temp, "legacy");
+  const prior = path.join(temp, "prior");
+  fs.cpSync(out, prior, { recursive: true });
+  const metadata = JSON.parse(fs.readFileSync(path.join(prior, "package.json")));
+  const updatedModules = ["relay/schedule-watch.mjs", "relay/branch-observation.mjs", "relay/completion-broker.mjs"];
+  const preserved = "relay/completion-jobs.mjs";
+  for (const entry of metadata.files) {
+    if (![...updatedModules, preserved].includes(entry[0])) continue;
+    const bytes = "fixture prior version of " + entry[0];
+    fs.writeFileSync(path.join(prior, entry[0]), bytes);
+    entry[1] = createHash("sha256").update(bytes).digest("hex");
+  }
+  const manifestBytes = JSON.stringify(metadata);
+  const priorDigest = createHash("sha256").update(manifestBytes).digest("hex");
+  fs.writeFileSync(path.join(prior, "package.json"), manifestBytes);
+  const staged = path.join(temp, "refresh");
+  const cli = fileURLToPath(new URL("./watcher-package.mjs", import.meta.url));
+  const stage = hash => spawnSync(process.execPath, [cli, "stage-branch-update", staged, prior, hash], { encoding: "utf8" });
+  const rejected = stage("0".repeat(64));
+  assert.equal(rejected.status, 1);
+  assert.equal(fs.existsSync(staged), false);
+  const accepted = stage(priorDigest);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  await verifyWatcherPackage(staged, accepted.stdout.trim());
+  for (const [member] of metadata.files) {
+    const expectedRoot = updatedModules.includes(member) ? out : prior;
+    assert.deepEqual(fs.readFileSync(path.join(staged, member)), fs.readFileSync(path.join(expectedRoot, member)), member);
+  }
   fs.cpSync(out, legacy, { recursive: true });
   fs.unlinkSync(path.join(legacy, "relay/branch-observation.mjs"));
   const old = JSON.parse(fs.readFileSync(path.join(legacy, "package.json"), "utf8"));
