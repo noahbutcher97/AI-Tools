@@ -1,12 +1,41 @@
 [
   {
+    "id": "private-movement-correction-review",
+    "worker": "independent trial reviewer",
+    "scope": "Review both lifecycle repairs and recipient-side input counting. Synthetic tests only.",
+    "acceptance": "Verify the former blockers, proof limits, stopped task retention, ordinary recovery and release messaging. Return stage disposition.",
+    "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "private-movement-correction-operator",
+    "worker": "constrained setup operator",
+    "scope": "Repeat the private movement and interruption walkthrough from the public instructions only.",
+    "acceptance": "Decide when to release the writer and classify a duplicate, missing notice or interrupted client. Identify the next action and any blockers.",
+    "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "private-movement-recovery-fix",
     "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
     "worker": "trial recovery implementer",
     "coordinator": "relay coordinator",
     "scope": "Repair the writer release cue and interrupted desktop cleanup in the trial scripts and synthetic fixtures.",
     "acceptance": "Preserve scheduler evidence and permit bounded ordinary desktop recovery of the exact disposable session. Keep cleanup free of elevated traversal.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+      "verdict": "Implemented the two lifecycle corrections for re-review.",
+      "evidence": "Seven installer tests passed. The Windows fixtures covered a stopped task with a nonempty exchange, incorrect task result, interrupted publication, stale enrollment and an unrelated exchange entry.",
+      "limitations": "The installer checks use synthetic tasks and resources. Installed interactive recovery remains unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Integrated and tested at 899f8ba.",
+      "next": "Complete revision-bound independent review and operator replay."
+    }
   },
   {
     "id": "relay-installed-private-movement-review",
