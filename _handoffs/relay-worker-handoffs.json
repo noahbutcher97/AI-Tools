@@ -1,12 +1,41 @@
 [
   {
+    "id": "relay-bound-storage-fix-review",
+    "revision": "ec8035e9ac73781939faa547b07cfc0732618131",
+    "worker": "independent storage reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only recheck of digest and inventory limits, exact ciphertext validation, reports-only isolation and manual trial recovery.",
+    "acceptance": "Verify dispositions against reviewed bytes and report residual gaps. Only synthetic checks are permitted.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-bound-storage-recovery-walkthrough",
+    "revision": "ec8035e9ac73781939faa547b07cfc0732618131",
+    "worker": "constrained installation operator",
+    "coordinator": "relay coordinator",
+    "scope": "Walk the interrupted trial recovery from the public guide using simulated status only. No production changes, elevation or worker source.",
+    "acceptance": "Describe the evidence needed before removal, how to distinguish the two credential directories and when to preserve an unexpected artifact.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-bound-storage-review",
     "revision": "b094098f92f49fa35d5df56c877c8b6d6040db4a",
     "worker": "independent storage reviewer",
     "coordinator": "relay coordinator",
     "scope": "Read-only review of Windows ciphertext inventory, bounded opening, decryption, offline trial and restoration. Use synthetic data only.",
     "acceptance": "Identify authority, disclosure and recovery gaps. Check that the trial cannot operate on production records and report limits separately from the installed trial.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "b094098f92f49fa35d5df56c877c8b6d6040db4a",
+      "verdict": "Hold closure for bounded receipt and inventory reads, exact ciphertext checking on decrypt, and incomplete cleanup.",
+      "evidence": "Six focused Windows checks passed. The reviewer traced the protected directory, synthetic binding and disabled public grants. Reports-only startup could still enumerate production metadata.",
+      "limitations": "No installed trial, hosted endpoint, real credential or interrupted-machine recovery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted all findings. Restricted reads, skipped production Git inventory in reports-only mode, and documented manual recovery with a protected task record.",
+      "next": "Independently recheck the fixes and preserve the distinction between a simulated recovery and an interrupted installed trial."
+    }
   },
   {
     "id": "relay-bound-storage-walkthrough",
@@ -15,7 +44,18 @@
     "coordinator": "relay coordinator",
     "scope": "Stage the package chain using a synthetic base, the public operator guide and normal package CLI. No live installer, elevation or network.",
     "acceptance": "Verify the final package, identify the correct digest for the protected trial, exercise recovery from a mistaken base digest and record friction.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "b094098f92f49fa35d5df56c877c8b6d6040db4a",
+      "verdict": "Pass for synthetic package staging and recovery.",
+      "evidence": "The operator recovered from a mismatched second base digest using only public guidance. The real CLI verified the final package and the operator identified its digest for the installed trial.",
+      "limitations": "The operator did not install packages, run the protected trial or represent a human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the two-stage operator workflow. The guide identifies which receipt belongs to the second stage.",
+      "next": "Qualify the installed protected trial separately."
+    }
   },
   {
     "id": "relay-branch-credential-read-review",
