@@ -6,6 +6,37 @@
     "coordinator": "relay coordinator",
     "scope": "Read-only source and test review of remote receive, send, proof, and watcher grant and credential boundaries.",
     "acceptance": "Return prioritized findings, source evidence, a scoped verdict and unverified areas.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ec46badb2a92397ee9844010c71dca16fde4e0be",
+      "verdict": "Hold the first private credential. A/B and watcher closure remain open.",
+      "evidence": "Static inspection of the restricted Codex route, proof and recovery tests, watcher authorization, and the installed trial journal. Findings are listed under Independent implementation review in the rollout journal.",
+      "limitations": "No fresh test runs, provider sessions, network calls, credentials or installed machine inspection by the reviewer."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Review received directly from the independent subagent. Preserve the documented live qualifications within their original scope. Track all six findings as open.",
+      "next": "Exercise grant removal during pin verification and enforce a fresh grant check before credential access and Git launch. Return the fix to independent review."
+    }
+  },
+  {
+    "id": "relay-handoff-protocol-review",
+    "revision": "f6a8a9f204f5ba1b85c952fca5ddb5a053448b81",
+    "worker": "independent protocol reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of the committed protocol, register, validator, tests and CI wiring.",
+    "acceptance": "Check the draft findings against the committed changes and identify residual enforcement and visible-window qualification limits.",
+    "state": "accepted",
+    "result": {
+      "revision": "f6a8a9f204f5ba1b85c952fca5ddb5a053448b81",
+      "verdict": "Accept for handoff record validation.",
+      "evidence": "The independent reviewer extracted the committed files and ran both workflow commands. The regression test passed and the committed register validated. The journal covers all workers and requires a coordinator acknowledgment.",
+      "limitations": "A snapshot cannot prove dispatch order, identity, independence, evidence quality or blocker resolution. The reviewer did not test hosted CI, branch settings or visible desktop launches."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for structural checks. The protocol is a project instruction. GitHub main had no required checks or branch rules at review time, and desktop qualification remains open.",
+      "next": "For the first separate visible worker on each desktop, verify the interactive window, assignment receipt, durable result and return to the original coordinator before recording that route as qualified."
+    }
   }
 ]

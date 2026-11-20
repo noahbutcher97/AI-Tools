@@ -6,7 +6,7 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
-At `ec46bad`, both installed brokers passed anonymous branch observation and synthetic credential isolation. The next checkpoint is independent implementation review before introducing a real repository credential. Private repository authentication and delivery of a branch-change notice remain unproved.
+At `ec46bad`, both installed brokers passed anonymous branch observation and synthetic credential isolation. The independent implementation review returned six findings. The next checkpoint is a synthetic grant-withdrawal test and a fix at the branch observation boundary. Review the fix before introducing a real repository credential. Private repository authentication and delivery of a branch-change notice remain unproved.
 
 | Assignment | Scope and acceptance |
 | --- | --- |
@@ -23,6 +23,19 @@ Either enrolled desktop may host a separate visible CLI chat. Prefer the local d
 3. The coordinator acknowledges the specific result, verifies that the evidence applies to the current revision, and records the disposition and next action. Keep a checkpoint open for missing or stale evidence. For a change affecting a reviewed boundary, have an independent worker verify the fix before closure. Escalate to the owner when an action needs human interaction or a decision outside the approved scope.
 
 The [handoff register](relay-worker-handoffs.json) records assignments, returns and acknowledgments. CI checks the structure and rejects an accepted handoff with a missing return, mismatched reviewed revision or missing coordinator acknowledgment. Acceptance here means that the coordinator accepts the returned work. Stage closure separately requires resolution of outstanding findings. The coordinator checks evidence quality and reviewer independence.
+
+### Independent implementation review
+
+The coordinator received the read-only retrospective on `ec46bad`. The findings below remain open. The reviewer inspected source, tests and the rollout record without exercising a live desktop or credential.
+
+| Priority and scope | Finding and next check |
+| --- | --- |
+| High, private branch reads | In `schedule-watch.mjs` and `branch-observation.mjs`, async pin verification separates the policy check from Git launch. Withdraw a grant during verification and require zero credential reads and launches. Recheck authority at each effect. |
+| High, local send failures | `client.mjs` and `spool.test.mjs` retain a predictable temporary fallback for message bodies and diagnostics. Remove the fallback and require verified private storage or an unavailable result. |
+| High, permanent receive enrollment | `remote-delivery.mjs` authorizes by peer and target without operation or unknown-origin scope. Ping awaits cursor capture after the last policy check. Define read and disable scope for v1 in `receive.mjs` and recheck effect authority after capture. |
+| High, Claude watcher grants | `completion-worker.mjs` can invoke the delegate under a job grant. Its exact target, bytes and call count still depend on instructions in `client.mjs`. Keep Claude job grants disabled until these are enforced before the tool acts. |
+| Medium, doctor | `readiness.mjs` can accept equally stale cached builds after both live builds change. Compare each record to its live build and bind smoke evidence to its target and build. Include installed sampler identity in watcher evidence. |
+| Medium, sustained receive | `receipts.mjs` stops accepting new submissions when full and cannot detect rollback to an older valid database. Specify and test retention and recovery across the entire acceptance window. |
 
 | Phase | Evidence | Open work |
 | --- | --- | --- |
