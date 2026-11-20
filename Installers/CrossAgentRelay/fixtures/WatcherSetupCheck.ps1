@@ -21,12 +21,30 @@ function Denied([scriptblock]$op,[string]$reason) {
     try { & $op | Out-Null } catch { if ($_.Exception.Message -like $reason) { return }; throw }
     throw 'A prohibited operation succeeded'
 }
+& {
+    . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage ('a'*64) -BranchWatch
+    Must ((Get-TrialClientMode) -ceq '--installed-branch') 'Wrong branch client'
+    $Mcp = $true
+    Must ((Get-TrialClientMode) -ceq '--installed-mcp-branch') 'Wrong MCP branch client'
+    $Stage = 'Run'
+    Denied { Get-TrialClientMode } 'Use the branch client only*'
+    $Stage = 'Start'
+    foreach ($combination in @('Schedule','FileWatch','RotateBrokerPassword')) {
+        Set-Variable -Name $combination -Value $true
+        Denied { Get-TrialClientMode } 'Use the branch client only*'
+        Set-Variable -Name $combination -Value $false
+    }
+}
 # The fixture grants no OS accounts or task registrations. Use the Windows
 # scheduler's real definition objects to validate actions, triggers and SIDs.
 $folder = [pscustomobject]@{}
 $folder | Add-Member ScriptMethod GetTasks { param($flags) return $script:registered.Values }
 $folder | Add-Member ScriptMethod GetTask { param($name) return $script:registered[$name] }
-$folder | Add-Member ScriptMethod DeleteTask { param($name,$flags) $script:registered.Remove($name) }
+$folder | Add-Member ScriptMethod DeleteTask {
+    param($name,$flags)
+    if ($script:failDelete -ceq $name) { throw 'Fixture task removal interrupted' }
+    $script:registered.Remove($name)
+}
 $folder | Add-Member ScriptMethod RegisterTaskDefinition {
     param($name,$definition,$flags,$sid,$password,$type,$sddl)
     Must ($flags -eq 18) 'Unexpected registration flags'
@@ -247,6 +265,78 @@ $PackageDigest=$NextDigest
 [IO.File]::Delete($state)
 Denied { Invoke-WatcherSetup $scheduler $folder } 'The initialized job database is missing'
 . (Join-Path $PSScriptRoot '../Test-InstalledCodexWatcher.ps1') -Stage Start -TrialId ([guid]::NewGuid()) -ExpectedPackage $Digest
+& {
+    $BranchWatch=$true
+    $tag='fixture-branch-trial'
+    $runner=$tag+'-Session'
+    $issuer=$tag+'-Grant'
+    $exchange=Join-Path $FixtureRoot 'trial-exchange'
+    $null=[IO.Directory]::CreateDirectory($exchange)
+    $node=Join-Path $FixtureRoot 'runtime.exe'
+    $journal=Join-Path $FixtureRoot 'test-enrollment.json'
+    function Assert-Protected($file) {
+        Must ($file -ceq $journal) 'Unexpected recovery enrollment path'
+        Assert-PlainPath $file
+    }
+    $enrollment=@{status='installed';package=$ExpectedPackage;sessionSid=$desktopSid}
+    [IO.File]::WriteAllText($journal,($enrollment | ConvertTo-Json))
+    Assert-RecoveryEnrollment
+    foreach ($field in @('sessionSid','package','status')) {
+        $changed=$enrollment.Clone()
+        $changed[$field]='other'
+        [IO.File]::WriteAllText($journal,($changed | ConvertTo-Json))
+        Denied { Assert-RecoveryEnrollment } 'Installation mismatch'
+    }
+    $session=Register-TrialTask $runner $desktopSid 3 'fixture' $null
+    $session | Add-Member NoteProperty LastTaskResult 1
+    $null=Register-TrialTask $issuer $desktopSid 3 'fixture' $null
+    Must ($session.Acl.EndsWith("(A;;GR;;;$desktopSid)")) 'Ordinary desktop cannot read the runner result'
+    Must (!$folder.GetTask($issuer).Acl.Contains("(A;;GR;;;$desktopSid)")) 'Unexpected read access to grant task'
+    $session.State=4
+    Denied { Remove-SessionTrial } 'Trial task is running*'
+    Must ([IO.Directory]::Exists($exchange) -and $script:registered.ContainsKey($issuer)) 'Active runner lost its trial'
+    $session.State=3
+    Denied { Remove-SessionTrial } 'Trial failed with task result 1*'
+    $RecordedTaskResult=2
+    Denied { Remove-SessionTrial } 'Recorded task result does not match'
+    $RecordedTaskResult=1
+    $id=[guid]::NewGuid()
+    $receipt=Join-Path $exchange 'target.json'
+    [IO.File]::WriteAllText($receipt,(@{id=$id.ToString('D')}|ConvertTo-Json -Compress))
+    $other=Join-Path $exchange 'unknown'
+    [IO.File]::WriteAllText($other,'fixture')
+    Denied { Remove-SessionTrial } 'Exchange could not be removed*'
+    Must ($script:registered.ContainsKey($runner) -and $script:registered.ContainsKey($issuer)) 'Nonempty exchange lost scheduler evidence'
+    Denied { Remove-VerifiedExchangeFiles $exchange $id } 'Unexpected exchange entry*'
+    Must ([IO.File]::Exists($receipt) -and [IO.File]::Exists($other)) 'Unknown exchange changed during refusal'
+    [IO.File]::Delete($other)
+    Denied { Remove-VerifiedExchangeFiles $exchange ([guid]::NewGuid()) } 'Exchange receipt differs*'
+    $unexpectedDir=Join-Path $exchange 'resumed.json.tmp'
+    $null=[IO.Directory]::CreateDirectory($unexpectedDir)
+    Denied { Remove-VerifiedExchangeFiles $exchange $id } 'Unexpected exchange entry*'
+    [IO.Directory]::Delete($unexpectedDir,$false)
+    [IO.File]::WriteAllText($unexpectedDir,'{')
+    Remove-VerifiedExchangeFiles $exchange $id
+    $folder.GetTask($issuer).State=4
+    Denied { Remove-SessionTrial } 'Trial task is running*'
+    Must ([IO.Directory]::Exists($exchange)) 'Active issuer lost its exchange'
+    $folder.GetTask($issuer).State=3
+    $script:failDelete=$runner
+    Denied { Remove-SessionTrial } '*Fixture task removal interrupted*'
+    Must (!([IO.Directory]::Exists($exchange)) -and $script:registered.ContainsKey($runner)) 'Stopped task evidence lost at interruption'
+    $script:failDelete=$null
+    Remove-SessionTrial
+    Remove-SessionTrial
+    Must (!([IO.Directory]::Exists($exchange)) -and !$script:registered.ContainsKey($runner) -and
+        !$script:registered.ContainsKey($issuer)) 'Recovered trial still present'
+    $null=[IO.Directory]::CreateDirectory($exchange)
+    [IO.File]::WriteAllText($other,'fixture')
+    Denied { Remove-SessionTrial } 'Exchange could not be removed*'
+    Must ([IO.File]::Exists($other)) 'Setup failure lost an unexpected file'
+    [IO.File]::Delete($other)
+    Remove-SessionTrial
+    Must (![IO.Directory]::Exists($exchange)) 'Empty unregistered trial still present'
+}
 & {
     $image=Join-Path $FixtureRoot 'codex.exe'
     [IO.File]::WriteAllText($image,'fixture')

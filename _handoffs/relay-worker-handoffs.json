@@ -1,5 +1,205 @@
 [
   {
+    "id": "private-movement-edge-cases",
+    "worker": "independent trial reviewer",
+    "scope": "Inspect the final small automated-review fixes to the scripts, Windows fixtures and verifier.",
+    "acceptance": "Verify empty and nonempty unregistered cleanup, retained task evidence, bounded database wait and source integration.",
+    "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+      "verdict": "Pass for the final edge case corrections.",
+      "evidence": "Three Windows suites passed. An early registration failure retained an unexpected file and allowed removal of an empty exchange. The actual verifier recovered after a brief exclusive SQLite lock and declined a persistent lock within the child deadline.",
+      "limitations": "The database wait is per SQLite operation. No installed resource or private account was used."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source integration.",
+      "next": "Complete the installed credentialed movement trial."
+    }
+  },
+  {
+    "id": "private-movement-deadline",
+    "worker": "constrained setup operator",
+    "scope": "Repeat the private movement timing and timeout walkthrough from the guide only.",
+    "acceptance": "Distinguish the grant publication deadline from its duration after issuance.",
+    "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "abd6c3062d690dd5761d0e89c39ca9de071eb890",
+      "verdict": "Pass for the operator deadline walkthrough.",
+      "evidence": "The operator identified the client publication deadline from the target timestamp, withheld the writer after a late publication and distinguished the subsequent five-minute grant lifetime.",
+      "limitations": "Read-only guide walkthrough without an installed client or reader."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source integration.",
+      "next": "Complete the installed credentialed movement trial."
+    }
+  },
+  {
+    "id": "private-movement-cleanup-retry-review",
+    "worker": "independent trial reviewer",
+    "scope": "Check the final cleanup retry and prior findings against the pinned code. Synthetic checks only.",
+    "acceptance": "Verify retained tasks after a transient deletion error and safe completion on retry. Return a source disposition.",
+    "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+      "verdict": "Accept source integration.",
+      "evidence": "The reviewer verified the transient task deletion fixture, surviving original result, successful retry and repeated cleanup. All three correction suites passed. The running-task and nonempty-exchange guards remain.",
+      "limitations": "No installed client, private ref access or credential was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the reviewed scope.",
+      "next": "Retain the live installed credentialed movement gate."
+    }
+  },
+  {
+    "id": "private-movement-arguments-operator",
+    "worker": "constrained setup operator",
+    "scope": "Reread the movement command and identify each argument and its source using only the public operator guide.",
+    "acceptance": "Check whether all flags and the masked input can be identified at the point of use.",
+    "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "6236e14cea321ad6e6e4cacd791a2d85ccb98f6a",
+      "verdict": "Accept the documented invocation.",
+      "evidence": "The operator reconstructed the eight private arguments, the two identifiers and the masked-input and mismatch handling from the guide.",
+      "limitations": "Guide-only walkthrough without a provider, account or machine effects."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the reviewed scope.",
+      "next": "Retain the live installed credentialed movement gate."
+    }
+  },
+  {
+    "id": "private-movement-correction-review",
+    "worker": "independent trial reviewer",
+    "scope": "Review both lifecycle repairs and recipient-side input counting. Synthetic tests only.",
+    "acceptance": "Verify the former blockers, proof limits, stopped task retention, ordinary recovery and release messaging. Return stage disposition.",
+    "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+      "verdict": "Previous findings resolved. Hold interrupted cleanup for a retry fix.",
+      "evidence": "Three synthetic suites passed. A transient scheduler deletion failure left a stopped task and removed exchange. Retry then failed on the missing exchange.",
+      "limitations": "Source and disposable fixtures only. The input count measures a single observation window."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Previous findings resolved. Hold interrupted cleanup for a retry fix.",
+      "next": "Exercise retry after scheduler failure and return to the reviewer."
+    }
+  },
+  {
+    "id": "private-movement-correction-operator",
+    "worker": "constrained setup operator",
+    "scope": "Repeat the private movement and interruption walkthrough from the public instructions only.",
+    "acceptance": "Decide when to release the writer and classify a duplicate, missing notice or interrupted client. Identify the next action and any blockers.",
+    "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "899f8bac7435ebaf24920e131cbdf8a0ac7c2e59",
+      "verdict": "Accept the guide-only walkthrough.",
+      "evidence": "The operator distinguished exact-message proof, bounded input count and hosted successor. Wrong machine, repeated input, zero input, uncertain count and interruption had identifiable dispositions.",
+      "limitations": "No real account, desktop client or masked input was exercised. The private reader argument names still required a lookup."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the guide-only walkthrough.",
+      "next": "List the arguments at the point of use and rerun that part of the guide."
+    }
+  },
+  {
+    "id": "private-movement-recovery-fix",
+    "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+    "worker": "trial recovery implementer",
+    "coordinator": "relay coordinator",
+    "scope": "Repair the writer release cue and interrupted desktop cleanup in the trial scripts and synthetic fixtures.",
+    "acceptance": "Preserve scheduler evidence and permit bounded ordinary desktop recovery of the exact disposable session. Keep cleanup free of elevated traversal.",
+    "state": "accepted",
+    "result": {
+      "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+      "verdict": "Implemented the two lifecycle corrections for re-review.",
+      "evidence": "Seven installer tests passed. The Windows fixtures covered a stopped task with a nonempty exchange, incorrect task result, interrupted publication, stale enrollment and an unrelated exchange entry.",
+      "limitations": "The installer checks use synthetic tasks and resources. Installed interactive recovery remains unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Integrated and tested at 899f8ba.",
+      "next": "Complete revision-bound independent review and operator replay."
+    }
+  },
+  {
+    "id": "relay-installed-private-movement-review",
+    "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+    "worker": "independent trial reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Inspect the installed private movement trial, grant issuance, normal client, release sequence and failure cleanup. Synthetic fixtures only.",
+    "acceptance": "Verify baseline before movement, exact recipient and durable delivery after movement. Identify any incorrect proof, confinement or lifecycle behavior.",
+    "state": "accepted",
+    "result": {
+      "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+      "verdict": "Hold for two lifecycle findings.",
+      "evidence": "The reviewer reproduced removal of the stopped task before a nonempty exchange failed deletion. The baseline release message also preceded the resume check.",
+      "limitations": "Twenty synthetic tests passed. No live install or account action."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Hold live operation for the documented findings.",
+      "next": "Repair the release cue and interrupted cleanup and repeat independent review."
+    }
+  },
+  {
+    "id": "relay-installed-private-movement-operator",
+    "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+    "worker": "constrained setup operator",
+    "coordinator": "relay coordinator",
+    "scope": "Use only public operator instructions to walk through private branch movement and interruption. No account, credential or installation actions.",
+    "acceptance": "Select the machine, reader, client, target and writer gates, distinguish consumption from client cleanup, and report concrete friction or blockers.",
+    "state": "accepted",
+    "result": {
+      "revision": "3fa5d2848e6bc7ac9a72e640ac5db437380695d1",
+      "verdict": "Hold for missing notice count evidence.",
+      "evidence": "The operator identified both writer gates and the protected recovery procedure. The guide gave no independent way to detect two consumed notices.",
+      "limitations": "Agent walkthrough of the public guide without installed clients, grants or credentials."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Hold live operation for the documented findings.",
+      "next": "Add a bounded recipient-side count and repeat the walkthrough."
+    }
+  },
+  {
+    "id": "relay-private-movement-trial",
+    "revision": "0de3b5a40e5bbdc3e15a75830d46e1077b04ccd9",
+    "worker": "installed trial implementer",
+    "coordinator": "relay coordinator",
+    "scope": "Extend the protected private branch trial and its synthetic Windows fixtures to qualify a separate writer, live raw target and one proved notice. No installation or live credentials.",
+    "acceptance": "Preserve baseline-only and recovery behavior. Pin the target, condition and starting revision. Activation comes through the desktop relay client. Report scoped verification and limitations.",
+    "state": "accepted",
+    "result": {
+      "revision": "0de3b5a40e5bbdc3e15a75830d46e1077b04ccd9",
+      "verdict": "Implemented the private movement probe and Windows fixtures on the assigned base.",
+      "evidence": "Synthetic SQLite exercised the actual watch transitions and the protected verifier. A matching baseline permits the separate writer to advance. Proof requires the pinned grant, delivered state and retired handle.",
+      "limitations": "The implementation worker used synthetic credentials and test doubles for network and recipient activity."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Integrated at 3fa5d28 with the disposable client modes and operator guide. All six installer tests passed and the relay suite passed with one opt-in skip.",
+      "next": "Independent source review, constrained operator walkthrough and installed live qualification."
+    }
+  },
+  {
     "id": "relay-private-publication-review",
     "revision": "7bbbb82596c6162890262bcdf7c383fdee4acc0c",
     "worker": "independent grant reviewer",

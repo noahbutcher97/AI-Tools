@@ -17,6 +17,9 @@ import { localStatus, sendProvedNotice } from "../../MCP-Servers/bridges/relay/l
 import { runProvider } from "../../MCP-Servers/bridges/relay/provider-process.mjs";
 import { subscribeWatch } from "../../MCP-Servers/bridges/relay/watch-client.mjs";
 import { scheduleNotice } from "../../MCP-Servers/bridges/relay/completion-protocol.mjs";
+import { branchBinding } from "../../MCP-Servers/bridges/relay/schedule-watch.mjs";
+import { readWatcher } from "../../MCP-Servers/bridges/relay/watcher-health.mjs";
+import { trialInputCount } from "./trial-input-count.mjs";
 
 // Opt-in live check. The installed provider uses its signed-in desktop profile.
 // Only the disposable thread created below receives a turn or is archived.
@@ -25,11 +28,13 @@ if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).
 const fromShell = process.argv[3] === "--from-shell";
 const schedule = process.argv[3] === "--schedule";
 const checkMcp = process.argv[3] === "--mcp-watch";
-const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file"].includes(process.argv[3]);
-const installedWatch = installedMcp || process.argv[3] === "--installed-schedule";
+const installedBranch = ["--installed-branch","--installed-mcp-branch"].includes(process.argv[3]);
+const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file","--installed-mcp-branch"].includes(process.argv[3]);
+const installedWatch = installedMcp || ["--installed-schedule","--installed-branch"].includes(process.argv[3]);
 const installed = installedWatch || process.argv[3] === "--installed";
 const exchangeDir = installed ? process.argv[4] : null;
-const preparedTrial = installedMcp ? process.argv[5] : undefined;
+const preparedTrial = installedMcp || installedBranch ? process.argv[5] : undefined;
+if (installedBranch && !preparedTrial) throw Error("Supply the branch trial condition ID");
 if (preparedTrial !== undefined && !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(preparedTrial)) throw Error("Invalid trial ID");
 if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
@@ -44,7 +49,7 @@ const model = "gpt-6-luna";
 const mcpWorkspace = fileURLToPath(new URL("../../", import.meta.url));
 const params = { model, cwd: checkMcp || installedMcp ? mcpWorkspace : workspace, sandbox: fromShell ? "workspace-write" : "read-only", approvalPolicy: "never",
   config: { model_reasoning_effort: "low" } };
-const sessionName = "relay-check-" + randomUUID();
+const sessionName = "relay-check-" + (installedBranch ? preparedTrial : randomUUID());
 let provider, store, listener, id;
 const providers = [];
 const ownedOutputs = new Set();
@@ -153,6 +158,7 @@ async function callWatch(condition, expected) {
   assert.equal(call.condition, condition);
   assert.deepEqual(call.result, expected === "subscribed" ? { ok: true, state: expected, condition, target: id } :
     { ok: false, state: expected });
+  return turn.turn.id;
 }
 async function runTrial() {
   provider = await startProvider();
@@ -237,7 +243,13 @@ async function runTrial() {
       ownedOutputs.delete(temp);
     };
     write("target.json", { id, model });
+    const installRoot = installedBranch ? path.join(process.env.ProgramFiles, "CrossAgentRelay") : undefined;
     await until(() => {
+      if (installedBranch) {
+        const binding = branchBinding(id, preparedTrial);
+        return readWatcher(installRoot).state === "watching" &&
+          fs.existsSync(path.join(installRoot, "completion-grants", binding + ".json"));
+      }
       if (fs.existsSync(path.join(signals, "finished"))) throw Error("Installed trial closed before authorization");
       return fs.existsSync(path.join(signals, "authorized"));
     }, 300000, "Trial grant was not ready");
@@ -245,11 +257,11 @@ async function runTrial() {
     const env = { ...process.env, CODEX_THREAD_ID: id };
     delete env.CODEX_SESSION_ID;
     delete env.CLAUDE_CODE_SESSION_ID;
-    const command = installedWatch ? ["watch", "--notify", id, fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
+    const command = installedWatch ? ["watch", "--notify", id, installedBranch ? preparedTrial : fs.readFileSync(path.join(signals, "authorized"), "utf8")] :
       ["run", "--", process.execPath, "-e", "process.exit(23)"];
-    let job;
+    let job, activation;
     if (installedMcp) {
-      await callWatch(command.at(-1), "subscribed");
+      activation = await callWatch(command.at(-1), "subscribed");
     } else {
       const result = spawnSync(process.execPath, [cli, ...command], {
         cwd: workspace, env, input: "", encoding: "utf8", timeout: 15000, windowsHide: true,
@@ -270,6 +282,15 @@ async function runTrial() {
     } else {
       assert.equal(job.state, "started");
       write("job.json", { id: job.id });
+    }
+    if (installedBranch) {
+      await until(() => readWatcher(installRoot).state === "reports_only", 360000, "Branch trial cleanup timed out");
+      // Let the resumed writer drain after the broker loses delivery authority.
+      // Only the protected verifier can establish what the one input contained.
+      await delay(5000);
+      const count = await trialInputCount(id, seed.turn.id, activation);
+      if (count !== "one") process.exitCode = { none: 20, extra: 21, unknown: 22 }[count];
+      return;
     }
     await until(() => fs.existsSync(path.join(signals, "finished")), installedMcp ? 240000 : 150000, "Installed delivery was not confirmed");
     const resultText = fs.readFileSync(path.join(signals, "result.txt"), "utf8");
@@ -351,11 +372,17 @@ async function runTrial() {
 try {
   await runTrial();
 } finally {
+  let archived = false;
   if (id && provider) {
-    try { await provider.call("thread/archive", { threadId: id }); } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
+    try {
+      await provider.call("thread/archive", { threadId: id });
+      archived = true;
+    } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();
-  for (const file of ownedOutputs) fs.rmSync(file, { force: true });
+  if (!installedBranch || archived) {
+    for (const file of ownedOutputs) fs.rmSync(file, { force: true });
+  }
   await listener?.close();
   store?.close();
   fs.rmSync(root, { recursive: true, force: true });

@@ -9,9 +9,16 @@ param(
     [Parameter(Mandatory,ParameterSetName='Read')][ValidatePattern('^[a-f0-9]{64}$')][string]$ImageHash,
     [Parameter(Mandatory,ParameterSetName='Read')][ValidatePattern('^[a-f0-9]{64}$')][string]$TransportHash,
     [Parameter(ParameterSetName='Read')][ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')][string]$ReaderUser,
+    [Parameter(ParameterSetName='Read')][guid]$MovementTarget,
+    [Parameter(ParameterSetName='Read')][guid]$MovementCondition,
     [Parameter(Mandatory,ParameterSetName='Recover')][guid]$RecoverTrial
 )
 $ErrorActionPreference = 'Stop'
+$movement = $PSBoundParameters.ContainsKey('MovementTarget') -or $PSBoundParameters.ContainsKey('MovementCondition')
+if ($movement -and (!$ReaderUser -or !$MovementTarget -or !$MovementCondition -or
+    $MovementTarget -eq [guid]::Empty -or $MovementCondition -eq [guid]::Empty)) {
+    throw 'Private movement requires a reader, a disposable raw target and a fresh condition ID'
+}
 if (!$RecoverTrial -and (!$Endpoint.IsAbsoluteUri -or $Endpoint.Scheme -cne 'https' -or $Endpoint.UserInfo -or $Endpoint.Query -or $Endpoint.Fragment)) {
     throw 'Expected an HTTPS repository without embedded credentials'
 }
@@ -62,6 +69,91 @@ function Enter-BranchTrial {
         foreach ($name in @($workerTask,$brokerTask)) { Assert-RegisteredTask ($folder.GetTask($name)) $installed }
         return [pscustomobject]@{lock=$handle;record=$installed}
     } catch { $handle.Dispose(); throw }
+}
+function Write-BaselineVerifier {
+    $parameters = @{target=$fixtureTarget.ToString('D');revision=$ExpectedRevision} | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($paramsFile,$parameters,$utf)
+    $source = @'
+const fs = require('node:fs'), path = require('node:path');
+const {pathToFileURL} = require('node:url');
+const {DatabaseSync} = require('node:sqlite');
+const {createHash} = require('node:crypto');
+const [file,condition] = process.argv.slice(2);
+const root = path.dirname(path.dirname(process.execPath));
+const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).href);
+(async () => {
+  const {target,revision} = JSON.parse(fs.readFileSync(path.join(__dirname,'parameters.json'),'utf8'));
+  const db = new DatabaseSync(file,{readOnly:true});
+  try {
+    db.exec('PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
+    const row = db.prepare('SELECT w.state,s.baseline,w.handle FROM schedule_watches w LEFT JOIN file_samples s USING(condition) WHERE w.condition=?').get(condition);
+    if (row?.state === 'issued') {
+      const {branchBinding} = await load('schedule-watch');
+      const grant = (await load('run-handoff')).readScheduleGrant(root,branchBinding(target,condition),target,condition);
+      await (await load('completion-broker')).reportJob(grant,'activate_branch',{session:target});
+      process.stdout.write('waiting');
+    } else if (row?.state === 'waiting' && row.handle === null) {
+      const expected = createHash('sha256').update(revision).digest('hex');
+      process.stdout.write(row.baseline === null ? 'waiting' : row.baseline === expected ? 'proved' : 'different');
+    } else process.stdout.write('invalid');
+  } finally { db.close(); }
+})().catch(() => {process.exitCode=1});
+'@
+    [IO.File]::WriteAllText($verifier,$source,$utf)
+}
+function Write-MovementVerifier {
+    $source = @'
+const fs = require('node:fs'), path = require('node:path');
+const {DatabaseSync} = require('node:sqlite');
+const {createHash} = require('node:crypto');
+const [file,condition] = process.argv.slice(2);
+const input = JSON.parse(fs.readFileSync(path.join(__dirname,'parameters.json'),'utf8'));
+const digest = value => createHash('sha256').update(value).digest('hex');
+const db = new DatabaseSync(file,{readOnly:true});
+function outcome() {
+  db.exec('PRAGMA busy_timeout=500; PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
+  if (input.check === 'unused') {
+    const used = db.prepare('SELECT condition FROM schedule_watches WHERE condition=? UNION ALL SELECT condition FROM file_samples WHERE condition=? LIMIT 1').get(condition,condition);
+    return used ? 'used' : 'unused';
+  }
+  const g = input.grant;
+  if (input.check !== 'movement' || g.condition !== condition) return 'invalid';
+  // The installed schema binds the recipient and resource in the grant revision.
+  const revision = digest(JSON.stringify([g.condition,g.target,g.provider,g.scope,g.endpoint,g.ref,g.credential,g.expiresAt]));
+  const row = db.prepare('SELECT w.revision,w.state,w.cursor,w.batch IS NOT NULL AS hasBatch,w.handle IS NOT NULL AS hasHandle,s.condition AS sample,s.baseline FROM schedule_watches w LEFT JOIN file_samples s USING(condition) WHERE w.condition=?').get(condition);
+  if (!row || row.revision !== revision) return 'invalid';
+  const clear = !row.hasBatch && !row.hasHandle;
+  if (row.state === 'issued' && row.sample === null && row.cursor === null && clear) return 'waiting';
+  if (row.sample !== condition) return 'invalid';
+  if (row.state === 'waiting' && row.cursor === -1 && clear && row.baseline === null) return 'waiting';
+  if (row.baseline !== digest(input.revision)) return 'invalid';
+  if (row.state === 'waiting' && row.cursor === -1 && clear) return 'armed';
+  if (row.state === 'delivered' && row.cursor === 0 && clear) return 'proved';
+  if (row.state === 'ready' && row.cursor === -1 && clear) return 'pending';
+  if (row.state === 'dispatching' && row.cursor === -1 && row.hasBatch && !row.hasHandle) return 'pending';
+  if (row.state === 'observing' && row.cursor === 0 && row.hasBatch && row.hasHandle) return 'pending';
+  return 'invalid';
+}
+try { process.stdout.write(outcome()); } finally { db.close(); }
+'@
+    [IO.File]::WriteAllText($verifier,$source,$utf)
+}
+function Wait-BranchMovement($db,[DateTimeOffset]$deadline) {
+    $armed = $false
+    while ([DateTimeOffset]::UtcNow -lt $deadline) {
+        $result = Get-TrialOutcome $db $condition.ToString('D')
+        if ([DateTimeOffset]::UtcNow -ge $deadline) { break }
+        if ($result -ceq 'armed') {
+            if (!$armed) { Write-Host 'Private branch baseline matched. Before advancing the ref, independently verify the resumed raw target is addressable and the hosted ref still has the expected starting revision.' }
+            $armed = $true
+        } elseif ($armed -and $result -ceq 'proved') {
+            return
+        } elseif (!(($armed -and $result -ceq 'pending') -or (!$armed -and $result -ceq 'waiting'))) {
+            throw 'Private movement did not follow the expected baseline and delivery sequence'
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw 'Private branch movement delivery unproved before grant expiry'
 }
 function Publish-TrialFile([string]$destination,[string]$staging,[byte[]]$bytes) {
     $stream = [IO.File]::Open($staging,'CreateNew','Write','None')
@@ -125,9 +217,9 @@ function Restore-PrivateBranchTrial {
     [IO.Directory]::Delete($trial,$false)
 }
 if ($MyInvocation.InvocationName -eq '.') { return }
-$condition = if ($RecoverTrial) { $RecoverTrial } else { [guid]::NewGuid() }
+$condition = if ($RecoverTrial) { $RecoverTrial } elseif ($movement) { $MovementCondition } else { [guid]::NewGuid() }
 . (Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1') -Stage Run -TrialId $condition -ExpectedPackage $PackageHash
-$fixtureTarget = [guid]::NewGuid()
+$fixtureTarget = if ($movement) { $MovementTarget } else { [guid]::NewGuid() }
 $scheduler = New-Object -ComObject Schedule.Service
 $scheduler.Connect()
 $folder = $scheduler.GetFolder('\')
@@ -150,6 +242,7 @@ $profileCreated = $false
 $recorded = $false
 $credential = $null
 $store = Join-Path $root 'branch-credentials'
+$db = Join-Path $root 'completion-state/jobs.sqlite'
 $policyChanged = $false
 $flagChanged = $false
 $verified = Enter-BranchTrial
@@ -182,6 +275,12 @@ try {
         $inputGrant = @{condition=$condition.ToString('D');target=$fixtureTarget.ToString('D');provider='codex';scope='thread-branch-change';
             endpoint=$Endpoint.AbsoluteUri;ref=$Ref;credential=$credential;expiresAt=[DateTime]::UtcNow.AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')}
         Assert-PrivateBranchSupport $inputGrant
+        if ($movement) {
+            Assert-PlainPath $db
+            Write-MovementVerifier
+            [IO.File]::WriteAllText($paramsFile,'{"check":"unused"}',$utf)
+            if ((Get-TrialOutcome $db $condition.ToString('D')) -cne 'unused') { throw 'Movement requires an unused condition ID' }
+        }
         $brokerSid = [Security.Principal.SecurityIdentifier]::new($record.brokerSid).Value
         $tuple = ConvertTo-Json -InputObject @('branch-basic-v1',$credential,$Endpoint.AbsoluteUri,$Ref) -Compress
         $sha = [Security.Cryptography.SHA256]::Create()
@@ -194,42 +293,19 @@ try {
             $leaf = $bindingHex+'-'+$sealedHash+'.bin'
         } finally { $sha.Dispose() }
     }
-    $parameters = @{target=$fixtureTarget.ToString('D');revision=$ExpectedRevision} | ConvertTo-Json -Compress
-    [IO.File]::WriteAllText($paramsFile,$parameters,$utf)
-    $source = @'
-const fs = require('node:fs'), path = require('node:path');
-const {pathToFileURL} = require('node:url');
-const {DatabaseSync} = require('node:sqlite');
-const {createHash} = require('node:crypto');
-const [file,condition] = process.argv.slice(2);
-const root = path.dirname(path.dirname(process.execPath));
-const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).href);
-(async () => {
-  const {target,revision} = JSON.parse(fs.readFileSync(path.join(__dirname,'parameters.json'),'utf8'));
-  const db = new DatabaseSync(file,{readOnly:true});
-  try {
-    db.exec('PRAGMA trusted_schema=OFF; PRAGMA query_only=ON');
-    const row = db.prepare('SELECT w.state,s.baseline,w.handle FROM schedule_watches w LEFT JOIN file_samples s USING(condition) WHERE w.condition=?').get(condition);
-    if (row?.state === 'issued') {
-      const {branchBinding} = await load('schedule-watch');
-      const grant = (await load('run-handoff')).readScheduleGrant(root,branchBinding(target,condition),target,condition);
-      await (await load('completion-broker')).reportJob(grant,'activate_branch',{session:target});
-      process.stdout.write('waiting');
-    } else if (row?.state === 'waiting' && row.handle === null) {
-      const expected = createHash('sha256').update(revision).digest('hex');
-      process.stdout.write(row.baseline === null ? 'waiting' : row.baseline === expected ? 'proved' : 'different');
-    } else process.stdout.write('invalid');
-  } finally { db.close(); }
-})().catch(() => {process.exitCode=1});
-'@
-    [IO.File]::WriteAllText($verifier,$source,$utf)
-    # The minimum observation interval is one minute. This fixture expires
-    # before a second sample and cannot generate a change notification.
-    $expires = [DateTime]::UtcNow.AddSeconds(50).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    # Baseline-only authority expires before the second poll. Movement allows
+    # time for the intended client to subscribe and for a later ref sample.
+    $seconds = if ($movement) { 300 } else { 50 }
+    $expires = [DateTime]::UtcNow.AddSeconds($seconds).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
     $grant = @{condition=$condition.ToString('D');target=$fixtureTarget.ToString('D');provider='codex';scope='thread-branch-change';
         endpoint=$Endpoint.AbsoluteUri;ref=$Ref;credential=$credential;expiresAt=$expires}
     $version = if ($ReaderUser) { 6 } else { 5 }
     $approved = @{v=$version;grants=@();schedules=@();files=@();branches=@($grant)} | ConvertTo-Json -Depth 4 -Compress
+    if ($movement) {
+        if ((Get-TrialOutcome $db $condition.ToString('D')) -cne 'unused') { throw 'Movement condition changed before publication' }
+        $parameters = @{check='movement';grant=$grant;revision=$ExpectedRevision} | ConvertTo-Json -Depth 3 -Compress
+        [IO.File]::WriteAllText($paramsFile,$parameters,$utf)
+    } else { Write-BaselineVerifier }
     if ($ReaderUser) {
         $plan = @{v=2;package=$PackageHash;condition=$condition.ToString('D');member=$leaf;profile=$git;policy=$approved;staging=$staging}
         [IO.File]::WriteAllText($recovery,($plan|ConvertTo-Json -Compress),$utf)
@@ -249,14 +325,17 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
     Set-ApprovedText $flagFile $off $on
     $flagChanged = $true
     Restart-TrialBroker 'watching'
-    $db = Join-Path $root 'completion-state/jobs.sqlite'
     Assert-PlainPath $db
-    do {
-        $result = Get-TrialOutcome $db $condition.ToString('D')
-        if ($result -eq 'proved') { break }
-        if ($result -ne 'waiting' -or [DateTimeOffset]::UtcNow -ge [DateTimeOffset]::Parse($expires)) { throw 'Exact installed branch baseline unproved' }
-        Start-Sleep -Milliseconds 500
-    } while ($true)
+    if ($movement) {
+        Wait-BranchMovement $db ([DateTimeOffset]::Parse($expires))
+    } else {
+        do {
+            $result = Get-TrialOutcome $db $condition.ToString('D')
+            if ($result -eq 'proved') { break }
+            if ($result -ne 'waiting' -or [DateTimeOffset]::UtcNow -ge [DateTimeOffset]::Parse($expires)) { throw 'Exact installed branch baseline unproved' }
+            Start-Sleep -Milliseconds 500
+        } while ($true)
+    }
 } finally {
   if ($recorded) {
     try { Restore-PrivateBranchTrial } finally { $lock.Dispose() }
@@ -281,4 +360,5 @@ const load = name => import(pathToFileURL(path.join(root,'relay',name+'.mjs')).h
     }
   }
 }
-'Installed broker matched the expected branch revision with no notice.'
+if ($movement) { 'Installed broker proved the branch-change notice in the granted thread.' }
+else { 'Installed broker matched the expected branch revision with no notice.' }

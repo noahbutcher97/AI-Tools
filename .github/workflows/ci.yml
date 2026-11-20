@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-      - run: node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs
+      - run: node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs
 
   relay-handoffs:
     name: Relay handoff records

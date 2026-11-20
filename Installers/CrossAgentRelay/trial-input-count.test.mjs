@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
+import test from "node:test";
+import { trialInputCount } from "./trial-input-count.mjs";
+
+test("a disposable recipient counts consumed inputs without opening message contents", async t => {
+  const profile = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "relay-count-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const thread = randomUUID(), seed = randomUUID(), activation = randomUUID();
+  const count = turn => trialInputCount(thread, seed, turn, profile);
+  assert.equal(await count(), "unknown");
+  fs.mkdirSync(path.join(profile, ".codex"));
+  const db = new DatabaseSync(path.join(profile, ".codex", "thread_history_1.sqlite"));
+  t.after(() => { if (db.isOpen) db.close(); });
+  db.exec("CREATE TABLE thread_items(thread_id, turn_id, item_type, rollout_ordinal INTEGER PRIMARY KEY)");
+  const insert = (turn, kind = "userMessage", target = thread) =>
+    db.prepare("INSERT INTO thread_items(thread_id,turn_id,item_type) VALUES(?,?,?)").run(target, turn, kind);
+  insert(randomUUID(), "userMessage", randomUUID());
+  insert(seed, "agentMessage");
+  assert.equal(await count(), "unknown");
+  insert(seed);
+  assert.equal(await count(), "none");
+  assert.equal(await count(activation), "unknown");
+  insert(activation);
+  assert.equal(await count(), "one");
+  assert.equal(await count(activation), "none");
+  insert(randomUUID());
+  assert.equal(await count(activation), "one");
+  assert.equal(await count(), "extra");
+  insert(randomUUID());
+  assert.equal(await count(activation), "extra");
+  assert.equal(await count(seed), "unknown");
+  db.exec("DELETE FROM thread_items");
+  insert(seed);
+  insert(seed);
+  assert.equal(await count(), "unknown");
+  db.close();
+});
