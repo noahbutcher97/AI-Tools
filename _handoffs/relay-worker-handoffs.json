@@ -1,5 +1,14 @@
 [
   {
+    "id": "relay-private-movement-trial",
+    "revision": "0de3b5a40e5bbdc3e15a75830d46e1077b04ccd9",
+    "worker": "installed trial implementer",
+    "coordinator": "relay coordinator",
+    "scope": "Extend the protected private branch trial and its synthetic Windows fixtures to qualify a separate writer, live raw target and one proved notice. No installation or live credentials.",
+    "acceptance": "Preserve baseline-only and recovery behavior. Pin the target, condition and starting revision. Activation comes through the desktop relay client. Report scoped verification and limitations.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-private-publication-review",
     "revision": "7bbbb82596c6162890262bcdf7c383fdee4acc0c",
     "worker": "independent grant reviewer",
