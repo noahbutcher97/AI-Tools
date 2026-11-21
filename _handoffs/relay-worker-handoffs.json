@@ -1,5 +1,43 @@
 [
   {
+    "id": "provider-sequence-cleanup-record",
+    "worker": "cleanup implementer",
+    "coordinator": "relay coordinator",
+    "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+    "scope": "Verify and fix the outstanding final-directory removal finding in credential isolation qualification. Local synthetic regression, no installed or provider effects.",
+    "acceptance": "Demonstrate the failure and preserve recovery identity on a failed final removal.",
+    "state": "assigned"
+  },
+  {
+    "id": "provider-sequence-pr-audit",
+    "worker": "review auditor",
+    "coordinator": "relay coordinator",
+    "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+    "scope": "Read review threads and review bodies for relay pull requests 10 through 29. Verify the two unresolved branch trial comments and identify other actionable findings in review or conversation bodies. Read only.",
+    "acceptance": "Provide revision or file evidence, comment identifiers, and current dispositions.",
+    "state": "assigned"
+  },
+  {
+    "id": "provider-sequence-design-advice",
+    "worker": "design reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+    "scope": "Examine provider coupling in relay source, the rollout sequence and prior design. Read only.",
+    "acceptance": "Identify minimum design and sequencing change, existing compatibility risks, and a qualification strategy.",
+    "state": "accepted",
+    "result": {
+      "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+      "verdict": "pass",
+      "evidence": "Read-only review traced fixed provider kinds and UUID assumptions through discovery, watcher activation, proof, receive, inventory and readiness. The current parser accepts a hyphenated fixture ID but rejects delimiter-bearing IDs.",
+      "limitations": "Source and parser review. No real additional client or installed transport."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Added an adapter checkpoint and compatibility migration before provider-facing phase I work.",
+      "next": "Review the resulting design and qualify its implementation separately."
+    }
+  },
+  {
     "id": "native-lease-capacity-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck denied-capacity reclamation, tombstones, concurrent revocation and source attribution.",
