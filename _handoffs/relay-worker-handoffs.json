@@ -1,5 +1,14 @@
 [
   {
+    "id": "provider-sequence-contract-review",
+    "worker": "independent contract reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "d2d333ac3abc509f060a140172c68e58b96802d0",
+    "scope": "Review the new design checkpoint and phase ordering independently against owner requirements, source contracts and the amended review workflow. Source only.",
+    "acceptance": "Identify concrete design or sequencing blockers and any premature compatibility claims.",
+    "state": "assigned"
+  },
+  {
     "id": "provider-sequence-cleanup-record",
     "worker": "cleanup implementer",
     "coordinator": "relay coordinator",
@@ -15,7 +24,18 @@
     "revision": "26ce4ede2562fea94ea453860079be1624bae859",
     "scope": "Read review threads and review bodies for relay pull requests 10 through 29. Verify the two unresolved branch trial comments and identify other actionable findings in review or conversation bodies. Read only.",
     "acceptance": "Provide revision or file evidence, comment identifiers, and current dispositions.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+      "verdict": "pass",
+      "evidence": "Audited PRs 10–29 across conversation, review bodies and inline threads. Verified both branch trial fixes at abd6c30 and found one still-applicable credential trial cleanup bug. Three additional body findings received individual dispositions.",
+      "limitations": "Source audit. Some historical automation reported review failed after the PR closed."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Link verified fixes and record the remaining cleanup fix before resolving its original thread.",
+      "next": "Finish the credential cleanup regression and check final review state on new PRs."
+    }
   },
   {
     "id": "provider-sequence-design-advice",
