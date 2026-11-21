@@ -5,8 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { parseArgs } from "./client.mjs";
+import { addIndexedSession } from "./fixtures/session-index.mjs";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -111,6 +112,114 @@ test("resolve rejects extra options, repeated selectors and missing values", () 
   assert.deepEqual(parseArgs(["resolve", "--id=--id=x", "--adapter", "fixture", "--host=local", "--json"]), {
     command: "resolve", selector: { id: "--id=x", adapter: "fixture", host: "local" }, json: true,
   });
+});
+
+test("send and ping accept a literal local selector and keep positional addresses separate", () => {
+  const id = '--Sample:Group/Case="A"';
+  for (const command of ["send", "ping"]) {
+    const options = parseArgs([command, "--adapter", "sample", `--id=${id}`, "--host=desk", "--json"]);
+    assert.deepEqual(options.selector, { id, adapter: "sample", host: "desk" });
+    assert.equal(options.to, undefined);
+    assert.equal(options.viaDelegate, false);
+    assert.equal(parseArgs([command, "--via-delegate", `--id=${id}`]).viaDelegate, true);
+    for (const address of ["raw-session", "desk:raw-session"]) {
+      assert.equal(parseArgs([command, address]).to, address);
+    }
+    for (const args of [
+      ["positional", "--id=a"], ["--id=a", "positional"], ["positional", "--host=desk"],
+      ["--adapter=sample"], ["--host=desk"], ["--id=a", "--id=b"], ["--id", "--adapter", "sample"],
+      ["--id=a", "--adapter=x", "--adapter=x"], ["--id=a", "--host=x", "--host=y"],
+      ["--id=a", "--status", "s"], ["--id=a", "--all-hosts"], ["--id=a", "--request-id", "s"],
+      ["--id=a", "--json", "--json"], ["--id=a", "--scope", "all"], ["--id=a", "--cwd", "work"],
+      ["--id="], ["--id=a\n"], ["--id=a", "--host=../peer"], ["--id=a", "--adapter=../reader"],
+    ]) assert.throws(() => parseArgs([command, ...args]), Error, `${command} ${args.join(" ")}`);
+  }
+  const send = parseArgs(["send", `--id=${id}`, "--dry-run", "--message", "one\ntwo", "--re", "turn",
+    "--from", "operator", "--kind", "reply", "--conversation", "conversation", "--in-reply-to", "message"]);
+  assert.equal(send.dryRun, true);
+  assert.equal(send.message, "one\ntwo");
+  assert.deepEqual([send.re, send.from, send.kind, send.conversation, send.inReplyTo],
+    ["turn", "operator", "reply", "conversation", "message"]);
+  assert.equal(parseArgs(["send", `--id=${id}`]).message, undefined);
+});
+
+test("CLI refuses conflicting send modes while its stdin remains open", async t => {
+  const child = spawn(process.execPath, ["cli.mjs", "send", "positional", "--id=literal"], {
+    cwd: bridgeDir, stdio: ["pipe", "pipe", "pipe"], windowsHide: true,
+  });
+  t.after(() => child.kill());
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", chunk => { stderr += chunk; });
+  const code = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => { child.kill(); reject(new Error("CLI waited for input")); }, 10000);
+    child.once("error", reject);
+    child.once("close", code => { clearTimeout(timeout); resolve(code); });
+  });
+  assert.equal(code, 2, stderr);
+  assert.match(stderr, /--id/);
+});
+
+test("MCP send and ping refuse mixed selectors and unknown fields before delivery", async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-mode-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const spool = path.join(profile, "spool.log");
+  await withClient("relay-mode", async client => {
+    for (const name of ["relay_send", "relay_ping"]) {
+      const tool = (await client.listTools()).tools.find(tool => tool.name === name);
+      assert.equal(tool.inputSchema.additionalProperties, false);
+      assert.equal(tool.annotations.readOnlyHint, false);
+      for (const key of ["id", "adapter", "host"]) assert.ok(tool.inputSchema.properties[key]);
+      const legacy = name === "relay_send" ? "to" : "target";
+      const base = name === "relay_send" ? { message: "fixture", dry_run: true } : {};
+      const mixed = [{}, { adapter: "fixture" }, { [legacy]: "old", id: "new" }, { [legacy]: "old", host: "desk" }];
+      if (name === "relay_send") mixed.push({ id: "literal", request_id: "remote" });
+      else mixed.push({ id: "literal", status: "receipt" }, { id: "literal", all_hosts: true }, { status: "receipt", adapter: "fixture" });
+      for (const args of mixed) {
+        const response = await client.callTool({ name, arguments: { ...base, ...args } });
+        assert.equal(response.isError, true);
+        assert.equal(JSON.parse(response.content[0].text).cause, name === "relay_send" ? "invalid_send_mode" : "invalid_ping_mode");
+      }
+      for (const fields of [{ id: "literal", unexpected: true }, { id: "" }, { id: "literal", adapter: 1 },
+        { id: "literal", [name === "relay_send" ? "target" : "to"]: "old" }]) {
+        const response = await client.callTool({ name, arguments: { ...base, ...fields } });
+        assert.equal(response.isError, true);
+        assert.match(response.content[0].text, /validation/i);
+      }
+    }
+  }, { HOME: profile, USERPROFILE: profile, RELAY_SPOOL: spool });
+  assert.equal(fs.existsSync(spool), false);
+});
+
+test("a dry-run through the CLI and MCP checks the indexed Codex fixture without a queue executable", async t => {
+  let DatabaseSync;
+  try { ({ DatabaseSync } = await import("node:sqlite")); }
+  catch { return t.skip("node:sqlite unavailable"); }
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-dry-run-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const id = "019af000-0000-7000-8000-000000000001";
+  const codex = path.join(profile, ".codex");
+  fs.mkdirSync(path.join(codex, "thread-writer-locks"), { recursive: true });
+  fs.writeFileSync(path.join(codex, "thread-writer-locks", id + ".lock"), "");
+  addIndexedSession(DatabaseSync, codex, id, profile);
+  const env = { HOME: profile, USERPROFILE: profile, ProgramFiles: profile, PATH: profile, RELAY_SPOOL: path.join(profile, "spool.log") };
+  const cli = spawnSync(process.execPath, [...profileNodeArgs(env), "cli.mjs", "send",
+    "--id", id, "--adapter", "codex", "--dry-run", "--json"], {
+    cwd: bridgeDir, env: { ...process.env, ...env }, input: "first line\nsecond line", encoding: "utf8", timeout: 15000,
+  });
+  assert.equal(cli.status, 0, cli.error?.message || cli.stderr || cli.stdout);
+  await withClient("relay-local-dry-run", async client => {
+    const mcp = await client.callTool({ name: "relay_send", arguments: {
+      id, adapter: "codex", message: "first line\nsecond line", dry_run: true,
+    } });
+    for (const result of [JSON.parse(cli.stdout), JSON.parse(mcp.content[0].text)]) {
+      assert.equal(result.ok, true);
+      assert.equal(result.state, "eligible");
+      assert.equal(result.dispatch, "not_submitted");
+      assert.deepEqual(result.binding, { id, adapter: "codex", host: null });
+    }
+  }, env);
+  assert.equal(fs.existsSync(env.RELAY_SPOOL), false);
+  assert.equal(fs.existsSync(path.join(profile, ".cross-agent-relay")), false);
 });
 
 test("CLI and MCP discover and resolve the same literal local address and report refusals", async t => {
@@ -249,7 +358,8 @@ test("every listed target states whether it can be sent to", async () => {
   });
 
   for (const target of targets) {
-    assert.equal(typeof target.addressable, "boolean", `${target.id} has no addressable flag`);
+    if (target.addressable === null) assert.match(target.reason, /eligibility unchecked/);
+    else assert.equal(typeof target.addressable, "boolean", `${target.id} has no addressable flag`);
     assert.ok(typeof target.kind === "string" && target.kind.length > 0);
   }
 });
@@ -283,20 +393,26 @@ test("local CLI and MCP report incomplete enumeration and recovery in the same p
   }, env);
 });
 
-test("relay_send refuses an unknown target without delivering anything", async () => {
+test("relay_send refuses an unknown target without delivering anything", async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-missing-target-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(profile, ".claude", "sessions"), { recursive: true });
+  fs.mkdirSync(path.join(profile, ".codex", "thread-writer-locks"), { recursive: true });
+  const spool = path.join(profile, "spool.log");
   const payload = await withClient("relay-send-refusal", async (c) => {
     const result = await c.callTool({
       name: "relay_send",
       arguments: { to: "01a09999-0000-7000-a000-000000000000", message: "registration test, never delivered" },
     });
     return JSON.parse(result.content[0].text);
-  });
+  }, { HOME: profile, USERPROFILE: profile, RELAY_FIXTURE_ROOT: "", RELAY_SPOOL: spool });
 
   assert.equal(payload.ok, false);
   assert.equal(payload.cause, "target_not_found");
   // The refusal spooled, and it spooled to the throwaway path rather than the
   // operator's real one.
-  assert.equal(payload.spooled, TEST_SPOOL);
+  assert.equal(payload.spooled, spool);
+  assert.ok(fs.readFileSync(spool, "utf8").includes("registration test, never delivered"));
 });
 
 test("relay_send requires a non-empty message", async () => {

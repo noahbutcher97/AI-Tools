@@ -1,6 +1,5 @@
-import { sendMessage } from "./client.mjs";
+import { localReceiptStatus, pingLocal, sendLocal } from "./installed-delivery.mjs";
 import { loadDirectory, requestHost } from "./fleet.mjs";
-import { localPing, localStatus } from "./local-ping.mjs";
 import { digest, exactKeys, matches, newRequestId, parseAddress, UUID, validDeliveryFrame } from "./delivery-protocol.mjs";
 
 const states = new Set(["eligible", "queued", "unknown", "missing", "unresolved", "unaddressable", "restricted_route",
@@ -20,7 +19,7 @@ async function exchange(entry, local, frame, query) {
   } catch { return { error: "transport_unavailable" }; }
 }
 
-export async function sendAddressed(options, { directory = loadDirectory, query = requestHost, local = sendMessage,
+export async function sendAddressed(options, { directory = loadDirectory, query = requestHost, local = sendLocal,
   onHandle = () => {} } = {}) {
   let address;
   try { address = parseAddress(options.to); } catch { return failed("invalid_address"); }
@@ -28,7 +27,7 @@ export async function sendAddressed(options, { directory = loadDirectory, query 
   let fleet;
   try { fleet = directory(); } catch { return failed("directory_unavailable"); }
   if (address.host === fleet.local) return options.requestId ? failed("request_id_requires_remote_host") :
-    local({ ...options, to: address.id, exactId: true });
+    local({ ...options, to: address.id, exactId: true }, address.host);
   const entry = fleet.hosts.find(row => row.host === address.host);
   if (!entry) return failed("unknown_host");
   const requestId = options.requestId ?? newRequestId();
@@ -52,7 +51,7 @@ export async function sendAddressed(options, { directory = loadDirectory, query 
 }
 
 export async function sendStatus(handle, { directory = loadDirectory, query = requestHost } = {}) {
-  if (typeof handle === "string" && handle.startsWith("local-proof.")) return localStatus(handle);
+  if (typeof handle === "string" && handle.startsWith("local-proof.")) return localReceiptStatus(handle);
   let address;
   try { address = parseAddress(handle); } catch { return failed("invalid_handle"); }
   if (!address.host || !matches(UUID, address.id) || address.id[14] !== "7") return failed("invalid_handle");
@@ -66,14 +65,14 @@ export async function sendStatus(handle, { directory = loadDirectory, query = re
     delivery: state === "delivered" ? "delivered" : "not_proven", detail: "Receipt: " + state };
 }
 
-export async function pingTarget(to, { directory = loadDirectory, query = requestHost, local = localPing,
+export async function pingTarget(to, { directory = loadDirectory, query = requestHost, local = pingLocal,
   onHandle = () => {}, allowDelegate = false } = {}) {
   let address;
   try { address = parseAddress(to); } catch { return failed("invalid_address"); }
   if (!address.host) return local(address.id, { allowDelegate, onHandle });
   let fleet;
   try { fleet = directory(); } catch { return failed("directory_unavailable"); }
-  if (address.host === fleet.local) return local(address.id, { allowDelegate, onHandle });
+  if (address.host === fleet.local) return local(address.id, { allowDelegate, onHandle }, address.host);
   const entry = fleet.hosts.find(row => row.host === address.host);
   if (!entry) return failed("unknown_host");
   const common = { v: 2, host: address.host, requestId: newRequestId(), to: address.id };

@@ -26,6 +26,7 @@ import { trialInputCount } from "./trial-input-count.mjs";
 const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
+const boundPing = process.argv[3] === "--bound-ping";
 const turnStudy = process.argv[3] === "--turn-metadata";
 const proofStudy = process.argv[3] === "--turn-receipt";
 const metadataOnly = turnStudy || proofStudy;
@@ -39,7 +40,7 @@ const exchangeDir = installed ? process.argv[4] : null;
 const preparedTrial = installedMcp || installedBranch ? process.argv[5] : undefined;
 if (installedBranch && !preparedTrial) throw Error("Supply the branch trial condition ID");
 if (preparedTrial !== undefined && !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(preparedTrial)) throw Error("Invalid trial ID");
-if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp ? 4 : 3)) throw Error("Unexpected qualification argument");
+if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp || boundPing ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
     fs.readdirSync(exchangeDir).length)) throw Error("Supply an empty private trial directory");
 const signals = preparedTrial ? path.join(process.env.ProgramFiles, "RelayWatcherTrial-" + preparedTrial.replaceAll("-", "")) :
@@ -85,7 +86,7 @@ async function startProvider() {
   lines.on("line", line => {
     const msg = JSON.parse(line);
     if (msg.id && inbox.has(msg.id)) inbox.get(msg.id)(msg);
-    if (msg.method === "turn/completed" && (!metadataOnly || msg.params.threadId === id)) {
+    if (msg.method === "turn/completed" && ((!metadataOnly && !boundPing) || msg.params.threadId === id)) {
       turns.set(msg.params.turn.id, msg.params.turn.status);
     }
     if (metadataOnly) {
@@ -208,6 +209,35 @@ async function runTrial() {
   assert.equal(end, "completed");
   const targets = async () => (await discoverTargets({ scope: "all" })).targets.filter(t => t.id === id);
   const original = await until(async () => (await targets()).find(t => t.addressable), 8000, "Original thread unavailable");
+  if (boundPing) {
+    const cli = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/cli.mjs", import.meta.url));
+    function runCli(...args) {
+      const child = spawnSync(process.execPath, [cli, ...args, "--json"], {
+        cwd: workspace, encoding: "utf8", windowsHide: true, timeout: 45000,
+      });
+      if (child.error || ![0, 1].includes(child.status)) throw Error("Qualification CLI failed");
+      return JSON.parse(child.stdout);
+    }
+    const selector = ["--id", id, "--adapter", "codex"];
+    const { target } = runCli("resolve", ...selector);
+    assert.ok(target?.id === id && target.adapter === "codex", "Disposable thread did not resolve");
+    const preview = runCli("send", ...selector, "--message", "Example notice.", "--dry-run");
+    assert.ok(preview.ok && preview.state === "eligible", "Dry-run did not confirm eligibility");
+    const ping = runCli("ping", ...selector);
+    assert.ok(ping.handle, "Probe returned no checkable receipt");
+    await until(() => {
+      const status = runCli("ping", "--status", ping.handle);
+      if (status.state === "pending") return false;
+      assert.ok(status.state === "delivered" && status.binding?.id === id &&
+        status.binding.adapter === target.adapter && status.binding.host === target.host, "Bound receipt did not match");
+      return true;
+    }, 45000, "Probe remained pending");
+    await until(() => [...provider.turns].some(([turn, state]) => turn !== seed.turn.id && state === "completed"),
+      90000, "Probe turn did not finish");
+    assert.equal(await trialInputCount(id, seed.turn.id), "one");
+    console.log("Bound CLI probe proved one inbound notice. A fresh CLI process verified its receipt.");
+    return;
+  }
   if (schedule) {
     const file = path.join(root, "jobs.sqlite");
     await initializeCompletionJobs(file);
@@ -485,7 +515,7 @@ try {
     try {
       await provider.call("thread/archive", { threadId: id });
       archived = true;
-      if (metadataOnly) console.log("Disposable qualification thread archived.");
+      if (metadataOnly || boundPing) console.log("Disposable qualification thread archived.");
     } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();

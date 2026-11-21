@@ -13,6 +13,13 @@ function readOptional(root, file) {
   }
 }
 
+function readHost(dir) {
+  const machine = readOptional(dir, "machine.json");
+  if (machine === undefined) return null;
+  if (!exactKeys(machine, ["host"]) || !matches(HOST, machine.host)) throw new Error("invalid machine record");
+  return machine.host;
+}
+
 const resolutionDetails = {
   resolved: "Exact local match. This lookup did not send a notice.",
   invalid_selector: "Use the literal session ID and, if needed, its adapter and local host label.",
@@ -23,6 +30,9 @@ const resolutionDetails = {
   host_unavailable: "The local machine label is unavailable. Check machine enrollment.",
   nonlocal_host: "This lookup runs locally. Run it on the named machine.",
   inventory_unavailable: "Local inventory configuration is unavailable. Check the installed reader settings.",
+  installation_changed: "The local host or applicable reader set changed during lookup. Resolve the intended session again.",
+  target_not_addressable: "The selected Codex session is no longer eligible for queue submission.",
+  binding_changed: "A native session ID now matches that display name. Resolve the intended session again.",
 };
 
 // Only installation code supplies readers and the configuration root. Both
@@ -47,7 +57,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return inventory(options);
   }
 
-  async function lookup(selector) {
+  async function lookup(selector, { aliasTargetId, requireCodexEligibility = false } = {}) {
     if (!selector || typeof selector !== "object" || !Object.hasOwn(selector, "id") ||
         Object.keys(selector).some(key => !["host", "id", "adapter"].includes(key))) {
       return { ok: false, state: "invalid_selector" };
@@ -55,18 +65,16 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     const { id } = selector;
     const host = Object.hasOwn(selector, "host") ? selector.host : undefined;
     const adapter = Object.hasOwn(selector, "adapter") ? selector.adapter : undefined;
-    if (host !== undefined && !matches(HOST, host)) return { ok: false, state: "invalid_selector" };
+    if ((host !== undefined && !matches(HOST, host)) || (aliasTargetId !== undefined && adapter !== undefined)) {
+      return { ok: false, state: "invalid_selector" };
+    }
     let dir;
     let localHost;
     try {
       dir = root();
       // Local-only use also works before fleet enrollment. An invalid machine
       // record must never supply the identity in a resolved address.
-      const machine = readOptional(dir, "machine.json");
-      if (machine !== undefined && (!exactKeys(machine, ["host"]) || !matches(HOST, machine.host))) {
-        return { ok: false, state: "host_unavailable" };
-      }
-      localHost = machine?.host ?? null;
+      localHost = readHost(dir);
     } catch {
       return { ok: false, state: "host_unavailable" };
     }
@@ -78,19 +86,54 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     } catch {
       return { ok: false, state: "inventory_unavailable" };
     }
-    const result = await inventory.resolve({ id, adapter });
+    const result = aliasTargetId === undefined ? await inventory.resolve({ id, adapter }, { requireCodexEligibility })
+      : await inventory.resolveAlias(id, aliasTargetId);
+    // Both an exact match and a miss can start delivery: a miss permits
+    // looking up a legacy name. Only use them under the installation surveyed.
+    if (result.ok || result.state === "missing") {
+      try {
+        if (root() !== dir || readHost(dir) !== localHost) return { ok: false, state: "installation_changed" };
+      } catch {
+        return { ok: false, state: "host_unavailable" };
+      }
+      let current;
+      try {
+        current = readers(dir);
+      } catch {
+        return { ok: false, state: "inventory_unavailable" };
+      }
+      const sameReaders = adapter !== undefined ? current.hasReader(adapter) :
+        inventory.readerKinds.length === current.readerKinds.length && inventory.readerKinds.every(current.hasReader);
+      if (!sameReaders) return { ok: false, state: "installation_changed" };
+    }
     if (!result.ok) return result;
     return { ...result, target: { ...result.target, host: localHost } };
   }
 
-  async function resolve(selector) {
-    const result = await lookup(selector);
+  async function resolve(selector, { requireCodexEligibility = false } = {}) {
+    const result = await lookup(selector, { requireCodexEligibility });
     return { ...result, detail: resolutionDetails[result.state] };
   }
 
-  return { list, resolve };
+  async function resolveAlias(selector, nativeId) {
+    const result = typeof nativeId === "string" ? await lookup(selector, { aliasTargetId: nativeId }) : { ok: false, state: "invalid_selector" };
+    return { ...result, detail: resolutionDetails[result.state] };
+  }
+
+  function permitsProof(binding) {
+    try {
+      const dir = root();
+      return readHost(dir) === binding.host && readers(dir).hasReader(binding.adapter);
+    } catch {
+      return false;
+    }
+  }
+
+  return { list, resolve, resolveAlias, permitsProof };
 }
 
 const local = createLocalAddresses();
 export const listInstalledTargets = local.list;
 export const resolveLocalAddress = local.resolve;
+export const resolveLocalAlias = local.resolveAlias;
+export const permitsLocalProof = local.permitsProof;

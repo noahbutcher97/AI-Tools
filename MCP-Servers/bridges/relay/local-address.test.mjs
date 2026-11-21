@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createLocalAddresses } from "./local-address.mjs";
+import { createInstalledDelivery } from "./installed-delivery.mjs";
 
 function setup(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-local-address-"));
@@ -57,6 +58,66 @@ test("an invalid installation or explicit host mismatch refuses before enumerati
     assert.equal((await local.resolve(selector)).state, "inventory_unavailable");
   }
   assert.deepEqual(calls, []);
+});
+
+function changingInstallation(t, { change, during = 2, present = true }) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-changing-installation-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const write = (file, value) => fs.writeFileSync(path.join(root, file), JSON.stringify(value));
+  write("machine.json", { host: "host-a" });
+  write("inventory-adapters.json", { enabled: ["sample"] });
+  const id = "Chat:One";
+  let reads = 0;
+  let submissions = 0;
+  let legacyCalls = 0;
+  const adapters = ["sample", "other"].map(kind => ({
+    kind,
+    async enumerate() {
+      if (kind === "sample" && ++reads === during) {
+        await Promise.resolve();
+        change(write);
+      }
+      return { targets: present || kind === "other" ? [{ id }] : [], complete: true };
+    },
+    validId: value => value === id,
+    ready: () => true,
+    submit() { submissions++; return { ok: true }; },
+  }));
+  const addresses = createLocalAddresses({ root: () => root, additionalAdapters: adapters });
+  const dispatch = createInstalledDelivery({
+    resolve: addresses.resolve, adapters, sendLegacy() { legacyCalls++; return { ok: true }; },
+  });
+  return { dispatch, id, counts: () => ({ reads, submissions, legacyCalls }) };
+}
+
+const expandReaders = write => write("inventory-adapters.json", { enabled: ["sample", "other"] });
+for (const [scenario, selector, change] of [
+  ["host changed", { host: "host-a", adapter: "sample" }, write => write("machine.json", { host: "host-b" })],
+  ["reader withdrawn", { adapter: "sample" }, write => write("inventory-adapters.json", { enabled: ["other"] })],
+  ["unqualified lookup gained a competing reader", {}, expandReaders],
+]) {
+  test("a change during the final enumeration prevents submission: " + scenario, async t => {
+    const fixture = changingInstallation(t, { change });
+    const result = await fixture.dispatch.sendBound({ ...selector, id: fixture.id }, { message: "Synthetic notice." });
+    assert.equal(result.cause, "installation_changed");
+    assert.equal(result.dispatch, "not_submitted");
+    assert.deepEqual(fixture.counts(), { reads: 2, submissions: 0, legacyCalls: 0 });
+  });
+}
+
+test("a qualified lookup can finish when an unrelated reader becomes enabled", async t => {
+  const fixture = changingInstallation(t, { change: expandReaders });
+  const result = await fixture.dispatch.sendBound({ id: fixture.id, adapter: "sample" }, { message: "Synthetic notice." });
+  assert.equal(result.dispatch, "accepted");
+  assert.deepEqual(fixture.counts(), { reads: 2, submissions: 1, legacyCalls: 0 });
+});
+
+test("a missing lookup cannot start legacy delivery after the installed readers change", async t => {
+  const fixture = changingInstallation(t, { change: expandReaders, during: 1, present: false });
+  const result = await fixture.dispatch.sendLocal({ to: fixture.id, message: "Synthetic notice." });
+  assert.equal(result.dispatch, "not_submitted");
+  assert.equal(result.cause, "installation_changed");
+  assert.deepEqual(fixture.counts(), { reads: 1, submissions: 0, legacyCalls: 0 });
 });
 
 test("CLI and MCP select the same literal ID from an independently composed reader", async t => {
