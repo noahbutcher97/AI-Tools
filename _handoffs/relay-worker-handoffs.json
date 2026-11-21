@@ -6,7 +6,18 @@
     "acceptance": "Disposition of prior findings and scope cleared for next checkpoint.",
     "revision": "847161ade991e0f0d0986f7b8f25ccb87baab1ea",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "847161ade991e0f0d0986f7b8f25ccb87baab1ea",
+      "verdict": "pass",
+      "evidence": "Exact FILETIME encoding and adjacent-tick tests, epoch-independent one-shot event identity, single lifecycle ownership and correct mismatch/revocation outcomes resolve the four findings.",
+      "limitations": "Design only. No installed shared execution or provider delivery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the disabled two-process fixture.",
+      "next": "Qualify the fixture, broker protocol and deployed delivery separately."
+    }
   },
   {
     "id": "shared-process-worker-design-review",
