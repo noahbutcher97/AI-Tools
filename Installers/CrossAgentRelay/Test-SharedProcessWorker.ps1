@@ -22,21 +22,22 @@ function Attach-FixtureChild([int]$exitCode) {
     $name = 'Local\relay-fixture-' + [guid]::NewGuid().ToString('N')
     $gate = [Threading.EventWaitHandle]::new($false,'ManualReset',$name)
     $command = "if ([Threading.EventWaitHandle]::OpenExisting('$name').WaitOne(20000)) { [Console]::WriteLine('ending $exitCode'); exit $exitCode }; exit 94"
-    $child = $handle = $output = $null
+    $child = $output = $null
+    $attachment = [guid]::NewGuid()
     try {
         $child = Start-HiddenFixture ('-NoLogo -NoProfile -NonInteractive -Command "'+$command+'"')
         $script:started++
-        $expected = [ProcessEndObservationFixture]::CreationFileTime($child.SafeHandle)
-        $handle = [ProcessEndObservationFixture]::Open($child)
-        $script:opened++
-        if ([ProcessEndObservationFixture]::Observe($handle,$expected,0) -cne 'running' -or
-            [ProcessEndObservationFixture]::Observe($handle,$expected+1,0) -cne 'unknown') { throw 'Creation binding failed.' }
+        $creation = [ProcessEndObservationFixture]::CreationFileTime($child.SafeHandle).ToString([CultureInfo]::InvariantCulture)
+        $grants[$attachment] = @{pid=$child.Id;creation=$creation}
+        if ($leases.Attach($attachment,$child,$creation,30000) -cne 'attached' -or
+            $leases.Sample($attachment) -cne 'running') { throw 'Creation binding failed.' }
         $output = $child.StandardOutput
         $eof = $output.ReadToEndAsync()
-        return @{id=$child.Id; gate=$gate; handle=$handle; creation=$expected; code=$exitCode; output=$output; eof=$eof}
+        return @{id=$child.Id; gate=$gate; attachment=$attachment; code=$exitCode; output=$output; eof=$eof}
     } catch {
         [void]$gate.Set()
-        if ($handle) { $handle.Dispose(); $script:closed++ }
+        $grants.Remove($attachment)
+        $leases.Revoke($attachment)
         if ($child -and !$child.WaitForExit(6000)) { throw 'Failed attachment did not release its child.' }
         if ($output) { $output.Dispose() }
         $gate.Dispose()
@@ -47,7 +48,8 @@ function Attach-FixtureChild([int]$exitCode) {
 }
 
 function Close-Observer($child) {
-    if (!$child.handle.IsClosed) { $child.handle.Dispose(); $script:closed++ }
+    $grants.Remove($child.attachment)
+    $leases.Revoke($child.attachment)
 }
 
 function Confirm-FixtureExit($child) {
@@ -56,12 +58,18 @@ function Confirm-FixtureExit($child) {
 }
 
 function Observe-Fixture($child) {
-    return [ProcessEndObservationFixture]::Observe($child.handle,$child.creation,0)
+    return $leases.Sample($child.attachment)
 }
 
 function Invoke-FixtureWorker {
-    Add-Type -Path (Join-Path $PSScriptRoot 'fixtures/ProcessEndObservation.cs')
-    $script:started = $script:opened = $script:closed = 0
+    Add-Type -Path @((Join-Path $PSScriptRoot 'fixtures/ProcessEndObservation.cs'),(Join-Path $PSScriptRoot 'fixtures/ProcessLeaseTable.cs'))
+    $script:started = 0
+    $grants = @{}
+    $leases = [ProcessLeaseTable]::new({
+        param($attachment,$processId,$creation)
+        $grant = $grants[$attachment]
+        return $null -ne $grant -and $grant.pid -eq $processId -and $grant.creation -ceq $creation
+    })
     $children = @()
     $inputReader = [IO.StreamReader]::new([Console]::OpenStandardInput())
     try {
@@ -84,11 +92,16 @@ function Invoke-FixtureWorker {
                 'end-first' {
                     [void]$children[0].gate.Set()
                     Confirm-FixtureExit $children[0]
-                    $receipt = [ProcessEndObservationFixture]::Observe($children[0].handle,$children[0].creation,2000)
+                    $wait = [Diagnostics.Stopwatch]::StartNew()
+                    do {
+                        $receipt = Observe-Fixture $children[0]
+                        if ($receipt -cne 'running') { break }
+                        Start-Sleep -Milliseconds 10
+                    } while ($wait.ElapsedMilliseconds -lt 2000)
                     [Console]::WriteLine($receipt)
                 }
                 'end-revoked' {
-                    if (!$children[1].handle.IsClosed) { throw 'Expected revocation.' }
+                    if ($grants.ContainsKey($children[1].attachment)) { throw 'Expected revocation.' }
                     [void]$children[1].gate.Set()
                     Confirm-FixtureExit $children[1]
                     [Console]::WriteLine((Observe-Fixture $children[1]))
@@ -101,13 +114,14 @@ function Invoke-FixtureWorker {
     } finally {
         $acknowledged = 0
         foreach ($child in $children) { [void]$child.gate.Set(); Close-Observer $child }
+        $leases.Dispose()
         foreach ($child in $children) {
             try { Confirm-FixtureExit $child; $acknowledged++ }
             catch { continue }
             finally { $child.output.Dispose(); $child.gate.Dispose() }
         }
         $inputReader.Dispose()
-        [Console]::WriteLine("cleanup children=$started acknowledged=$acknowledged opened=$opened closed=$closed")
+        [Console]::WriteLine("cleanup children=$started acknowledged=$acknowledged opened=$($leases.Opened) closed=$($leases.Closed)")
         if ($acknowledged -ne $children.Count) { throw 'Missing fixture acknowledgment during cleanup.' }
     }
 }

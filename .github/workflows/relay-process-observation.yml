@@ -4,7 +4,10 @@ on:
     paths:
       - '.github/workflows/relay-process-observation.yml'
       - 'Installers/CrossAgentRelay/Test-ProcessEnd*.ps1'
+      - 'Installers/CrossAgentRelay/Test-ProcessLeaseControls.ps1'
+      - 'Installers/CrossAgentRelay/Test-SharedProcessWorker.ps1'
       - 'Installers/CrossAgentRelay/fixtures/ProcessEndObservation.cs'
+      - 'Installers/CrossAgentRelay/fixtures/ProcessLeaseTable.cs'
       - 'Installers/CrossAgentRelay/fixtures/ProcessEndProbeCommand.ps1'
 permissions:
   contents: read
@@ -17,6 +20,9 @@ jobs:
       - name: Observe owned fixtures
         shell: powershell
         run: ./Installers/CrossAgentRelay/Test-ProcessEndObservation.ps1
+      - name: Check process lease admission and expiry
+        shell: powershell
+        run: ./Installers/CrossAgentRelay/Test-ProcessLeaseControls.ps1
       - name: Measure access from a separate service account
         shell: powershell
         run: ./Installers/CrossAgentRelay/Test-ProcessEndSecondAccount.ps1
