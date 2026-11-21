@@ -3,7 +3,6 @@ import { createCipheriv, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { createBoundDelivery } from "./bound-delivery.mjs";
 import { digest } from "./delivery-protocol.mjs";
@@ -184,6 +183,9 @@ test("status rejects authenticated format and target confusion before a reader o
 });
 
 test("the installed Codex proof reader observes a consumed SQLite userMessage in the bound UUID thread", async t => {
+  let DatabaseSync;
+  try { ({ DatabaseSync } = await import("node:sqlite")); }
+  catch { return t.skip("node:sqlite unavailable"); }
   const profile = profileDir(t), dir = path.join(profile, ".codex");
   fs.mkdirSync(dir);
   const target = { host: null, adapter: "codex", id: codexId };
