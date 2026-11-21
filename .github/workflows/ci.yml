@@ -31,6 +31,11 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
+      - name: Exercise local inventory through CLI and MCP
+        working-directory: MCP-Servers/bridges/relay
+        run: |
+          npm ci --ignore-scripts
+          node --test client.test.mjs server.test.mjs
       - run: node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs Installers/CrossAgentRelay/turn-metadata.test.mjs MCP-Servers/bridges/relay/proof.test.mjs
 
   relay-handoffs:
