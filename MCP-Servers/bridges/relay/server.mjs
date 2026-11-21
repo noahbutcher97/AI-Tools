@@ -3,7 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod/v3";
 
 import { toolJsonResult } from "../../lib/tool-result.mjs";
-import { discoverTargets, formatTargets } from "./client.mjs";
+import { listLocalTargets, formatTargets } from "./client.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
@@ -45,7 +45,7 @@ server.tool(
 
 server.tool(
   "relay_list",
-  "List live Claude Code and Codex sessions locally or across configured hosts.",
+  "List sessions from local inventory adapters or query the configured hosts. Local results report whether each adapter enumerated its sessions. Workspace and activity details can still be unknown.",
   {
     scope: z
       .enum(["cwd", "all"])
@@ -54,7 +54,7 @@ server.tool(
     cwd: z.string().optional().describe("Workspace to scope to. Defaults to the server's working directory."),
     all_hosts: z.boolean().optional().describe("Query the configured hosts concurrently. An explicit workspace scope applies on this host."),
   },
-  // Reads two machine-local registries and nothing else. Declared read-only so
+  // Local discovery reads inventory from the configured adapters. Declared read-only so
   // a host can auto-approve it: measured from a real Codex session, a tool with
   // no readOnlyHint is treated as side-effecting, and under
   // `approval_policy = "never"` the call fails outright rather than prompting.
@@ -70,13 +70,15 @@ server.tool(
       }
     }
     scope ??= "cwd";
-    const result = await discoverTargets({ scope, cwd: cwd || process.cwd() });
+    const result = await listLocalTargets({ scope, cwd: cwd || process.cwd() });
     // Resolved per call like the send path, so a caller asking who it is gets
     // the same answer relay would stamp on its next message.
     const identity = resolveCallerIdentity({ extra });
     return toolJsonResult({
       targets: result.targets,
       warnings: result.warnings,
+      complete: result.complete,
+      inventory: result.inventory,
       rendered: formatTargets(result),
       // A listing is a snapshot: both registries turn over in minutes, and a
       // target can exit between this call and a send.

@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-local-adapter-inventory",
+    "worker": "discovery implementer",
+    "coordinator": "relay coordinator",
+    "revision": "ff62e18fa5f73f90dfd6f0f0955dd0e134605ae1",
+    "scope": "Implement the trusted local inventory composition and its regression tests only.",
+    "acceptance": "Prove a synthetic third adapter lists an opaque native ID, scoped filtering and incomplete coverage; avoid new delivery or dynamic loading.",
+    "state": "accepted",
+    "result": {
+      "revision": "ff62e18fa5f73f90dfd6f0f0955dd0e134605ae1",
+      "verdict": "Local read-only composition implemented.",
+      "evidence": "The synthetic delimiter-bearing ID was missing at the base and listed by the composed reader after the change. Five focused suites passed 120 tests. Unexpected builtin reader failure kept legacy send and reference lookup from selecting a target.",
+      "limitations": "Synthetic installation; no third-party provider wake or installed setup tested."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for implementation review. Both public list faces use the same local binding.",
+      "next": "Review the committed delta and exercise the CLI against an incomplete fixture."
+    }
+  },
+  {
     "id": "provider-sequence-cleanup-replay",
     "worker": "independent operator",
     "coordinator": "relay coordinator",

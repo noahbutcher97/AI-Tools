@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -19,13 +20,13 @@ const bridgeDir = dirname(fileURLToPath(import.meta.url));
 // at ~/.cross-agent-relay/spool.log.
 const TEST_SPOOL = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-server-")), "spool.log");
 
-async function withClient(name, fn) {
+async function withClient(name, fn, env = {}) {
   const client = new Client({ name, version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["server.mjs"],
     cwd: bridgeDir,
-    env: { ...process.env, RELAY_SPOOL: TEST_SPOOL },
+    env: { ...process.env, RELAY_SPOOL: TEST_SPOOL, ...env },
     stderr: "pipe",
   });
   await client.connect(transport);
@@ -126,8 +127,37 @@ test("every listed target states whether it can be sent to", async () => {
 
   for (const target of targets) {
     assert.equal(typeof target.addressable, "boolean", `${target.id} has no addressable flag`);
-    assert.equal(["claude", "codex"].includes(target.kind), true);
+    assert.ok(typeof target.kind === "string" && target.kind.length > 0);
   }
+});
+
+test("local CLI and MCP report incomplete enumeration and recovery in the same profile", async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-inventory-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const env = { HOME: profile, USERPROFILE: profile };
+  const registry = path.join(profile, ".claude", "sessions");
+  fs.mkdirSync(registry, { recursive: true });
+  fs.mkdirSync(path.join(profile, ".codex", "thread-writer-locks"), { recursive: true });
+  const record = path.join(registry, "fixture.json");
+  fs.writeFileSync(record, "{");
+
+  await withClient("relay-inventory", async client => {
+    for (const complete of [false, true]) {
+      if (complete) fs.writeFileSync(record, JSON.stringify({ sessionId: "fixture", cwd: profile }));
+      const cli = JSON.parse(execFileSync(process.execPath, ["cli.mjs", "list", "--scope", "all", "--json"], {
+        cwd: bridgeDir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 15000,
+      }));
+      const response = await client.callTool({ name: "relay_list", arguments: { scope: "all" } });
+      const mcp = JSON.parse(response.content[0].text);
+      for (const result of [cli, mcp]) {
+        assert.equal(result.complete, complete);
+        assert.deepEqual(Object.fromEntries(result.inventory.map(row => [row.kind, row.complete])), {
+          claude: complete, codex: true,
+        });
+        assert.deepEqual(result.targets.map(target => target.id), complete ? ["fixture"] : []);
+      }
+    }
+  }, env);
 });
 
 test("relay_send refuses an unknown target without delivering anything", async () => {

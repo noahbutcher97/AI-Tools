@@ -17,7 +17,7 @@
 // reason: SendMessage is an in-session tool, so a shell-invocable path to a
 // Claude session needs the delegate that Unit 3 adds.
 
-import { discoverTargets, formatTargets, parseArgs } from "./client.mjs";
+import { listLocalTargets, formatTargets, parseArgs } from "./client.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { checkReadiness, fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
@@ -29,6 +29,7 @@ const help = `Usage: relay <command> [options]
 
   list                         List sessions in the current workspace
   list --scope all             List sessions in all local workspaces
+  list --json                  Include machine-readable local adapter coverage
   list --all-hosts             List sessions on enrolled machines
   send <target> --message TEXT Send a notice; --dry-run previews the destination
   ping <target>                Wake the session once and check for delivery
@@ -125,7 +126,7 @@ async function main() {
     process.exitCode = result.complete ? 0 : 3;
     return;
   }
-  const result = await discoverTargets({ scope: options.scope, cwd: options.cwd || process.cwd() });
+  const result = await listLocalTargets({ scope: options.scope, cwd: options.cwd || process.cwd() });
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
