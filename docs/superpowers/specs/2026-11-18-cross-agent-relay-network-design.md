@@ -2,7 +2,15 @@
 
 Proposed on 2026-11-18 for owner review.
 
-This extends the [cross-agent relay design](2026-08-23-cross-agent-relay-design.md), especially §4.1–4.6, §5–6, and Units 1–3. The relay gives Claude Code and Codex sessions the same way to find, address, wake, and check on a live session in any workspace or outside a project. CLI and MCP calls share one implementation. A doorbell carries data, and the receiving session gets its authority from an owner-approved source it already trusts. Delivery, a signature, and a named role leave that authority unchanged.
+This extends the [cross-agent relay design](2026-08-23-cross-agent-relay-design.md), especially §4.1–4.6, §5–6, and Units 1–3. The relay gives AI coding sessions from any provider the same way to find, address, wake, and check on a live session in any workspace or outside a project. CLI and MCP calls share one implementation. A doorbell carries data, and the receiving session gets its authority from an owner-approved source it already trusts. Delivery, a signature, and a named role leave that authority unchanged.
+
+### Provider compatibility
+
+Claude Code and Codex are the first integrations. Other common clients and future clients use the same CLI, MCP tools, addressing rules and watch grants. Integrate with the application that owns the live session. Switching the model inside that application should require no change to relay routing.
+
+An installed adapter supplies the client-specific session ID, discovery, exact targeting, wake or queue behavior, delivery proof and continuity across resume where available. The core must accept an additional adapter without edits to a provider-name list in discovery, routing, watches or doctor. Preserve existing raw addresses and allow provider IDs with different formats. Reject ambiguous targets before dispatch. Only the destination's trusted installation selects adapters. A request cannot supply an executable or pick a different adapter to bypass a grant.
+
+Qualify calling relay tools and receiving a doorbell separately. In automated tests, register a synthetic adapter unknown to the core, use a non-UUID session ID and send from a different client through the ordinary relay interface. Check exact delivery, missing capabilities and resume identity. A client that can call MCP may be able to send even when its own sessions cannot yet be woken. Doctor reports each capability with its evidence status. Claim live recipient support for each common client after exercising its actual idle, busy and resumed sessions and verifying where the notice landed.
 
 ## Current implementation
 
