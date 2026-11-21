@@ -48,4 +48,5 @@ const local = createLocalAddresses({
 });
 export const listInstalledTargets = local.list;
 export const resolveLocalAddress = local.resolve;
+export const resolveLocalAlias = local.resolveAlias;
 export const permitsLocalProof = local.permitsProof;

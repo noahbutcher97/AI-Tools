@@ -31,6 +31,8 @@ const resolutionDetails = {
   nonlocal_host: "This lookup runs locally. Run it on the named machine.",
   inventory_unavailable: "Local inventory configuration is unavailable. Check the installed reader settings.",
   installation_changed: "The local host or applicable reader set changed during lookup. Resolve the intended session again.",
+  target_not_addressable: "The selected Codex session is no longer eligible for queue submission.",
+  binding_changed: "A native session ID now matches that display name. Resolve the intended session again.",
 };
 
 // Only installation code supplies readers and the configuration root. Both
@@ -55,7 +57,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return inventory(options);
   }
 
-  async function lookup(selector) {
+  async function lookup(selector, { aliasTargetId, requireCodexEligibility = false } = {}) {
     if (!selector || typeof selector !== "object" || !Object.hasOwn(selector, "id") ||
         Object.keys(selector).some(key => !["host", "id", "adapter"].includes(key))) {
       return { ok: false, state: "invalid_selector" };
@@ -63,7 +65,9 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     const { id } = selector;
     const host = Object.hasOwn(selector, "host") ? selector.host : undefined;
     const adapter = Object.hasOwn(selector, "adapter") ? selector.adapter : undefined;
-    if (host !== undefined && !matches(HOST, host)) return { ok: false, state: "invalid_selector" };
+    if ((host !== undefined && !matches(HOST, host)) || (aliasTargetId !== undefined && adapter !== undefined)) {
+      return { ok: false, state: "invalid_selector" };
+    }
     let dir;
     let localHost;
     try {
@@ -82,7 +86,8 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     } catch {
       return { ok: false, state: "inventory_unavailable" };
     }
-    const result = await inventory.resolve({ id, adapter });
+    const result = aliasTargetId === undefined ? await inventory.resolve({ id, adapter }, { requireCodexEligibility })
+      : await inventory.resolveAlias(id, aliasTargetId);
     // Both an exact match and a miss can start delivery: a miss permits
     // looking up a legacy name. Only use them under the installation surveyed.
     if (result.ok || result.state === "missing") {
@@ -105,8 +110,13 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return { ...result, target: { ...result.target, host: localHost } };
   }
 
-  async function resolve(selector) {
-    const result = await lookup(selector);
+  async function resolve(selector, { requireCodexEligibility = false } = {}) {
+    const result = await lookup(selector, { requireCodexEligibility });
+    return { ...result, detail: resolutionDetails[result.state] };
+  }
+
+  async function resolveAlias(selector, nativeId) {
+    const result = typeof nativeId === "string" ? await lookup(selector, { aliasTargetId: nativeId }) : { ok: false, state: "invalid_selector" };
     return { ...result, detail: resolutionDetails[result.state] };
   }
 
@@ -119,10 +129,11 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     }
   }
 
-  return { list, resolve, permitsProof };
+  return { list, resolve, resolveAlias, permitsProof };
 }
 
 const local = createLocalAddresses();
 export const listInstalledTargets = local.list;
 export const resolveLocalAddress = local.resolve;
+export const resolveLocalAlias = local.resolveAlias;
 export const permitsLocalProof = local.permitsProof;

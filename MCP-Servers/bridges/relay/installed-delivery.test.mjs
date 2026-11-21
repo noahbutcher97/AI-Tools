@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { createInstalledDelivery } from "./installed-delivery.mjs";
+import { createLocalAddresses } from "./local-address.mjs";
 
 const bridge = fileURLToPath(new URL(".", import.meta.url));
 const loader = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-loader.mjs", import.meta.url);
@@ -100,7 +101,12 @@ test("legacy name resolution refuses when a literal raw ID appears during prepar
     if (id === row.name && !collides) return { ok: false, state: "missing" };
     return { ok: true, target: { id, adapter: id === row.id ? "claude" : "sample", host: null } };
   };
-  const installed = createInstalledDelivery({ resolve, sendLegacy: async options => {
+  const resolveAlias = (selector, nativeId) => {
+    assert.deepEqual(selector, { id: row.name });
+    assert.equal(nativeId, row.id);
+    return collides ? { ok: false, state: "binding_changed" } : resolve({ id: nativeId });
+  };
+  const installed = createInstalledDelivery({ resolve, resolveAlias, sendLegacy: async options => {
     assert.equal(await options.checkLocalBinding(row), null);
     collides = true;
     const failure = await options.checkLocalBinding(row);
@@ -109,4 +115,58 @@ test("legacy name resolution refuses when a literal raw ID appears during prepar
   } });
   assert.equal((await installed.sendLocal({ to: row.name, message: "Example." })).cause, "binding_changed");
   assert.equal(submissions, 0);
+});
+
+for (const [scenario, expected] of [
+  ["alias collision", "binding_changed"],
+  ["incomplete reader", "incomplete_inventory"],
+  ["stable alias", "accepted"],
+]) test("native Claude alias delivery uses one final raw-ID survey: " + scenario, async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-alias-survey-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const envKey = process.platform === "win32" ? "USERPROFILE" : "HOME";
+  const saved = process.env[envKey];
+  process.env[envKey] = profile;
+  t.after(() => { if (saved === undefined) delete process.env[envKey]; else process.env[envKey] = saved; });
+  const registry = path.join(profile, ".claude", "sessions");
+  fs.mkdirSync(registry, { recursive: true });
+  const row = { pid: 1000, sessionId: "native-chat", name: "worker", startedAt: 42, messagingSocketPath: "endpoint" };
+  fs.writeFileSync(path.join(registry, "1000.json"), JSON.stringify(row));
+  fs.writeFileSync(path.join(profile, "inventory-adapters.json"), JSON.stringify({ enabled: ["claude", "sample"] }));
+
+  let final = false;
+  let surveyingNativeId = false;
+  let finalSurveys = 0;
+  let submits = 0;
+  const addresses = createLocalAddresses({ root: () => profile, additionalAdapters: [{
+    kind: "sample", enumerate() {
+      if (final) finalSurveys++;
+      const lastNative = final && surveyingNativeId;
+      return { complete: !(lastNative && scenario === "incomplete reader"),
+        targets: lastNative && scenario === "alias collision" ? [{ id: row.name }] : [] };
+    },
+  }] });
+  const installed = createInstalledDelivery({
+    resolve(selector) {
+      surveyingNativeId = selector.id === row.sessionId;
+      return addresses.resolve(selector);
+    },
+    resolveAlias(selector, nativeId) {
+      surveyingNativeId = nativeId === row.sessionId;
+      return addresses.resolveAlias(selector, nativeId);
+    },
+  });
+  const result = await installed.sendLocal({
+    to: row.name, message: "Synthetic alias probe.", allowDelegate: true, beforeSubmit() { final = true; },
+    runDelegate() { submits++; return { code: 0, stdout: "RELAY-OK" }; },
+  });
+  if (expected === "accepted") {
+    assert.equal(submits, 1);
+    assert.equal(result.ok, true);
+  } else {
+    assert.equal(submits, 0);
+    assert.equal(result.dispatch, "not_submitted");
+    assert.equal(result.cause, expected);
+  }
+  assert.equal(finalSurveys, 1);
 });

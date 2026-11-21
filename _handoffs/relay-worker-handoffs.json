@@ -1,5 +1,94 @@
 [
   {
+    "id": "relay-bound-native-eligibility",
+    "worker": "native delivery implementer",
+    "coordinator": "relay coordinator",
+    "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+    "scope": "Keep native Codex addressability in the final send survey after queue-store preparation.",
+    "acceptance": "Regress a still-discoverable thread losing rollout eligibility during the last asynchronous queue open. Zero provider calls after loss, one for stable state. Preserve read-only resolution behavior.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-remote-binding-premise",
+    "worker": "remote compatibility reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+    "scope": "Check the existing receive protocol and receipt formats against the approved next adapter checkpoint. Read-only, synthetic fixtures only.",
+    "acceptance": "Identify which existing fields prove a destination binding, how legacy retry and status behave, and the smallest backwards-compatible implementation and test slices. Cite code and direct observations.",
+    "state": "accepted",
+    "result": {
+      "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+      "verdict": "Existing remote wire and receipt formats establish only limited bindings.",
+      "evidence": "Twelve receive and remote fixture tests passed. The legacy frame accepts its native ID field. Adding an adapter, sending a delimiter-bearing ID or using the new version was refused. A legacy plain terminal receipt stores the peer, request ID, digest and state. Only probe rows also have a cursor that identifies a recipient.",
+      "limitations": "Read-only baseline source review and synthetic tests. No deployed receiver, SSH or model calls."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Begin remote work by qualifying complete selection, Codex eligibility and final policy recheck on the existing route. Preserve old request IDs and reservation semantics.",
+      "next": "Add versioned read-only selection before any new remote effect. Define binding-aware receipts and policy before enabling new effects."
+    }
+  },
+  {
+    "id": "relay-bound-alias-fix",
+    "worker": "local dispatch implementer",
+    "coordinator": "relay coordinator",
+    "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+    "scope": "Correct two-snapshot legacy name fallback at final dispatch; preserve literal-ID precedence.",
+    "acceptance": "One complete survey must establish an exact alias miss and the unique selected raw binding. Reproduce the late collision with zero delegate launches.",
+    "state": "accepted",
+    "result": {
+      "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+      "verdict": "Single-survey legacy name fallback passed.",
+      "evidence": "The previously reproduced collision submitted once. The corrected name miss and native match now use one complete survey. A new exact match or incomplete survey produced zero delegate calls; an unchanged alias produced one. Sixteen focused tests passed.",
+      "limitations": "Temporary native registry, installed recording adapter and recording delegate. No live Claude call."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the paired lookup for independent recheck.",
+      "next": "Recheck the final provider and legacy submission boundaries together."
+    }
+  },
+  {
+    "id": "relay-bound-independent-recheck",
+    "worker": "independent delivery reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+    "scope": "Recheck both reproduced dispatch defects and affected production bytes.",
+    "acceptance": "Verify queue and proof use the checked profile, reader and host changes prevent dispatch, and prior compatibility evidence remains applicable.",
+    "state": "accepted",
+    "result": {
+      "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+      "verdict": "Original changes verified; hold legacy alias dispatch.",
+      "evidence": "A stable reader submitted once. Withdrawal, relabel and unqualified reader addition submitted zero. The queue wrote only to the checked store. A raw ID newly matching the legacy name during the separate final raw-ID survey still allowed one delegate call.",
+      "limitations": "Synthetic native registries, test-only recorder and disposable profiles. No live recipient."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Require both predicates from one complete inventory survey before invoking a legacy-name route.",
+      "next": "Return the combined survey and regression to independent review."
+    }
+  },
+  {
+    "id": "relay-bound-operator-recheck",
+    "worker": "constrained terminal operator",
+    "coordinator": "relay coordinator",
+    "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+    "scope": "Repeat the literal address and one-probe status workflow in a fresh terminal fixture.",
+    "acceptance": "Locate the intended reader, interpret its route status, verify one consumed probe, and report output stream handling.",
+    "state": "accepted",
+    "result": {
+      "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+      "verdict": "Repeat walkthrough passed.",
+      "evidence": "The operator distinguished the installed route from the inventory-only row, dry-ran the intended exact address, and verified one probe in a fresh CLI. The early stderr receipt matched the single JSON stdout result.",
+      "limitations": "Synthetic provider with a real CLI; dry-run guidance still needed send help to identify the verb."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the workflow. Spell out the send command in the inventory hint.",
+      "next": "Recheck the revised hint in normal terminal output without another paid probe."
+    }
+  },
+  {
     "id": "relay-binding-recheck-fix",
     "worker": "local dispatch implementer",
     "coordinator": "relay coordinator",
@@ -26,7 +115,18 @@
     "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
     "scope": "Correct local inventory delivery eligibility for an installed exact operation and stabilize the hosted missing-target fixture.",
     "acceptance": "Separate installed delivery capability from proven session readiness. Verify normal CLI inventory and isolated missing-target refusal.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+      "verdict": "Installed operation and unchecked session eligibility now appear separately.",
+      "evidence": "The original listing called an eligible dry-run target inventory-only. Public CLI and MCP now agree on unchecked versus unavailable, and status proof confirms clean JSON stdout with the matching early receipt on stderr. Empty fixture registries made the unknown-target test deterministic. All 120 focused tests passed.",
+      "limitations": "Windows fixture tests. Hosted Linux CI runs separately. No real provider received a message in this worker assignment."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the interface fix for the repeat walkthrough.",
+      "next": "Verify the corrected operator evidence and hosted suite before merge."
+    }
   },
   {
     "id": "relay-bound-independent",

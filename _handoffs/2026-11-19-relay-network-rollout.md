@@ -26,6 +26,12 @@ Independent review held the first send candidate. When settings changed during t
 
 After local acceptance, qualify the binding through remote receive, receipt lookup and watcher grants before connecting external process-end delivery. The first compatibility claim for an additional client still requires a real session.
 
+The remote compatibility review checked the current decoder and receipt store. Sequence that work in three checkpoints.
+
+1. Keep the existing remote Codex wire format. Require complete selection, then check the selected recipient, native eligibility and destination policy again after proof preparation. Record one proved delivery and zero submissions after a collision, reader withdrawal or loss of eligibility.
+2. Introduce read-only, versioned remote resolution for literal IDs. Exercise qualified and unqualified lookup and an older peer. A failed negotiation must disclose no message body.
+3. Bind new effect reservations, grants and status to the selected adapter and recipient before enabling versioned remote send or ping. Keep one reservation per authenticated peer and request ID across versions. Legacy terminal send receipts contain a digest and state. They cannot establish the recipient for a new target-scoped status grant. A legacy probe also has a cursor whose original binding can be checked. Verify cold status, changed-adapter conflicts, older peers and an uncertain outcome without resending.
+
 ### External process-end observation
 
 Before wiring process exit to grants or delivery, qualify the shared adapter contract in Phase I. Keep the prior A/B evidence as a regression baseline. The native observation work can continue independently. The product rollout remains A/B, I/C, F/E, G/H, then D. [Contract and acceptance cases](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work)

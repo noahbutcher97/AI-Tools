@@ -1183,18 +1183,19 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
   const blocked = await codexQueueBlock(target.id, { codexHome, openDb, now, backlogThresholdMs });
   if (blocked) return fail(blocked.cause, blocked.detail, target.kind);
 
-  // A cursor or reservation can take time. Re-read native eligibility and the
-  // original selector, then sample queue age and writer lock at submission.
+  // Open the queue first. Its asynchronous preparation can outlive the
+  // recipient's eligibility. Sample queue age and writer lock after the survey.
   async function checkQueueRecipient() {
-    const freshTime = () => options.now ?? Date.now();
-    const current = await readCodexTargets(codexHome, freshTime(), openDb);
-    const eligible = current.targets.find(row => row.id === target.id);
-    if (!eligible?.addressable) {
-      const cause = eligible ? SEND_CAUSES.NOT_ADDRESSABLE : SEND_CAUSES.DISAPPEARED;
-      return { ...fail(cause, eligible?.reason || "The selected Codex writer is no longer present.", target.kind), dispatch: "not_submitted" };
-    }
     const block = await codexQueueBlock(target.id, {
-      codexHome, openDb, now: options.now, backlogThresholdMs, checkBinding: () => options.checkLocalBinding?.(target),
+      codexHome, openDb, now: options.now, backlogThresholdMs, checkBinding: async () => {
+        const current = await readCodexTargets(codexHome, options.now ?? Date.now(), openDb);
+        const eligible = current.targets.find(row => row.id === target.id);
+        if (!eligible?.addressable) return {
+          cause: eligible ? SEND_CAUSES.NOT_ADDRESSABLE : SEND_CAUSES.DISAPPEARED,
+          detail: eligible?.reason || "The selected Codex writer is no longer present.",
+        };
+        return options.checkLocalBinding?.(target);
+      },
     });
     return block && { ...fail(block.cause, block.detail, target.kind), dispatch: "not_submitted" };
   }
@@ -1636,7 +1637,7 @@ function projectLocalInventory(kind, result, hasRoute) {
       status: ["idle", "busy"].includes(row.status) ? row.status : "unknown",
       idleFor: null, turns: null, pid: null, startedAt: null,
       addressable: hasRoute ? null : false,
-      reason: hasRoute ? "Delivery route installed, eligibility unchecked. Use --dry-run or relay_send with dry_run to check." : "local inventory only",
+      reason: hasRoute ? "Delivery route installed, eligibility unchecked. Use relay send --dry-run or relay_send with dry_run to check." : "local inventory only",
     });
   }
   if (targets.length !== result.targets.length) warnings.push(`${kind}: omitted an invalid session ID`);
@@ -1672,29 +1673,41 @@ export function createLocalInventory(additionalAdapters = [], enabledKinds) {
   list.hasReader = kind => enabled.some(reader => reader.kind === kind);
   list.readerKinds = Object.freeze(enabled.map(reader => reader.kind));
   list.resolve = (selector, options) => resolveInventory(enabled, selector, options);
+  list.resolveAlias = (alias, id) => resolveInventory(enabled, { id }, undefined, alias ?? null);
   return list;
 }
 
-async function resolveInventory(enabled, selector, options) {
+async function resolveInventory(enabled, selector, options, alias) {
   if (!exactKeys(selector, ["id"]) && !exactKeys(selector, ["id", "adapter"])) {
     return { ok: false, state: "invalid_selector" };
   }
   const { id } = selector;
   const adapter = Object.hasOwn(selector, "adapter") ? selector.adapter : undefined;
-  if (!inventoryText(id, 256) || (adapter !== undefined && !matches(HOST, adapter))) {
+  if (!inventoryText(id, 256) || (adapter !== undefined && !matches(HOST, adapter)) ||
+      (alias !== undefined && !inventoryText(alias, 256))) {
     return { ok: false, state: "invalid_selector" };
   }
   const readers = adapter === undefined ? enabled : enabled.filter(reader => reader.kind === adapter);
   if (!readers.length) return { ok: false, state: "unknown_adapter" };
 
-  const { targets, inventory, complete } = await collectInventory(readers, { ...options, scope: "all" }, "resolve");
+  // For a bound native send, sample Codex after asynchronous peer readers so
+  // the same final row establishes identity and queue eligibility.
+  const survey = options?.requireCodexEligibility
+    ? [...readers].sort((a, b) => Number(a.kind === "codex") - Number(b.kind === "codex")) : readers;
+  const { targets, inventory, complete } = await collectInventory(survey, { ...options, scope: "all" }, "resolve");
   if (!complete) {
     return { ok: false, state: "incomplete_inventory", adapters: inventory.filter(row => !row.complete).map(row => row.kind) };
   }
+  // The very rows that establish the selected native ID must also establish
+  // that the legacy name has no competing exact-ID meaning.
+  if (alias !== undefined && targets.some(row => row.id === alias)) return { ok: false, state: "binding_changed" };
   const found = targets.filter(row => row.id === id);
   if (!found.length) return { ok: false, state: "missing" };
   if (found.length > 1) {
     return { ok: false, state: "ambiguous", adapters: [...new Set(found.map(row => row.kind))] };
+  }
+  if (options?.requireCodexEligibility && found[0].kind === "codex" && !found[0].addressable) {
+    return { ok: false, state: SEND_CAUSES.NOT_ADDRESSABLE };
   }
   return { ok: true, state: "resolved", target: { adapter: found[0].kind, id } };
 }

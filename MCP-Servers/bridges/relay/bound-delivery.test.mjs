@@ -6,6 +6,7 @@ import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createBoundDelivery } from "./bound-delivery.mjs";
+import { createLocalAddresses } from "./local-address.mjs";
 import { parseMetaFromMessage, sendMessage } from "./client.mjs";
 import { addIndexedSession } from "./fixtures/session-index.mjs";
 
@@ -243,6 +244,64 @@ test("withdrawal during the last asynchronous native queue-store open prevents s
   assert.equal(result.cause, "unknown_adapter");
   assert.equal(result.dispatch, "not_submitted");
   assert.equal(submitted.length, 0);
+});
+
+test("the final Codex survey distinguishes a discoverable ID from an eligible queue recipient", sqlite, async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-queue-eligibility-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  t.mock.method(os, "homedir", () => profile);
+  const codexHome = path.join(profile, ".codex");
+  fs.mkdirSync(path.join(codexHome, "thread-writer-locks"), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, "thread-writer-locks", native.id + ".lock"), "");
+  fs.writeFileSync(path.join(profile, "machine.json"), JSON.stringify({ host: native.host }));
+  fs.writeFileSync(path.join(profile, "inventory-adapters.json"), JSON.stringify({ enabled: ["codex", "peer"] }));
+  const queue = path.join(codexHome, "queue_1.sqlite");
+  const db = new DatabaseSync(queue);
+  db.exec("CREATE TABLE queued_items(thread_id, created_at_ms)");
+  db.close();
+  function withdrawRollout() {
+    const writer = new DatabaseSync(path.join(codexHome, "state_5.sqlite"));
+    writer.prepare("UPDATE threads SET rollout_path = NULL WHERE id = ?").run(native.id);
+    writer.close();
+  }
+  const selector = { id: native.id };
+  for (const scenario of ["stable", "queue open", "final peer enumeration"]) {
+    addIndexedSession(DatabaseSync, codexHome, native.id, profile);
+    let opens = 0;
+    let submissions = 0;
+    let changed = false;
+    const local = createLocalAddresses({ root: () => profile, additionalAdapters: [{
+      kind: "peer", async enumerate() {
+        if (opens === 2 && !changed && scenario === "final peer enumeration") {
+          withdrawRollout();
+          changed = true;
+        }
+        return { complete: true, targets: [] };
+      },
+    }] });
+    const send = createBoundDelivery({ resolve: local.resolve, nativeOptions: {
+      codexHome,
+      async openDb(file) {
+        if (file === queue && ++opens === 2 && scenario === "queue open") {
+          withdrawRollout();
+          changed = true;
+        }
+        return new DatabaseSync(file, { readOnly: true });
+      },
+      runQueue(id) {
+        submissions++;
+        return { code: 0, stdout: "Queued message " + native.id + " for thread " + id + "." };
+      },
+    } });
+    const result = await send(selector, notice);
+    assert.equal(opens, 2);
+    assert.equal(changed, scenario !== "stable");
+    assert.deepEqual((await local.resolve(selector)).target, native);
+    assert.equal((await local.list({ scope: "all" })).targets[0].addressable, !changed);
+    assert.equal(submissions, changed ? 0 : 1, scenario);
+    assert.equal(result.dispatch, changed ? "not_submitted" : "accepted", scenario);
+    if (changed) assert.equal(result.cause, "target_not_addressable");
+  }
 });
 
 test("legacy Claude rechecks its name and instance after a proof reservation", async t => {

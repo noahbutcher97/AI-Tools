@@ -69,9 +69,9 @@ export function createBoundDelivery({ resolve = resolveLocalAddress, adapters = 
     if (typeof message !== "string" || !message.trim() || !["notice", "reply", "request"].includes(kind) ||
         typeof dryRun !== "boolean") return refused("invalid_send_fields", "Check the message, kind and dry-run options.");
 
-    async function lookup() {
+    async function lookup(requireCodexEligibility = false) {
       let result;
-      try { result = await resolve(selector); }
+      try { result = await resolve(selector, { requireCodexEligibility }); }
       catch { return refused("inventory_unavailable", "Local inventory could not be read."); }
       if (!result?.ok) return refused(result?.state ?? "unresolved", result?.detail ?? "The exact local selector could not be resolved.");
       const target = result.target;
@@ -90,7 +90,7 @@ export function createBoundDelivery({ resolve = resolveLocalAddress, adapters = 
     const changed = () => refused("binding_changed", "The selected session binding changed. Resolve the intended target again.");
     if (expected && !sameBinding(expected, binding)) return changed();
     async function recheck() {
-      const current = await lookup();
+      const current = await lookup(binding.adapter === "codex");
       if (!current.ok) return current;
       return sameBinding(current.binding, binding) ? null : changed();
     }
