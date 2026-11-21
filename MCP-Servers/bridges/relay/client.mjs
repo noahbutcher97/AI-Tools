@@ -971,13 +971,23 @@ async function relayViaDelegate({ target, message, origin, originTarget, identit
 //
 // Threshold default 30s: three times the largest measured wake latency (9.3s),
 // so ordinary in-flight traffic is never mistaken for a stall.
-async function openQueueStore(codexHome, openDb) {
-  const file = path.join(codexHome, "queue_1.sqlite");
+async function openQueueStore(file, openDb) {
   if (!fs.existsSync(file)) return null;
   try {
     return await openDb(file);
   } catch {
     return null;
+  }
+}
+
+// A queue write may change size or mtime without changing the database.
+// stat with bigint preserves Windows file IDs beyond JavaScript integer precision.
+function queueFileIdentity(file) {
+  try {
+    const info = fs.statSync(file, { bigint: true });
+    return [info.dev, info.ino, info.birthtimeNs].join("/");
+  } catch (error) {
+    return error.code;
   }
 }
 
@@ -999,12 +1009,19 @@ function readQueueBacklog(db, threadId, now, thresholdMs) {
 export async function codexQueueBlock(id, {
   codexHome = defaultCodexHome(), openDb = defaultOpenDb, now, backlogThresholdMs = 30_000, checkBinding,
 } = {}) {
-  const db = await openQueueStore(codexHome, openDb);
+  const file = path.join(codexHome, "queue_1.sqlite");
+  const beforeOpen = checkBinding && queueFileIdentity(file);
+  const db = await openQueueStore(file, openDb);
   let backlog;
   try {
     if (checkBinding) {
+      const afterOpen = queueFileIdentity(file);
       const refusal = await checkBinding();
       if (refusal) return refusal;
+      if (beforeOpen !== afterOpen || afterOpen !== queueFileIdentity(file)) return {
+        cause: SEND_CAUSES.NOT_ADDRESSABLE,
+        detail: "The queue database changed during recipient selection. Check the target again.",
+      };
     }
     backlog = readQueueBacklog(db, id, now ?? Date.now(), backlogThresholdMs);
   } finally {

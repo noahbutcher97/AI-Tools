@@ -1,16 +1,25 @@
 import { localReceiptStatus, pingLocal, sendLocal } from "./installed-delivery.mjs";
-import { loadDirectory, requestHost } from "./fleet.mjs";
+import { INVENTORY_SURVEY_MS, loadDirectory, requestHost } from "./fleet.mjs";
 import { digest, exactKeys, matches, newRequestId, parseAddress, UUID, validDeliveryFrame } from "./delivery-protocol.mjs";
 
 const states = new Set(["eligible", "queued", "unknown", "missing", "unresolved", "unaddressable", "restricted_route",
   "receive_denied", "provider_unavailable", "reference_unresolved", "request_conflict", "receipts_full",
   "message_too_large", "request_expired", "unavailable", "pending", "delivered", "proof_unavailable"]);
 
-function failed(cause, extra = {}) { return { ok: false, cause, detail: cause.replaceAll("_", " "), ...extra }; }
+// Resolve surveys the readers twice within one SSH exchange. Keep time for
+// connection and receiver startup in addition to both bounded surveys.
+const exchangeTimeoutMs = { resolve: 5000 + 2 * INVENTORY_SURVEY_MS, status: 5000, send: 45000, ping: 45000 };
+
+function failed(cause, extra = {}) {
+  const detail = cause === "unresolved"
+    ? "The destination could not confirm one current recipient. On that machine, check the raw ID and reader coverage with relay list --scope all --json, then repeat the dry run."
+    : cause.replaceAll("_", " ");
+  return { ok: false, cause, detail, ...extra };
+}
 
 async function exchange(entry, local, frame, query) {
   try {
-    const { reply, error } = await query(entry, frame, ["send", "ping"].includes(frame.op) ? 45000 : 5000);
+    const { reply, error } = await query(entry, frame, exchangeTimeoutMs[frame.op]);
     if (error) return { error };
     if (!exactKeys(reply, ["ok", "v", "op", "requestId", "host", "peer", "state"]) || reply.ok !== true ||
         reply.v !== 2 || reply.op !== frame.op || reply.requestId !== frame.requestId || reply.host !== entry.host ||
@@ -39,7 +48,9 @@ export async function sendAddressed(options, { directory = loadDirectory, query 
   if (!validDeliveryFrame(frame)) return failed("invalid_send_fields");
   const handle = address.host + ":" + requestId;
   const lookup = await exchange(entry, fleet.local, { ...common, op: "resolve", to: address.id }, query);
-  if (lookup.state !== "eligible") return failed(lookup.error ?? lookup.state, { handle });
+  if (lookup.state !== "eligible") return failed(lookup.error ?? lookup.state, {
+    dispatch: "not_submitted", ...(!options.dryRun && { handle }),
+  });
   if (options.dryRun) return { ok: true, to: options.to, state: "eligible", detail: "Resolved an eligible remote Codex target." };
   onHandle(handle);
   const result = await exchange(entry, fleet.local, frame, query);

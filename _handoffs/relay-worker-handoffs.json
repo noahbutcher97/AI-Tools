@@ -1,5 +1,125 @@
 [
   {
+    "id": "relay-remote-v2-final-review",
+    "worker": "independent receiver reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "b2e375347a13facc0444dc2be6c42f140eeea480",
+    "scope": "Recheck the observed queue-store race and final sender/receiver bytes.",
+    "acceptance": "Verify original late stale backlog refusal, normal operation and retry/receipt semantics. Distinguish file mutation unsupported by the host from successful refusal.",
+    "state": "accepted",
+    "result": {
+      "revision": "b2e375347a13facc0444dc2be6c42f140eeea480",
+      "verdict": "Accept restricted v2 selection and final submission checks.",
+      "evidence": "The independent replay queued once for absent or stable empty stores and fresh in-place updates. Stable or newly published stale backlog and file changes during open submitted zero times. Repeated requests produced zero additional calls. Dry runs emitted one body-free frame without a receipt. Twenty-six receiver tests and 28 local regressions passed.",
+      "limitations": "Two active-handle replacement and removal attempts were refused by Windows itself and skipped. No restricted SSH or live provider qualification on this revision."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the source checkpoint. Recheck live delivery only against a staged or enrolled restricted receiver.",
+      "next": "Continue with versioned read-only remote resolution and keep effect authority under its separate gate."
+    }
+  },
+  {
+    "id": "relay-queue-store-change",
+    "worker": "native queue reviewer and implementer",
+    "coordinator": "relay coordinator",
+    "revision": "0a1137287adce5f91f8884ddeff22aebbc0670e2",
+    "scope": "Close the observed late publication of a previously absent queue store during the final guarded survey.",
+    "acceptance": "Stable absent or unchanged stores keep existing behavior. If a store appears, disappears or is replaced during guarded selection, refuse with no provider call. Verify an actual stale queued item and a stable control.",
+    "state": "accepted",
+    "result": {
+      "revision": "0a1137287adce5f91f8884ddeff22aebbc0670e2",
+      "verdict": "Guarded selection rejects a changed queue store.",
+      "evidence": "When a SQLite queue with a stale item appeared during the survey, the earlier path submitted once. The correction rejects publication, removal or replacement during preparation. A stable absent or empty queue submitted once. In-place fresh and stale rows retained their original behavior. Sixty-nine focused tests passed.",
+      "limitations": "Windows denied removal and replacement while its SQLite handle was open; those two cases skipped. The asynchronous-open cases ran. The fixture models publication; live provider rotation was not observed."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept for independent recheck and hosted coverage.",
+      "next": "Verify stable, published and replaced SQLite cases before accepting remote v2 source."
+    }
+  },
+  {
+    "id": "relay-remote-v2-walk-recheck",
+    "worker": "constrained sender operator",
+    "coordinator": "relay coordinator",
+    "revision": "0a1137287adce5f91f8884ddeff22aebbc0670e2",
+    "scope": "Repeat the remote eligibility check after the sender explains its refusal.",
+    "acceptance": "Use discovery and a dry run. Identify destination-side recovery and confirm the failed dry run issues no new receipt.",
+    "state": "accepted",
+    "result": {
+      "revision": "0a1137287adce5f91f8884ddeff22aebbc0670e2",
+      "verdict": "Operator correctly identified the refusal and recovery steps.",
+      "evidence": "The terminal explained partial inventory. Both dry-run output modes said the destination could not confirm one recipient, named its local coverage command, and returned no receipt. JSON reported not_submitted.",
+      "limitations": "Synthetic peer, real sender CLI. The v1 inventory row describes availability at discovery; host partial and fleet complete fields convey coverage."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept. Keep the established v1 row format for mixed peers. The sender and MCP tool description explain the additional exact check.",
+      "next": "Complete independent code review and the two-desktop fixture replay."
+    }
+  },
+  {
+    "id": "relay-remote-v2-review",
+    "worker": "independent receiver reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+    "scope": "Audit the v2 receiver change against its existing authority and proof contract.",
+    "acceptance": "Check complete installed selection, last authorization, native eligibility, deadline and reservation recovery. Report blockers with recording fixtures only.",
+    "state": "accepted",
+    "result": {
+      "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+      "verdict": "Hold for queue store publication during the final survey.",
+      "evidence": "Publishing a SQLite queue containing a 180-second-old pending row before the survey produced zero calls. Publishing the same queue during the survey produced one. An immediate native inspection detected the backlog. The other tests confirmed proof recovery and zero calls after a collision or withdrawal.",
+      "limitations": "Synthetic queue publication and recording provider. Live provider rotation was not observed."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Fix the observed stale queue handle before accepting the v2 source.",
+      "next": "Review the queue-store correction and exact sender changes on the final candidate."
+    }
+  },
+  {
+    "id": "relay-remote-v2-operator",
+    "worker": "constrained sender operator",
+    "coordinator": "relay coordinator",
+    "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+    "scope": "Use a read-only terminal to determine whether the indicated remote session can receive a notice.",
+    "acceptance": "Use the public CLI under incomplete coverage. Distinguish the address returned by inventory from eligibility for sending. Avoid sending or waking a session.",
+    "state": "accepted",
+    "result": {
+      "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+      "verdict": "Safe refusal with unclear recovery guidance.",
+      "evidence": "The first-time operator saw a ready host with partial inventory and an idle addressable row. A dry run returned unresolved plus a handle. The operator stopped and recognized the need to check reader coverage. No effect frame was sent.",
+      "limitations": "Real sender CLI with synthetic in-memory receive frames and a recording incomplete survey. No actual SSH, provider or delivery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Explain how to check the destination ID and coverage, identify the missing submission, and omit a new receipt from a failed dry run.",
+      "next": "Repeat the same operator task after the text and result change."
+    }
+  },
+  {
+    "id": "relay-remote-final-selection",
+    "worker": "remote receiver implementer",
+    "coordinator": "relay coordinator",
+    "revision": "4383a0cc8b1bf632faa6b4102c9337332ef2b9c1",
+    "scope": "Apply installed exact selection and dispatch-time policy to the existing remote Codex path, retaining the approved wire, protected queue and durable reservations.",
+    "acceptance": "Point-of-effect fixture shows zero provider calls on incomplete selection, collisions, changed label, disabled reader, eligibility loss or grant withdrawal during proof preparation. Stable send and probe submit once; cold status and retries never resend.",
+    "state": "accepted",
+    "result": {
+      "revision": "4383a0cc8b1bf632faa6b4102c9337332ef2b9c1",
+      "verdict": "v2 receive now checks the installed exact match and policy at submission.",
+      "evidence": "A partial projected inventory previously passed a dry run. The updated fixture refused incomplete and ambiguous matches and withdrew delivery after policy or eligibility changed. A stable target received one recorded submission, and a fresh receiver proved its consumed input. Seventeen receive/remote tests and 38 related regressions passed.",
+      "limitations": "Recording provider, temporary native stores and an isolated Windows CLI. Each remote inventory survey uses the former 2.3-second worker deadline. No SSH or live provider delivery by the worker."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept for independent review and the constrained sender walkthrough.",
+      "next": "Verify the fixed CLI and the remote receipt boundary at the committed revision."
+    }
+  },
+  {
     "id": "relay-bound-final-review",
     "worker": "independent delivery reviewer",
     "coordinator": "relay coordinator",
