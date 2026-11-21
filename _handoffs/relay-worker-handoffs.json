@@ -1,5 +1,23 @@
 [
   {
+    "id": "shared-process-fixture-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the disabled shared observer fixture and evidence for matching identity, limited rights, controls, cleanup and deadlines.",
+    "acceptance": "Return findings on the candidate fixture only.",
+    "revision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "shared-process-fixture-operator",
+    "worker": "independent operator",
+    "scope": "Follow the shared check instructions from the current handoff under ordinary Windows PowerShell.",
+    "acceptance": "Exercise all three outcomes and interpret the loss of the revoked receipt.",
+    "revision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "shared-process-worker-design-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck corrected shared worker design and remaining decision boundaries.",
