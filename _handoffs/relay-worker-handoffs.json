@@ -1,5 +1,23 @@
 [
   {
+    "id": "process-end-premise-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the Windows read-only process fixtures, enrolled-trustee access calculation and hosted service-account qualification. Inspect confinement and the strength of conclusions. Local ordinary tests only.",
+    "acceptance": "Check handle and token binding, exit 259, unknowns, task identity, deadlines and cleanup. Return blocking findings and limits.",
+    "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "process-end-premise-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Starting at repository guidance, use public documentation to walk through the external-process premise checks, recovery and interpretation. No account changes or service actions.",
+    "acceptance": "Locate exact commands, preconditions, expected outputs and the open installed gate. Distinguish an access-list check and a live cross-account open.",
+    "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "process-end-kernel-fixture",
     "worker": "Windows qualification worker",
     "scope": "Implement a Windows-only self-contained qualification of a disposable process through limited query and synchronization rights. Keep it outside the installed package.",
