@@ -6,6 +6,8 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+Provider coverage is open-ended. Claude Code and Codex are the first clients to qualify. Apply the shared adapter and capability requirements to each watcher and routing checkpoint, including a synthetic client unknown to the core. Keep live support claims specific to the client and operation actually tested. [Provider compatibility](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#provider-compatibility)
+
 ### External process-end observation
 
 On one enrolled desktop an ordinary Windows process could reopen its own live disposable child with limited query and synchronization rights and match its creation time. After the process handle signaled, the observer read exit codes 7 and 259 in separate trials. A mismatched creation time and a discarded observer handle both produced `unknown`. The launcher kept its original process handle during the reopen check. This exercises handle replacement within one account. Real PID reuse and an installed broker restart remain unexercised.
