@@ -60,7 +60,7 @@ function defaultCodexHome() {
 // readFile is injectable so a test can assert on which paths were opened, not
 // merely that key contents stayed out of the output — an implementation that
 // read every .key file and discarded it would pass the weaker check.
-function readClaudeTargets(dir, now, readFile, warnings, allowIncompleteRows = false) {
+function readClaudeTargets(dir, now, readFile, warnings, purpose = "legacy") {
   let entries;
   try {
     entries = fs.readdirSync(dir);
@@ -91,12 +91,16 @@ function readClaudeTargets(dir, now, readFile, warnings, allowIncompleteRows = f
     const pid = session?.pid;
     let nativeId = session?.sessionId;
     if (nativeId == null || nativeId === "") {
+      if (purpose === "resolve") {
+        warnings.push("Claude session registry entry has no native session ID");
+        continue;
+      }
       if (Number.isSafeInteger(pid) && pid > 0) nativeId = String(pid);
       else if (typeof pid === "string" && /^[1-9][0-9]{0,9}$/.test(pid)) nativeId = pid;
     }
     if (!inventoryText(nativeId, 256)) {
       const warning = `claude session file ${entry} has no usable session identity`;
-      if (!allowIncompleteRows) throw new Error(warning);
+      if (purpose === "legacy") throw new Error(warning);
       warnings.push(warning);
       continue;
     }
@@ -1500,9 +1504,9 @@ export function formatTargets({ targets = [], warnings = [], inventory = [], com
 const builtinInventory = [
   {
     kind: "claude",
-    enumerate({ claudeSessionsDir = defaultClaudeSessionsDir(), now, readFile = fs.readFileSync }, allowIncompleteRows) {
+    enumerate({ claudeSessionsDir = defaultClaudeSessionsDir(), now, readFile = fs.readFileSync }, purpose) {
       const warnings = [];
-      const targets = readClaudeTargets(claudeSessionsDir, now, readFile, warnings, allowIncompleteRows);
+      const targets = readClaudeTargets(claudeSessionsDir, now, readFile, warnings, purpose);
       return { targets, warnings, complete: warnings.length === 0 };
     },
   },
@@ -1570,7 +1574,7 @@ export function createLocalInventory(additionalAdapters = [], enabledKinds) {
     }
   }
 
-  const list = options => collectInventory(enabled, options, true);
+  const list = options => collectInventory(enabled, options, "list");
   list.resolve = (selector, options) => resolveInventory(enabled, selector, options);
   return list;
 }
@@ -1587,7 +1591,7 @@ async function resolveInventory(enabled, selector, options) {
   const readers = adapter === undefined ? enabled : enabled.filter(reader => reader.kind === adapter);
   if (!readers.length) return { ok: false, state: "unknown_adapter" };
 
-  const { targets, inventory, complete } = await collectInventory(readers, { ...options, scope: "all" }, true);
+  const { targets, inventory, complete } = await collectInventory(readers, { ...options, scope: "all" }, "resolve");
   if (!complete) {
     return { ok: false, state: "incomplete_inventory", adapters: inventory.filter(row => !row.complete).map(row => row.kind) };
   }
@@ -1599,21 +1603,22 @@ async function resolveInventory(enabled, selector, options) {
   return { ok: true, state: "resolved", target: { adapter: found[0].kind, id } };
 }
 
-async function collectInventory(adapters, options = {}, allowPartialFailure) {
+async function collectInventory(adapters, options, purpose) {
+  options ??= {};
   const { scope = "cwd", cwd = process.cwd(), now = Date.now() } = options;
   const targets = [];
   const warnings = [];
   const inventory = [];
   for (const adapter of adapters) {
     try {
-      const result = await adapter.enumerate({ ...options, now }, allowPartialFailure);
+      const result = await adapter.enumerate({ ...options, now }, purpose);
       for (const row of result.targets) {
         if (scope === "all" || sharesWorkspace(row.cwd, cwd)) targets.push(row);
       }
       warnings.push(...result.warnings);
       inventory.push({ kind: adapter.kind, complete: result.complete });
     } catch (err) {
-      if (!allowPartialFailure) throw err;
+      if (purpose === "legacy") throw err;
       warnings.push(`${adapter.kind} inventory could not be read`);
       inventory.push({ kind: adapter.kind, complete: false });
     }
@@ -1625,6 +1630,6 @@ async function collectInventory(adapters, options = {}, allowPartialFailure) {
 // The public local faces apply installation settings in local-address.mjs.
 export const listLocalTargets = createLocalInventory();
 export async function discoverTargets(options) {
-  const { targets, warnings } = await collectInventory(builtinInventory, options, false);
+  const { targets, warnings } = await collectInventory(builtinInventory, options, "legacy");
   return { targets, warnings };
 }

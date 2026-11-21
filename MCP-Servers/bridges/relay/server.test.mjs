@@ -22,12 +22,13 @@ const bridgeDir = dirname(fileURLToPath(import.meta.url));
 const TEST_SPOOL = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-server-")), "spool.log");
 
 function profileNodeArgs(env) {
-  // Windows child startup restores ProgramFiles even when spawn supplies a
-  // replacement. Select the disposable installation before loading the CLI/MCP.
-  if (process.platform === "win32" && env.USERPROFILE) {
+  // Leave the real installed settings untouched on either platform.
+  if (!env.USERPROFILE) return [];
+  if (process.platform === "win32") {
     return ["--import", "data:text/javascript,process.env.ProgramFiles=process.env.USERPROFILE"];
   }
-  return [];
+  const preload = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-install.mjs", import.meta.url);
+  return ["--experimental-test-module-mocks", "--import", preload.href];
 }
 
 async function withClient(name, fn, env = {}) {
@@ -184,36 +185,37 @@ test("CLI and MCP discover and resolve the same literal local address and report
     await check({ id: "display-name" }, "missing");
     await check({ id, adapter: "uninstalled-reader" }, "unknown_adapter");
     await check({ id, host: "../invalid" }, "invalid_selector");
-    if (process.platform === "win32") {
-      await check({ id, host: "local-test" }, "host_unavailable");
-      const install = path.join(profile, "CrossAgentRelay");
-      fs.mkdirSync(install);
-      fs.writeFileSync(path.join(install, "machine.json"), JSON.stringify({ host: "local-test" }));
-      await check({ id, host: "local-test", adapter: row.kind }, "resolved");
-      await check({ id, host: "other-test" }, "nonlocal_host");
-    }
+    await check({ id, host: "local-test" }, "host_unavailable");
+    const install = path.join(profile, "CrossAgentRelay");
+    fs.mkdirSync(install);
+    fs.writeFileSync(path.join(install, "machine.json"), JSON.stringify({ host: "local-test" }));
+    await check({ id, host: "local-test", adapter: row.kind }, "resolved");
+    await check({ id, host: "other-test" }, "nonlocal_host");
 
     const second = path.join(registry, "second.json");
     fs.writeFileSync(second, "{");
     await check({ id }, "incomplete_inventory");
     await check({ id, adapter: "codex" }, "missing");
+    fs.writeFileSync(second, JSON.stringify({ pid: 1234, name: "legacy" }));
+    assert.ok(JSON.parse(cli("list", "--scope", "all", "--json").stdout).targets.some(t => t.id === "1234"));
+    await check({ id: "1234", adapter: "claude" }, "incomplete_inventory");
+    await check({ id }, "incomplete_inventory");
+    await check({ id: "unknown", adapter: "claude" }, "incomplete_inventory");
     fs.writeFileSync(second, record);
     await check({ id }, "ambiguous");
     await check({ id, adapter: row.kind }, "ambiguous");
     fs.unlinkSync(second);
     await check({ id }, "resolved");
-    if (process.platform === "win32") {
-      fs.writeFileSync(path.join(profile, "CrossAgentRelay", "inventory-adapters.json"), JSON.stringify({ enabled: ["codex"] }));
-      const list = await client.callTool({ name: "relay_list", arguments: { scope: "all" } });
-      const cliList = cli("list", "--scope", "all", "--json");
-      assert.equal(cliList.status, 0, cliList.stderr);
-      for (const payload of [JSON.parse(cliList.stdout), JSON.parse(list.content[0].text)]) {
-        assert.deepEqual(payload.inventory, [{ kind: "codex", complete: true }]);
-        assert.deepEqual(payload.targets, []);
-      }
-      await check({ id }, "missing");
-      await check({ id, adapter: row.kind }, "unknown_adapter");
+    fs.writeFileSync(path.join(install, "inventory-adapters.json"), JSON.stringify({ enabled: ["codex"] }));
+    const list = await client.callTool({ name: "relay_list", arguments: { scope: "all" } });
+    const cliList = cli("list", "--scope", "all", "--json");
+    assert.equal(cliList.status, 0, cliList.stderr);
+    for (const payload of [JSON.parse(cliList.stdout), JSON.parse(list.content[0].text)]) {
+      assert.deepEqual(payload.inventory, [{ kind: "codex", complete: true }]);
+      assert.deepEqual(payload.targets, []);
     }
+    await check({ id }, "missing");
+    await check({ id, adapter: row.kind }, "unknown_adapter");
   }, env);
 });
 

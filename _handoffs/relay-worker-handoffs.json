@@ -1,5 +1,45 @@
 [
   {
+    "id": "relay-exact-review",
+    "worker": "independent selection reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+    "scope": "Review literal local addressing, enabled reader and host binding, completeness and both public entry points.",
+    "acceptance": "Check synthetic negative and positive cases, configuration scope, existing client behavior and that resolution remains read-only.",
+    "state": "accepted",
+    "result": {
+      "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+      "verdict": "Hold the original implementation.",
+      "evidence": "Six paired CLI and MCP tests found PID-only records falsely resolving numeric IDs and falsely excluding other native IDs. Separate fixture checks passed for eight reader selection cases.",
+      "limitations": "Clean committed source, synthetic local profiles. No live delivery or provider credentials."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Preserved the legacy PID listing and require native identity evidence for exact lookup. Added regressions on both public faces.",
+      "next": "Recheck the corrected commit before closure."
+    }
+  },
+  {
+    "id": "relay-exact-operator",
+    "worker": "independent terminal operator",
+    "coordinator": "relay coordinator",
+    "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+    "scope": "Use only the real local CLI with an isolated reader fixture to identify a named reader’s exact address.",
+    "acceptance": "From ordinary help, find the raw session, check whether the bare ID resolves uniquely and identify the requested adapter binding without waking it.",
+    "state": "accepted",
+    "result": {
+      "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+      "verdict": "Resolved the requested binding and recognized the unqualified collision.",
+      "evidence": "The operator found both rows through list, obtained ambiguous with two adapters, then exactly resolved the requested adapter in four read-only commands including help. The operator noted the list field is called kind.",
+      "limitations": "Agent operating a real CLI on an isolated installation fixture. No live provider or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The ambiguity guidance now explicitly connects the listing field kind with the adapter selector.",
+      "next": "Replay the task against the revised guidance."
+    }
+  },
+  {
     "id": "relay-exact-inventory",
     "worker": "inventory implementer",
     "coordinator": "relay coordinator",

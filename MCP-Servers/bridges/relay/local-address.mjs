@@ -19,7 +19,7 @@ const resolutionDetails = {
   unknown_adapter: "This local reader is not enabled. Check the adapter keys in list --json.",
   missing: "No exact local match. Check the raw ID and its case in list --scope all --json.",
   incomplete_inventory: "Local inventory is incomplete. Check reader coverage or specify the known adapter.",
-  ambiguous: "Multiple sessions match. Check list --scope all --json and narrow the lookup by adapter if possible.",
+  ambiguous: "Multiple sessions match. In list --scope all --json, the row's kind is its adapter key. Select it if the matches use different adapters.",
   host_unavailable: "The local machine label is unavailable. Check machine enrollment.",
   nonlocal_host: "This lookup runs locally. Run it on the named machine.",
   inventory_unavailable: "Local inventory configuration is unavailable. Check the installed reader settings.",
