@@ -38,6 +38,10 @@ The remote compatibility review checked the current decoder and receipt store. S
 
 The v2 receiver checkpoint reproduced two stale eligibility results. A partial fixture listed one matching ID and the original handler returned `eligible`. The original Windows CLI also returned `eligible` after its installed reader was disabled. The regression runs the real receive command with temporary native registries and a body-free request. Windows restored its usual program directory during child startup, so the test sets its disposable installation directory inside the child before the CLI loads. This keeps both the positive and negative tests independent of any installed grants.
 
+A first-time terminal operator saw an idle row under partial inventory and checked it with a dry run. The original refusal returned only `unresolved` and a provisional handle. On repeat, the sender reported `not_submitted`, omitted the dry-run handle and identified the destination-side inventory command for checking the ID and reader coverage. The fixture recorded only inventory and resolve requests.
+
+The installed-state check on both desktops found the pinned provider image. The fleet identity, hosts file, receive policy, receipt database and dedicated relay SSH identity were absent. The isolated CLI regression passed on both desktops. A live session on either desktop can exercise the local route. Qualifying this receiver end to end over a restricted key requires a staged or enrolled receiver; the earlier restricted-key trials describe their own revisions.
+
 ### External process-end observation
 
 Before wiring process exit to grants or delivery, qualify the shared adapter contract in Phase I. Keep the prior A/B evidence as a regression baseline. The native observation work can continue independently. The product rollout remains A/B, I/C, F/E, G/H, then D. [Contract and acceptance cases](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work)

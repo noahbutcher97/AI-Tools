@@ -272,6 +272,69 @@ test("the final queue open precedes exact selection, writer inspection and synch
   }
 });
 
+function createQueueFile(file, stale) {
+  const db = new DatabaseSync(file);
+  try {
+    db.exec("CREATE TABLE queued_items(thread_id, created_at_ms)");
+    if (stale) db.prepare("INSERT INTO queued_items VALUES(?, ?)").run(id, Date.now() - 180_000);
+  } finally { db.close(); }
+}
+
+for (const [change, expected] of [
+  ["absent", "queued"], ["stable empty", "queued"], ["stable backlog", "unaddressable"],
+  ["fresh row during survey", "queued"], ["stale row during survey", "unaddressable"],
+  ["publish backlog during survey", "unaddressable"], ["publish empty during survey", "unaddressable"],
+  ["remove during open", "unaddressable"], ["replace during open", "unaddressable"],
+  ["remove during survey", "unaddressable"], ["replace during survey", "unaddressable"],
+]) test("remote send checks queue file identity: " + change, needsSqlite, async t => {
+  const f = await fixture(t);
+  const file = path.join(f.codexHome, "queue_1.sqlite");
+  const replacement = path.join(f.codexHome, "replacement.sqlite");
+  const changed = () => {
+    if (change.includes("row during")) {
+      const db = new DatabaseSync(file);
+      try {
+        db.prepare("INSERT INTO queued_items VALUES(?, ?)").run(id, Date.now() - (change.startsWith("stale") ? 180_000 : 0));
+      } finally { db.close(); }
+    } else if (change.startsWith("publish")) createQueueFile(file, change.includes("backlog"));
+    else if (change.startsWith("remove")) fs.unlinkSync(file);
+    else fs.renameSync(replacement, file);
+  };
+  let blockedBySharing;
+  f.adapters.check = (to, options) => {
+    if (f.frames.at(-1).op !== "send") return codexQueueBlock(to, { codexHome: f.codexHome, ...options });
+    if (change !== "absent" && !change.startsWith("publish")) createQueueFile(file, change === "stable backlog");
+    if (change.startsWith("replace")) fs.copyFileSync(file, replacement);
+    return codexQueueBlock(to, {
+      codexHome: f.codexHome,
+      openDb: async target => {
+        if (change.endsWith("during open")) changed();
+        return new DatabaseSync(target, { readOnly: true });
+      },
+      checkBinding: async () => {
+        if (change.endsWith("during survey")) {
+          try { changed(); } catch (error) {
+            const openFileMutation = change.startsWith("remove") || change.startsWith("replace");
+            if (process.platform !== "win32" || !openFileMutation || !["EPERM", "EBUSY", "EACCES"].includes(error.code)) throw error;
+            blockedBySharing = error.code;
+          }
+        }
+        return options.checkBinding();
+      },
+    });
+  };
+  const result = await sendAddressed({ to: address, message: "Synthetic notice." }, f.api);
+  if (blockedBySharing) {
+    assert.equal(result.state, "queued");
+    assert.equal(f.calls.length, 1);
+    t.skip("Open SQLite handle denied this file mutation: " + blockedBySharing);
+    return;
+  }
+  assert.equal(result.cause ?? result.state, expected);
+  assert.equal(f.calls.length, expected === "queued" ? 1 : 0);
+  assert.deepEqual(f.frames.map(frame => frame.op), ["resolve", "send"]);
+});
+
 test("withdrawal during preparation prevents quote or proof reads", needsSqlite, async t => {
   for (const op of ["send", "ping"]) {
     const f = await fixture(t);
