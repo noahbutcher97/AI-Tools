@@ -51,7 +51,7 @@ The native lease controls run in Windows PowerShell with disposable local childr
 
 At `fd993db` both the ordinary desktop replay and hosted Windows checks passed. The independent review found and verified a fix for canceled admissions exhausting the table. After 64 delayed denials or errors the fixture admitted valid work. Concurrent revocation closed a handle before its authorization check resumed, while a separate admitted process stayed observable. Across the focused checks, twelve limited opens had twelve closes. This qualifies the native fixture. Broker-issued grants, durable event deduplication, installed shared transport and subscriber delivery remain open.
 
-External-process notification disclosure for a resumed raw thread is open. The existing grants distinguish scheduled checks, generic condition changes and status for jobs the relay starts. The proposed external-process grant would let the project choose one generic notice or an opaque watch ID and exit code when the grant is issued. It would follow the granted raw thread across writer restarts. The proposal supplies no authority to include process names, PIDs, commands or logs. Qualifying the observation handle requires no subscriber or notification grant.
+The owner approved an opaque watch ID and the observed exit code as the project default for an external-process notice. A private project or individual watch may choose the generic condition-change notice. Record the effective scope in the grant at issuance. Resuming the same granted raw thread requires no new approval. Both scopes exclude process names, PIDs, commands, paths and logs. Recipient integration and end-to-end delivery proof remain open.
 
 ### Delivery proof and turn identity
 
