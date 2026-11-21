@@ -6,7 +6,18 @@
     "acceptance": "Return findings on the candidate fixture only.",
     "revision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c",
+      "verdict": "changes required",
+      "evidence": "The ACK plus EOF counted as OS termination. The entry guard allowed session zero. The implementation result needs its source revision as well as the assigned baseline.",
+      "limitations": "Source only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Added independent PID disappearance after close and an interactive-session guard. Recorded the implementation source in its return.",
+      "next": "Recheck the corrected fixture and repeat the ordinary walkthrough."
+    }
   },
   {
     "id": "shared-process-fixture-operator",
@@ -15,7 +26,18 @@
     "acceptance": "Exercise all three outcomes and interpret the loss of the revoked receipt.",
     "revision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c",
+      "verdict": "pass with correction",
+      "evidence": "The real shell returned 0, 0 and expected 17 from the three worker scenarios. The operator found the recovery instructions and identified the revoked exit as unknown.",
+      "limitations": "Initial cleanup counter was based on ACK and EOF. A hard interruption and human participant were unexercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted navigation and identified ambiguous cleanup evidence with source review.",
+      "next": "Replay the corrected independent OS cleanup check."
+    }
   },
   {
     "id": "shared-process-worker-design-recheck",
@@ -69,7 +91,8 @@
       "revision": "c8f1e94e0623224fae91a14122f4b07c8f5f9ba8",
       "verdict": "pass",
       "evidence": "Ordinary Windows fixture held two limited live handles, responded to a health request and revoked one attachment. Verified exit 7 on the retained handle. Orderly shutdown and injected failure each released both handles and both children acknowledged release and closed output.",
-      "limitations": "Fixture process and fixed health exchange only. The revoked child has no observed numeric exit."
+      "limitations": "Fixture process and fixed health exchange only. The revoked child has no observed numeric exit.",
+      "implementationRevision": "6d802f79a57852fb4c3caea5a073bb8df0a03f9c"
     },
     "acknowledgment": {
       "by": "relay coordinator",

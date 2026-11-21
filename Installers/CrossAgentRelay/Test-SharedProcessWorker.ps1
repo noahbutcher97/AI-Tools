@@ -5,7 +5,8 @@ param([switch]$Worker)
 $ErrorActionPreference = 'Stop'
 if ($env:OS -ne 'Windows_NT') { throw 'Requires Windows.' }
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
-if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run from ordinary desktop PowerShell.' }
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
+    [Diagnostics.Process]::GetCurrentProcess().SessionId -le 0) { throw 'Run from ordinary interactive desktop PowerShell.' }
 $image = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell/v1.0/powershell.exe'
 
 function Start-HiddenFixture($arguments,[switch]$WithInput) {
@@ -32,7 +33,7 @@ function Attach-FixtureChild([int]$exitCode) {
             [ProcessEndObservationFixture]::Observe($handle,$expected+1,0) -cne 'unknown') { throw 'Creation binding failed.' }
         $output = $child.StandardOutput
         $eof = $output.ReadToEndAsync()
-        return @{gate=$gate; handle=$handle; creation=$expected; code=$exitCode; output=$output; eof=$eof}
+        return @{id=$child.Id; gate=$gate; handle=$handle; creation=$expected; code=$exitCode; output=$output; eof=$eof}
     } catch {
         [void]$gate.Set()
         if ($handle) { $handle.Dispose(); $script:closed++ }
@@ -66,7 +67,7 @@ function Invoke-FixtureWorker {
     try {
         $children += Attach-FixtureChild 7
         $children += Attach-FixtureChild 19
-        [Console]::WriteLine('ready')
+        [Console]::WriteLine("ready $($children[0].id) $($children[1].id)")
         while ($true) {
             $request = $inputReader.ReadLineAsync()
             if (!$request.Wait(8000)) { throw 'Fixture controller timed out.' }
@@ -98,16 +99,16 @@ function Invoke-FixtureWorker {
             }
         }
     } finally {
-        $ended = 0
+        $acknowledged = 0
         foreach ($child in $children) { [void]$child.gate.Set(); Close-Observer $child }
         foreach ($child in $children) {
-            try { Confirm-FixtureExit $child; $ended++ }
+            try { Confirm-FixtureExit $child; $acknowledged++ }
             catch { continue }
             finally { $child.output.Dispose(); $child.gate.Dispose() }
         }
         $inputReader.Dispose()
-        [Console]::WriteLine("cleanup children=$started ended=$ended opened=$opened closed=$closed")
-        if ($ended -ne $children.Count) { throw 'Fixture cleanup did not confirm every child.' }
+        [Console]::WriteLine("cleanup children=$started acknowledged=$acknowledged opened=$opened closed=$closed")
+        if ($acknowledged -ne $children.Count) { throw 'Missing fixture acknowledgment during cleanup.' }
     }
 }
 
@@ -116,10 +117,35 @@ function Expect-Reply($client,[string]$expected,[int]$timeout) {
     if (!$read.Wait($timeout) -or $read.Result -cne $expected) { throw "Missing fixture response '$expected'." }
 }
 
+function Test-ProcessPresent([int]$targetId) {
+    try { $target = [Diagnostics.Process]::GetProcessById($targetId) }
+    catch {
+        if ($_.Exception.GetBaseException() -is [ArgumentException]) { return $false }
+        throw
+    }
+    $target.Dispose()
+    return $true
+}
+
+function Confirm-ChildrenGone($ids) {
+    # Require the PID to disappear. Rapid reuse can make this control inconclusive.
+    $deadline = [datetime]::UtcNow.AddSeconds(6)
+    foreach ($targetId in $ids) {
+        while (Test-ProcessPresent $targetId) {
+            if ([datetime]::UtcNow -ge $deadline) { throw 'A fixture child is still present after shutdown.' }
+            Start-Sleep -Milliseconds 100
+        }
+    }
+    return $ids.Count
+}
+
 function Test-Worker([string]$scenario) {
     $client = Start-HiddenFixture ('-NoLogo -NoProfile -NonInteractive -File "'+$PSCommandPath+'" -Worker') -WithInput
     try {
-        Expect-Reply $client 'ready' 10000
+        $ready = $client.StandardOutput.ReadLineAsync()
+        if (!$ready.Wait(10000) -or $ready.Result -cnotmatch '^ready ([1-9][0-9]{0,9}) ([1-9][0-9]{0,9})$') { throw 'Missing fixture child identities.' }
+        $ids = @([int]$Matches[1],[int]$Matches[2])
+        if ($ids[0] -eq $ids[1] -or !(Test-ProcessPresent $ids[0]) -or !(Test-ProcessPresent $ids[1])) { throw 'Expected two live fixture children.' }
         $health = [Diagnostics.Stopwatch]::StartNew()
         $client.StandardInput.WriteLine('health')
         Expect-Reply $client 'healthy 2' 2000
@@ -138,9 +164,11 @@ function Test-Worker([string]$scenario) {
         $expected = 0
         if ($scenario -ceq 'failure') { $client.StandardInput.WriteLine('fixture-failure'); $expected = 17 }
         else { $client.StandardInput.WriteLine('stop') }
-        Expect-Reply $client 'cleanup children=2 ended=2 opened=2 closed=2' 10000
+        Expect-Reply $client 'cleanup children=2 acknowledged=2 opened=2 closed=2' 10000
         if (!$client.WaitForExit(5000) -or $client.ExitCode -ne $expected) { throw 'Unexpected worker exit.' }
-        [pscustomobject]@{scenario=$scenario; healthMs=$health.ElapsedMilliseconds; childrenEnded=2; handlesClosed=2; workerExit=$client.ExitCode}
+        $gone = Confirm-ChildrenGone $ids
+        [pscustomobject]@{scenario=$scenario; healthMs=$health.ElapsedMilliseconds; childrenAcknowledged=2
+            childrenGone=$gone; handlesClosed=2; workerExit=$client.ExitCode}
     } finally {
         $client.StandardInput.Close()
         if (!$client.WaitForExit(10000)) { $client.Kill(); [void]$client.WaitForExit(3000) }
