@@ -6,7 +6,18 @@
     "acceptance": "Disposition for each prior finding and any remaining blocker.",
     "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+      "verdict": "pass",
+      "evidence": "Both temporary names are checked before reset. Definition, ACL, principal, fixed action and absence are verified during cleanup. Success follows a bound fresh reports-only heartbeat.",
+      "limitations": "Source only. The probe uses a separate S4U task."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the source gate at the reviewed revision.",
+      "next": "Verify the installed preflight and live broker account outcome."
+    }
   },
   {
     "id": "installed-process-operator-recheck",
@@ -15,7 +26,18 @@
     "acceptance": "Return navigation, outcome interpretation and recovery obstacles.",
     "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+      "verdict": "pass",
+      "evidence": "From the rollout handoff the operator found both commands, recorded both identifiers and correctly interpreted denial. The interruption exercise preserved unverifiable tasks and handed the private record to the maintainer.",
+      "limitations": "Agent documentation walkthrough. No real interruption or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the repeated walkthrough.",
+      "next": "Capture the actual installed trial separately."
+    }
   },
   {
     "id": "installed-process-account-review",
