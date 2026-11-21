@@ -1,5 +1,45 @@
 [
   {
+    "id": "relay-exact-review-recheck",
+    "worker": "independent selection reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+    "scope": "Recheck the held PID-only finding and positive resolution against the corrected commit.",
+    "acceptance": "Verify real CLI and MCP refusals and recovery; confirm the change preserves legacy lists.",
+    "state": "accepted",
+    "result": {
+      "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+      "verdict": "Accept read-only exact local lookup.",
+      "evidence": "On the committed sources eight paired CLI and stdio MCP lookups and three paired listings agreed. PID-only remained listed, exact coverage was incomplete, restoring a native ID restored resolution, and the old PID and changed case were missing.",
+      "limitations": "Synthetic in-memory data; live provider delivery, enrollment and proof remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The blocking native-ID finding is resolved on the implementation revision.",
+      "next": "Carry the exact binding through local delivery and proof in a separate checkpoint."
+    }
+  },
+  {
+    "id": "relay-exact-replay",
+    "worker": "independent terminal replay",
+    "coordinator": "relay coordinator",
+    "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+    "scope": "Repeat the literal-address discovery task after clarification of kind and adapter.",
+    "acceptance": "Use the CLI alone; confirm the ambiguous result and recover the correct unique address using visible guidance.",
+    "state": "accepted",
+    "result": {
+      "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+      "verdict": "Accepted for the local operator task.",
+      "evidence": "Fresh operator started from help, recovered an empty workspace list using all local workspaces, saw the raw ID collide, and used the revised kind-to-adapter guidance to resolve the correct address in one retry.",
+      "limitations": "Agent-operated CLI with synthetic installation. No human participant, live provider or delivery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the read-only CLI workflow and preserve its automated tests.",
+      "next": "Qualify the user experience for send and proof when those operations adopt the binding."
+    }
+  },
+  {
     "id": "relay-exact-review",
     "worker": "independent selection reviewer",
     "coordinator": "relay coordinator",
