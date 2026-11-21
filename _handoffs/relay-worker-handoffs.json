@@ -6,7 +6,18 @@
     "acceptance": "Check handle and token binding, exit 259, unknowns, task identity, deadlines and cleanup. Return blocking findings and limits.",
     "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+      "verdict": "Pass for the premise qualification.",
+      "evidence": "Reviewed minimum handle rights, exact creation token, signaled exit handling, owned task cleanup, bounds and CI identity. Ordinary fixtures returned exits 7 and 259. The hosted service account opened its own process and received access denied on the runner.",
+      "limitations": "No installed broker logon or provider. No live PID reuse or forced interruption."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the source checkpoint with direct installed observation still open.",
+      "next": "Qualify a matching handle or explicit denial under the installed broker logon."
+    }
   },
   {
     "id": "process-end-premise-operator",
@@ -15,7 +26,18 @@
     "acceptance": "Locate exact commands, preconditions, expected outputs and the open installed gate. Distinguish an access-list check and a live cross-account open.",
     "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+      "verdict": "Disposable fixture passed. Two recovery instructions need revision.",
+      "evidence": "The operator identified both commands and their separate proof boundaries, and observed exits 7 and 259 on local fixture children. A pasted block could overwrite the first exit code and the interruption instructions were missing.",
+      "limitations": "Agent using the ordinary client. No enrolled broker or provider."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Separate the commands, check each exit immediately and explain that retry cannot recover an earlier exit.",
+      "next": "Repeat the documentation walkthrough."
+    }
   },
   {
     "id": "process-end-kernel-fixture",

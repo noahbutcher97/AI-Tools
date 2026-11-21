@@ -12,14 +12,23 @@ On one enrolled desktop an ordinary Windows process could reopen its own live di
 
 The enrollment check evaluated the disposable PowerShell process's discretionary access list for the enrolled desktop user and the separately named broker account. The desktop control had both required rights. The broker trustee did not have the combination. This is an access-list result. The installed broker has yet to try the open under its own logon token.
 
-Run these from the checkout root in ordinary PowerShell on Windows. The first command needs no enrollment. The second needs the signed-in owner of an installed watcher. Each starts a fresh process and uses no provider turns or credentials.
+From the checkout root in ordinary PowerShell on Windows, run the disposable handle check. It needs no enrollment, credentials or provider turns.
 
 ```powershell
 powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-ProcessEndObservation.ps1
-powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-ProcessEndBrokerAccess.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Handle trial inconclusive' }
 ```
 
-Check the exit code after each command. A successful second check can report `brokerDaclAllowsObservation: false`. Keep direct broker observation unqualified in that case. Missing enrollment or an elevated shell makes that check inconclusive. The separate Windows CI fixture opens its own process as a service account, then attempts the same rights on the live runner process and records the actual kernel result. Its account and target differ from the enrolled broker and desktop.
+On an enrolled desktop, the signed-in owner can also run the access-list check in a fresh ordinary process.
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-ProcessEndBrokerAccess.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Access-list check inconclusive' }
+```
+
+If the handle trial is interrupted, discard partial output. Its disposable children have their own deadline. Rerunning starts a fresh trial and cannot recover the earlier exit status. A successful second check can report `brokerDaclAllowsObservation: false`. Keep direct broker observation unqualified in that case. Missing enrollment or an elevated shell makes that check inconclusive.
+
+In the hosted Windows trial, the service account opened its own process and the kernel denied the same rights on the live runner process. Its account and target differ from the enrolled broker and desktop. The result and the enrolled access-list check both support keeping direct observation disabled.
 
 The next installed gate is a read-only open on one explicitly granted disposable process from the actual broker logon. Record access denied or the matching creation time. Only a verified signaled handle may become an exit receipt. Leave external-process notifications disabled until that boundary, grant revocation, restart and one consumed notice pass. The existing `run --` completion path remains available for commands started through the relay.
 
