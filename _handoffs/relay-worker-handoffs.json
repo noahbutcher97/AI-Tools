@@ -1,5 +1,65 @@
 [
   {
+    "id": "relay-local-inventory-replay",
+    "worker": "independent terminal replay",
+    "coordinator": "relay coordinator",
+    "revision": "2d55500841ef6210039381e34dd25344e3ec56c0",
+    "scope": "Repeat the operator task after the raw-ID help change.",
+    "acceptance": "Identify the sample raw ID and missing coverage from the CLI alone; report which evidence led to the command.",
+    "state": "accepted",
+    "result": {
+      "revision": "2d55500841ef6210039381e34dd25344e3ec56c0",
+      "verdict": "Accepted for the local CLI discovery task.",
+      "evidence": "The fresh operator used help then list --scope all --json, correctly identified the raw ID, the incomplete reader and the complete reader. The help named both needed flags.",
+      "limitations": "Real terminal CLI with isolated fixtures. No person at keyboard or third-party client tested."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The revised help resolved the observed friction.",
+      "next": "Preserve the replay and cover exact targeting at the next checkpoint."
+    }
+  },
+  {
+    "id": "relay-local-inventory-review",
+    "worker": "independent inventory reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "64df228d6eec45c38aa5fc20ef064253900e17e9",
+    "scope": "Review trusted local composition, defaults, partial metadata and legacy boundary.",
+    "acceptance": "Inspect the implementation bytes and focused tests, checking that public input cannot load readers or widen dispatch.",
+    "state": "accepted",
+    "result": {
+      "revision": "64df228d6eec45c38aa5fc20ef064253900e17e9",
+      "verdict": "Hold the initial implementation revision.",
+      "evidence": "Clean committed fixtures reproduced loss of the adapter method receiver, invalid Claude identities listed as complete, and an invented legacy address from a record missing both ID and PID. Seven focused tests passed on the initial bytes.",
+      "limitations": "Offline read-only source and fixture review. No installed delivery or provider access."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Addressed in source and added coverage through list, send dry-run, reference and fleet.",
+      "next": "Recheck the corrected implementation revision independently."
+    }
+  },
+  {
+    "id": "relay-local-inventory-operator",
+    "worker": "independent terminal operator",
+    "coordinator": "relay coordinator",
+    "revision": "64df228d6eec45c38aa5fc20ef064253900e17e9",
+    "scope": "Use the local CLI in an isolated fixture to locate a session and assess inventory coverage.",
+    "acceptance": "Start with the user goal and normal help. Record attempts and result; use no source, private registry or provider calls.",
+    "state": "accepted",
+    "result": {
+      "revision": "64df228d6eec45c38aa5fc20ef064253900e17e9",
+      "verdict": "Goal reached with a discoverability issue.",
+      "evidence": "From help, selected all local workspaces and inspected JSON, correctly identified the raw ID and both reader completion states. Plain text showed the name.",
+      "limitations": "Agent operating a real local CLI on synthetic data. No provider turns."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Clarified the JSON help entry to mention raw IDs.",
+      "next": "Rerun the task from help on the revised CLI."
+    }
+  },
+  {
     "id": "relay-local-adapter-inventory",
     "worker": "discovery implementer",
     "coordinator": "relay coordinator",

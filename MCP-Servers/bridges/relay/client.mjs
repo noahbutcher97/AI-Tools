@@ -88,16 +88,23 @@ function readClaudeTargets(dir, now, readFile, warnings, allowIncompleteRows = f
     // analogue of filtering Codex subagent threads, and it is filtered for the
     // same reason: it is another agent's internals, not a peer.
     if (session?.entrypoint === "sdk-cli") continue;
-    const nativeId = session?.sessionId || (session?.pid == null ? null : String(session.pid));
-    if (allowIncompleteRows && (typeof nativeId !== "string" || !nativeId.length)) {
-      warnings.push(`claude session file ${entry} has no usable session identity`);
+    const pid = session?.pid;
+    let nativeId = session?.sessionId;
+    if (nativeId == null || nativeId === "") {
+      if (Number.isSafeInteger(pid) && pid > 0) nativeId = String(pid);
+      else if (typeof pid === "string" && /^[1-9][0-9]{0,9}$/.test(pid)) nativeId = pid;
+    }
+    if (!inventoryText(nativeId, 256)) {
+      const warning = `claude session file ${entry} has no usable session identity`;
+      if (!allowIncompleteRows) throw new Error(warning);
+      warnings.push(warning);
       continue;
     }
 
     const status = session.status === "busy" ? "busy" : "idle";
     const addressable = Boolean(session.messagingSocketPath);
     targets.push({
-      id: session.sessionId || String(session.pid),
+      id: nativeId,
       // For Claude the name is also the address SendMessage takes.
       name: session.name || null,
       kind: "claude",
@@ -1512,10 +1519,12 @@ function projectLocalInventory(kind, result) {
 // timeout or truncation. A thrown error marks only that adapter incomplete.
 export function createLocalInventory(additionalAdapters = []) {
   const adapters = [...builtinInventory];
-  for (const { kind, enumerate } of additionalAdapters) {
-    if (!matches(HOST, kind) || typeof enumerate !== "function" || adapters.some(a => a.kind === kind)) {
+  for (const adapter of additionalAdapters) {
+    const kind = adapter?.kind;
+    if (!matches(HOST, kind) || typeof adapter.enumerate !== "function" || adapters.some(a => a.kind === kind)) {
       throw new Error("invalid or duplicate inventory adapter");
     }
+    const enumerate = adapter.enumerate.bind(adapter);
     adapters.push({ kind, enumerate: async () => projectLocalInventory(kind, await enumerate()) });
   }
 

@@ -310,8 +310,28 @@ test("list can recover available rows while legacy send and reference selection 
   const listed = await listLocalTargets(options);
   assert.equal(listed.complete, false);
   assert.deepEqual(listed.targets.map(row => row.id), [options.to]);
-  await assert.rejects(sendMessage({ ...options, dryRun: true, allowDelegate: true, message: "fixture" }), TypeError);
-  await assert.rejects(resolveReference({ ...options, re: "turn" }), TypeError);
+  await assert.rejects(sendMessage({ ...options, dryRun: true, allowDelegate: true, message: "fixture" }), /no usable session identity/);
+  await assert.rejects(resolveReference({ ...options, re: "turn" }), /no usable session identity/);
+});
+
+test("Claude inventory refuses malformed native IDs and preserves valid legacy PID addresses", async () => {
+  const registry = tmpdir();
+  const records = [
+    { sessionId: "broken\nrecord", pid: 42 }, { sessionId: "x".repeat(257) },
+    { pid: {} }, { pid: "invalid" }, { name: "incomplete", messagingSocketPath: "fixture" },
+    { pid: 1234 }, { pid: "1235" },
+  ];
+  for (const [index, record] of records.entries()) {
+    fs.writeFileSync(path.join(registry, index + ".json"), JSON.stringify(record));
+  }
+  const options = { claudeSessionsDir: registry, codexHome: emptyCodexHome(), scope: "all" };
+  const listed = await listLocalTargets(options);
+  assert.equal(listed.complete, false);
+  assert.deepEqual(listed.targets.map(row => row.id).sort(), ["1234", "1235"]);
+  assert.equal(listed.warnings.length, 5);
+  await assert.rejects(sendMessage({ ...options, to: "undefined", dryRun: true, message: "fixture" }), /no usable session identity/);
+  await assert.rejects(resolveReference({ ...options, to: "undefined", re: "turn" }), /no usable session identity/);
+  await assert.rejects(fleetInventory(options), /no usable session identity/);
 });
 
 test("Codex's lock inventory is complete when index and timing metadata are unavailable", async () => {
