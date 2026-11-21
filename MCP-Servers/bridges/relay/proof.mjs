@@ -16,7 +16,7 @@ function pinnedFile(root, relative) {
   return { file, instance: digest([st.dev, st.ino, st.birthtimeNs].join("/")), size: Number(st.size) };
 }
 
-async function readCodex(root, id, cursor, expected) {
+async function readCodex(root, id, cursor, expected, onCodexTurn) {
   const file = pinnedFile(root, "thread_history_1.sqlite");
   const { DatabaseSync } = await import("node:sqlite");
   const db = new DatabaseSync(file.file, { readOnly: true });
@@ -28,17 +28,24 @@ async function readCodex(root, id, cursor, expected) {
     }
     if (cursor.instance !== file.instance || !db.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND turn_id=? AND item_id=? AND rollout_ordinal=?")
       .get(id, cursor.turn_id, cursor.item_id, cursor.n)) return "proof_unavailable";
-    const rows = db.prepare(`SELECT CASE WHEN length(CAST(item_json AS BLOB)) <= 65536 THEN item_json END AS item
+    const rows = db.prepare(`SELECT CASE WHEN ? AND length(CAST(turn_id AS BLOB))=36 THEN turn_id END AS turn_id,
+      CASE WHEN length(CAST(item_json AS BLOB)) <= 65536 THEN item_json END AS item
       FROM thread_items WHERE thread_id=? AND rollout_ordinal>? AND item_type='userMessage' ORDER BY rollout_ordinal LIMIT ?`);
-    let count = 0, size = 0;
-    for (const row of rows.iterate(id, cursor.n, MAX_ITEMS + 1)) {
+    let count = 0, size = 0, matchedTurn;
+    for (const row of rows.iterate(onCodexTurn ? 1 : 0, id, cursor.n, MAX_ITEMS + 1)) {
       if (++count > MAX_ITEMS || !row.item || (size += Buffer.byteLength(row.item)) > MAX_INPUT) return "proof_unavailable";
       const item = JSON.parse(row.item);
       if (item.type !== "userMessage" || !Array.isArray(item.content)) return "proof_unavailable";
       if (item.content.length === 1 && item.content[0]?.type === "text" &&
-          typeof item.content[0].text === "string" && digest(item.content[0].text) === expected) return "delivered";
+          typeof item.content[0].text === "string" && digest(item.content[0].text) === expected) {
+        if (!onCodexTurn) return "delivered";
+        if (matchedTurn || !matches(UUID, row.turn_id)) return "proof_unavailable";
+        matchedTurn = row.turn_id;
+      }
     }
-    return "pending";
+    if (!matchedTurn) return "pending";
+    onCodexTurn({ thread: id, instance: file.instance, turn: matchedTurn });
+    return "delivered";
   } finally { db.close(); }
 }
 
@@ -80,10 +87,10 @@ export async function captureCursor(target, { profile = os.homedir() } = {}) {
   throw new Error("unsupported provider");
 }
 
-export async function prove(cursor, expected, { profile = os.homedir() } = {}) {
+export async function prove(cursor, expected, { profile = os.homedir(), onCodexTurn } = {}) {
   if (!cursor || !matches(UUID, cursor.id) || !/^[0-9a-f]{64}$/.test(expected)) return "proof_unavailable";
   try {
-    if (cursor.kind === "codex") return await readCodex(path.join(profile, ".codex"), cursor.id, cursor, expected);
+    if (cursor.kind === "codex") return await readCodex(path.join(profile, ".codex"), cursor.id, cursor, expected, onCodexTurn);
     if (cursor.kind === "claude" && Number.isSafeInteger(cursor.offset) && cursor.offset >= 0) {
       return readClaude(path.join(profile, ".claude", "projects"), cursor.id, cursor.folder, cursor, expected);
     }

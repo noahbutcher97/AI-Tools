@@ -6,6 +6,16 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+### Delivery proof and turn identity
+
+The first live overlap trial on the previously qualified Codex build found one consumed scheduled notice in a different turn from the ordinary input. The ordinary turn was still active when the runner launched the queue command. The isolated watcher store was reopened between submission and proof. A fresh process authenticated the retained handle and independently recovered the same thread, history-file instance and turn after the watcher retired its handle. Automatic session-state notices remain disabled. Independent review, operator replay and a final candidate run are the closure gates.
+
+To repeat, use the Windows version and native executable checks below. Replace the final flag `--turn-metadata` with `--turn-receipt`. Run from the checkout root with the signed-in default profile and a Node release with `node:sqlite`. Budget one disposable thread with a seed turn, an ordinary turn and at most one additional turn for the scheduled notice. The runner archives its thread. It uses a private temporary receipt and removes it on normal completion.
+
+Require exit zero and the archive confirmation. A passing report has `ordinaryActiveAtQueueLaunch: true`, `consumedNotices: 1`, `observedCompleted: true` and `coldReceiptMatched: true`. The boolean `consumedInOrdinaryTurn` records whether the ordinary input and the notice shared a turn. Either result excludes the notice-bearing turn from automatic dispatch. The queue launch measurement does not establish the provider's exact acceptance time. If proof is missing or ambiguous, mark the trial inconclusive. Follow the interrupted-run guidance below before a repeat.
+
+### Earlier turn metadata trial
+
 The session-state premise check is complete for one Windows Codex build. Two disposable low-effort runs each paired an ordinary turn with one proved schedule wake in the same resumed thread. The second run sampled both turns in progress. Both completed with the same observable origin-related metadata pattern. A fresh process recovered the completion records after the isolated watcher store closed. The queue confirmation did not identify the consumed turn or input. Keep automatic idle and turn-end notices disabled. The next attribution experiment is to bind an authorized delivery proof to its provider turn ID and exercise interleaving and restart. An unmatched turn remains ambiguous. The independent process-end condition can proceed separately. [Design checkpoint](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#session-state-watch-design-checkpoint)
 
 To repeat the check, run `node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs <installed-codex-executable> --turn-metadata`. This opt-in trial creates and archives one low-cost thread, runs one ordinary turn and one scheduled wake, and reads only that thread's indexed metadata for the comparison. The normal private delivery-proof reader confirms the exact inbound message. The restarted observer has no live connection or experiment labels. Its bounded raw-ID projection stays inside the local child pipe. The public report contains comparisons. No installed watcher task, remote peer, Claude recipient or live watch loop was exercised.

@@ -7,6 +7,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { readTrialMetadata, summarizeTrial } from "./fixtures/ReadTurnMetadata.mjs";
+import { checkTurnReceipt, receiptStillMatches } from "./fixtures/CheckTurnReceipt.mjs";
+import { localStatus, sendProvedNotice } from "../../MCP-Servers/bridges/relay/local-ping.mjs";
 
 test("the observer needs only scoped metadata and preserves a positive queue-ID match", t => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "relay-turn-study-"));
@@ -74,4 +76,49 @@ test("failed comparisons keep private identifiers and timestamps out of process 
     assert.ok(run.stderr.includes(reason));
     for (const value of [seed, wake, queue, stamp]) assert.ok(!(run.stdout + run.stderr).includes(value));
   }
+});
+
+test("a retained receipt identifies only its unique consumed input and cannot authorize other turns", async t => {
+  const profile = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "relay-turn-proof-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const dir = path.join(profile, ".codex");
+  fs.mkdirSync(dir);
+  const db = new DatabaseSync(path.join(dir, "thread_history_1.sqlite"));
+  t.after(() => { if (db.isOpen) db.close(); });
+  const thread = randomUUID(), other = randomUUID(), ordinary = randomUUID(), mixed = randomUUID();
+  const notice = "one exact fixture envelope";
+  db.exec("CREATE TABLE thread_items(thread_id,turn_id,item_id,rollout_ordinal INTEGER,item_type,item_json)");
+  const insert = db.prepare("INSERT INTO thread_items VALUES(?,?,?,?,?,?)");
+  function user(target, turn, ordinal, text) {
+    insert.run(target, turn, randomUUID(), ordinal, "userMessage", JSON.stringify({ type: "userMessage", content: [{ type: "text", text }] }));
+  }
+  user(thread, ordinary, 1, notice);
+  const { handle } = await sendProvedNotice(thread, notice, { profile, deferProof: true, send: async options => {
+    await options.beforeSubmit({ id: thread, kind: "codex" }, notice);
+    return { ok: true };
+  } });
+  user(other, mixed, 2, notice);
+  user(thread, mixed, 3, "ordinary input");
+  assert.equal((await checkTurnReceipt(handle, profile)).status.state, "pending");
+  user(thread, mixed, 4, notice);
+  const { binding, status } = await checkTurnReceipt(handle, profile);
+  assert.equal(status.state, "delivered");
+  assert.deepEqual(Object.keys(binding).sort(), ["instance", "thread", "turn"]);
+  assert.equal(binding.thread, thread);
+  assert.equal(binding.turn, mixed);
+  assert.ok(!JSON.stringify(await localStatus(handle, { profile })).includes(mixed));
+  assert.ok(await receiptStillMatches({ handle, binding }, profile));
+  for (const change of [{ thread: other }, { turn: ordinary }, { instance: "changed" }]) {
+    assert.equal(await receiptStillMatches({ handle, binding: { ...binding, ...change } }, profile), false);
+  }
+  assert.equal(await receiptStillMatches({ handle: handle + "x", binding }, profile), false);
+  user(thread, ordinary, 5, notice);
+  assert.equal((await localStatus(handle, { profile })).state, "delivered");
+  assert.equal(await receiptStillMatches({ handle, binding }, profile), false);
+  db.exec("DELETE FROM thread_items WHERE rollout_ordinal=5");
+  for (let n = 5; n <= 260; n++) user(thread, ordinary, n, "ordinary input");
+  assert.equal(await receiptStillMatches({ handle, binding }, profile), false);
+  db.exec("DELETE FROM thread_items WHERE rollout_ordinal >= 5 OR rollout_ordinal = 1");
+  assert.equal(await receiptStillMatches({ handle, binding }, profile), false);
+  db.close();
 });

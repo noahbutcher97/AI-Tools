@@ -27,7 +27,9 @@ const image = process.argv[2];
 if (typeof image !== "string" || !path.isAbsolute(image) || !fs.statSync(image).isFile()) throw Error("Supply an installed provider executable");
 const fromShell = process.argv[3] === "--from-shell";
 const turnStudy = process.argv[3] === "--turn-metadata";
-const schedule = turnStudy || process.argv[3] === "--schedule";
+const proofStudy = process.argv[3] === "--turn-receipt";
+const metadataOnly = turnStudy || proofStudy;
+const schedule = metadataOnly || process.argv[3] === "--schedule";
 const checkMcp = process.argv[3] === "--mcp-watch";
 const installedBranch = ["--installed-branch","--installed-mcp-branch"].includes(process.argv[3]);
 const installedMcp = ["--installed-mcp-schedule","--installed-mcp-file","--installed-mcp-branch"].includes(process.argv[3]);
@@ -83,10 +85,10 @@ async function startProvider() {
   lines.on("line", line => {
     const msg = JSON.parse(line);
     if (msg.id && inbox.has(msg.id)) inbox.get(msg.id)(msg);
-    if (msg.method === "turn/completed" && (!turnStudy || msg.params.threadId === id)) {
+    if (msg.method === "turn/completed" && (!metadataOnly || msg.params.threadId === id)) {
       turns.set(msg.params.turn.id, msg.params.turn.status);
     }
-    if (turnStudy) {
+    if (metadataOnly) {
       if (msg.method === "turn/started" && msg.params.threadId === id) {
         const turn = msg.params.turn;
         startedSignals.set(turn.id, { status: turn.status, fields: Object.keys(turn).sort() });
@@ -210,10 +212,12 @@ async function runTrial() {
     const file = path.join(root, "jobs.sqlite");
     await initializeCompletionJobs(file);
     fs.mkdirSync(path.join(root, "completion-grants"));
-    const grant = { provider: "codex", scope: "thread-schedule", condition: randomUUID(), target: id, intervalSeconds: turnStudy ? 86400 : 60,
+    const grant = { provider: "codex", scope: "thread-schedule", condition: randomUUID(), target: id, intervalSeconds: metadataOnly ? 86400 : 60,
       startsAt: new Date(Date.now() + 8000).toISOString(), expiresAt: new Date(Date.now() + 180000).toISOString() };
     let submissions = 0, proofs = 0;
     let queueId;
+    let ordinaryTurn, receipt, ordinaryActiveAtLaunch = false;
+    const receiptFile = path.join(root, "turn-receipt.json");
     const open = () => openCompletionJobs(file, { schedules: { root, policy: () => [grant] },
       send: (to, text, options) => {
         assert.ok(to === id && text === scheduleNotice, "Unexpected schedule delivery");
@@ -222,12 +226,31 @@ async function runTrial() {
           queueId = result.queuedId;
           return result;
         };
-        return sendProvedNotice(to, text, { ...options, send: turnStudy ? observeSend : sendMessage, runQueue: (dest, envelope) => {
-          assert.ok(dest === id, "Unexpected schedule destination"); submissions++;
+        return sendProvedNotice(to, text, { ...options, send: turnStudy ? observeSend : sendMessage, runQueue: async (dest, envelope) => {
+          assert.ok(dest === id, "Unexpected schedule destination");
+          if (proofStudy) {
+            const direct = await provider.call("turn/start", { threadId: id, input: [
+              { type: "text", text: "List the days of the week in order. Use no tools.", text_elements: [] },
+            ] });
+            ordinaryTurn = direct.turn.id;
+            await until(() => startedSignals.has(ordinaryTurn), 5000, "Ordinary turn start was unobserved");
+            ordinaryActiveAtLaunch = !provider.turns.has(ordinaryTurn);
+          }
+          submissions++;
           return runProvider(image, ["queue", "--thread", dest, "--message", envelope], { cwd: root });
         } });
       },
       status: async handle => {
+        if (proofStudy) {
+          const { checkTurnReceipt } = await import("./fixtures/CheckTurnReceipt.mjs");
+          const { status, binding } = await checkTurnReceipt(handle);
+          if (status.state === "delivered" && status.to === id && binding?.thread === id) {
+            fs.writeFileSync(receiptFile, JSON.stringify({ handle, binding }), { flag: "wx", mode: 0o600 });
+            receipt = binding;
+            proofs++;
+          }
+          return status;
+        }
         const result = await localStatus(handle);
         if (result.state === "delivered" && result.to === id) proofs++;
         return result;
@@ -249,12 +272,35 @@ async function runTrial() {
     provider = await startProvider();
     const resumed = await provider.call("thread/resume", { ...params, threadId: id, excludeTurns: true });
     assert.ok(resumed.thread.id === id, "Resumed a different thread"); assert.equal(resumed.model, model);
+    if (proofStudy) {
+      await until(async () => {
+        await store.watches.dispatchDue();
+        return submissions === 1;
+      }, 15000, "No notice submission for the overlap trial");
+      assert.equal(proofs, 0, "Expected restart before proof");
+      store.close(); store = await open();
+    }
     await until(async () => {
       await store.watches.dispatchDue();
       return proofs === 1;
     }, 55000, "No consumed schedule notice after resume");
     assert.equal(submissions, 1);
     assert.equal(store.watches.subscriptions([grant])[0].state, "waiting");
+    if (proofStudy) {
+      assert.ok(ordinaryActiveAtLaunch, "Ordinary turn had already ended at queue launch");
+      assert.ok(receipt && receipt.turn !== seed.turn.id, "Missing post-cursor turn binding");
+      await until(() => [ordinaryTurn, receipt.turn].every(turn =>
+        startedSignals.has(turn) && provider.turns.get(turn) === "completed"), 90000, "Trial turns did not finish");
+      store.close(); store = null;
+      const helper = fileURLToPath(new URL("./fixtures/CheckTurnReceipt.mjs", import.meta.url));
+      const fd = fs.openSync(receiptFile, "r");
+      try {
+        const cold = spawnSync(process.execPath, [helper], { stdio: [fd, "ignore", "ignore"], windowsHide: true, timeout: 10000 });
+        assert.equal(cold.status, 0, "Fresh process could not confirm the retained turn binding");
+      } finally { fs.closeSync(fd); }
+      console.log(JSON.stringify({ ordinaryActiveAtQueueLaunch: true, consumedNotices: proofs,
+        consumedInOrdinaryTurn: receipt.turn === ordinaryTurn, observedCompleted: true, coldReceiptMatched: true }));
+    }
     if (turnStudy) {
       // Completion of delivery can precede completion of the recipient's turn.
       const turnId = await until(() => [...provider.turns].find(([turn, status]) =>
@@ -431,7 +477,7 @@ try {
     try {
       await provider.call("thread/archive", { threadId: id });
       archived = true;
-      if (turnStudy) console.log("Disposable qualification thread archived.");
+      if (metadataOnly) console.log("Disposable qualification thread archived.");
     } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();
