@@ -1,5 +1,23 @@
 [
   {
+    "id": "shared-process-fixture-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck the independent cleanup control, desktop guard and implementation attribution.",
+    "acceptance": "Return disposition on corrected source and remaining proof limits.",
+    "revision": "b4ff41138f4e84fd7eddabbcac3b4a14576c16f5",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "shared-process-operator-replay",
+    "worker": "independent operator",
+    "scope": "Rerun the shared worker terminal task and distinguish acknowledgment from independent OS cleanup.",
+    "acceptance": "Verify all three scenarios and describe interruption and revoked outcome.",
+    "revision": "b4ff41138f4e84fd7eddabbcac3b4a14576c16f5",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "shared-process-fixture-review",
     "worker": "independent source reviewer",
     "scope": "Review the disabled shared observer fixture and evidence for matching identity, limited rights, controls, cleanup and deadlines.",
