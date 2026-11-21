@@ -1,5 +1,45 @@
 [
   {
+    "id": "external-exit-sampling-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the desktop sampling-gap fixture, exact evidence and cleanup.",
+    "acceptance": "Verify or identify blockers for the limited fixture and result interpretation.",
+    "revision": "2897e4613cb716970153faed26e40f8fa468704b",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "2897e4613cb716970153faed26e40f8fa468704b",
+      "verdict": "pass",
+      "evidence": "The limited observer releases its handle before release of the child. The launcher checks exit 19 and closes its independent handle before the fresh PID lookup. An exit receipt requires matching creation and a signaled handle.",
+      "limitations": "Source only. Actual lookup outcomes require runtime evidence."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted source review.",
+      "next": "Compare the independent ordinary-user replay."
+    }
+  },
+  {
+    "id": "external-exit-sampling-operator",
+    "worker": "independent operator",
+    "scope": "Follow the documented ordinary-user external process trial; use only the disposable fixture.",
+    "acceptance": "Interpret launcher control versus later sample and verify the reported cases.",
+    "revision": "2897e4613cb716970153faed26e40f8fa468704b",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "2897e4613cb716970153faed26e40f8fa468704b",
+      "verdict": "pass",
+      "evidence": "Ordinary Windows PowerShell returned exits 7 and 259 with matching held handles. After loss the launcher reported 19 and the fresh sample found the process absent. The operator correctly identified the lack of observer proof.",
+      "limitations": "Agent operating a real shell. No manual interruption or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted live replay on the same fixture revision.",
+      "next": "Use the measured gap to constrain the shared worker design."
+    }
+  },
+  {
     "id": "installed-process-account-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck limited installed observer admission, identity, cleanup and health after corrections.",
