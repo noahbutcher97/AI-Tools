@@ -1,5 +1,14 @@
 [
   {
+    "id": "process-end-operator-replay",
+    "worker": "constrained qualification operator",
+    "scope": "Repeat the command selection, exit code and interrupted-trial walkthrough from the updated handoff.",
+    "acceptance": "Identify both preconditions and independent dispositions including a failed first trial and a denied access-list check. Documentation only.",
+    "revision": "ffd0d6286dc93a517e1cd2520f5a757756375ec1",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "process-end-premise-review",
     "worker": "independent source reviewer",
     "scope": "Review the Windows read-only process fixtures, enrolled-trustee access calculation and hosted service-account qualification. Inspect confinement and the strength of conclusions. Local ordinary tests only.",
