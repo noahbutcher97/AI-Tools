@@ -31,6 +31,96 @@ function New-Grant($child,$creation,[switch]$Once) {
     return $id
 }
 
+function Test-DelayedDenial($child,$creation) {
+    $control = @{answer='deny'}
+    $probe = [ProcessLeaseTable]::new({
+        param($id,$candidate,$value)
+        if ($candidate -ne $child.Id -or $value -cne $creation) { return $false }
+        if ($control.answer -eq 'allow') { return $true }
+        $wait = [Diagnostics.Stopwatch]::StartNew()
+        while ($probe.ActiveSlots -ne 0 -and $wait.ElapsedMilliseconds -lt 2000) { Start-Sleep -Milliseconds 5 }
+        Expect $probe.ActiveSlots 0
+        if ($control.answer -eq 'throw') { throw 'Fixture authority unavailable' }
+        if ($control.answer -eq 'revoke') { $probe.Revoke($id) }
+        return $false
+    })
+    try {
+        for ($i=0; $i -lt 64; $i++) {
+            $id = [guid]::NewGuid()
+            if ($i % 2 -eq 0) {
+                $control.answer = 'deny'
+                Expect ($probe.Attach($id,$child,$creation,1)) 'denied'
+            } else {
+                $control.answer = 'throw'
+                $threw = $false
+                try { $null = $probe.Attach($id,$child,$creation,1) }
+                catch { $threw = $_.Exception.GetBaseException().Message -ceq 'Fixture authority unavailable' }
+                Expect $threw $true
+            }
+        }
+        Expect $probe.Attempts 0
+        $control.answer = 'allow'
+        $new = [guid]::NewGuid()
+        Expect ($probe.Attach($new,$child,$creation,30000)) 'attached'
+        $probe.Revoke($new)
+        Expect ($probe.Attach($id,$child,$creation,30000)) 'attached'
+        $probe.Revoke($id)
+        $control.answer = 'revoke'
+        $revoked = [guid]::NewGuid()
+        Expect ($probe.Attach($revoked,$child,$creation,1)) 'denied'
+        $control.answer = 'allow'
+        Expect ($probe.Attach($revoked,$child,$creation,30000)) 'duplicate'
+        Expect $probe.Attempts 2
+        Expect $probe.Closed 2
+    } finally { $probe.Dispose() }
+}
+
+function Test-RevokeDuringCheck($child,$creation,$otherChild,$otherCreation) {
+    $peer = [guid]::NewGuid()
+    $paused = [guid]::NewGuid()
+    $entered = [Threading.ManualResetEventSlim]::new($false)
+    $finished = [Threading.ManualResetEventSlim]::new($false)
+    $state = @{checks=0}
+    $probe = [ProcessLeaseTable]::new({
+        param($id,$candidate,$value)
+        if ($id -eq $peer) { return $candidate -eq $child.Id -and $value -ceq $creation }
+        if ($id -ne $paused -or $candidate -ne $otherChild.Id -or $value -cne $otherCreation) { return $false }
+        $state.checks++
+        if ($state.checks -eq 2) {
+            $entered.Set()
+            if (!$finished.Wait(4000)) { throw 'Concurrent revocation timed out' }
+            Expect $probe.Closed 1
+            Expect ($probe.Sample($peer)) 'running'
+            Expect ($probe.Sample($paused)) 'unknown'
+        }
+        return $true
+    })
+    $revoker = [PowerShell]::Create()
+    try {
+        Expect ($probe.Attach($peer,$child,$creation,30000)) 'attached'
+        $null = $revoker.AddScript({
+            param($probe,$id,$entered,$finished)
+            if (!$entered.Wait(4000)) { throw 'Post-open check did not start' }
+            try { $probe.Revoke($id) } finally { $finished.Set() }
+        }).AddArgument($probe).AddArgument($paused).AddArgument($entered).AddArgument($finished)
+        $job = $revoker.BeginInvoke()
+        Expect ($probe.Attach($paused,$otherChild,$otherCreation,30000)) 'unknown'
+        $null = $revoker.EndInvoke($job)
+        Expect $revoker.HadErrors $false
+        Expect $state.checks 2
+        Expect ($probe.Attach($paused,$otherChild,$otherCreation,30000)) 'duplicate'
+        Expect ($probe.Sample($peer)) 'running'
+        $probe.Dispose()
+        Expect $probe.Attempts 2
+        Expect $probe.Closed 2
+    } finally {
+        $revoker.Dispose()
+        $probe.Dispose()
+        $entered.Dispose()
+        $finished.Dispose()
+    }
+}
+
 try {
     foreach ($counter in 1,2) {
         $image = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell/v1.0/powershell.exe'
@@ -43,6 +133,7 @@ try {
     $child = $children[0]
     $tick = [ProcessEndObservationFixture]::CreationFileTime($child.SafeHandle)
     $creation = $tick.ToString([CultureInfo]::InvariantCulture)
+    Test-DelayedDenial $child $creation
     foreach ($bad in @($null,'','0','01','+1','-1','1.0','1e4',' 1',"1`n",'18446744073709551616')) {
         Expect ([ProcessLeaseTable]::ValidCreation($bad)) $false
         Expect ($table.Attach([guid]::NewGuid(),$child,$bad,1000)) 'invalid'
@@ -75,6 +166,7 @@ try {
     Expect ($table.Attach($first,$child,$creation,30000)) 'attached'
     Expect ($table.Attach($first,$child,$creation,30000)) 'duplicate'
     $secondToken = [ProcessEndObservationFixture]::CreationFileTime($children[1].SafeHandle).ToString([CultureInfo]::InvariantCulture)
+    Test-RevokeDuringCheck $child $creation $children[1] $secondToken
     $second = New-Grant $children[1] $secondToken
     Expect ($table.Attach($second,$children[1],$secondToken,30000)) 'attached'
     $short = New-Grant $child $creation
@@ -115,7 +207,8 @@ try {
     Expect $table.Attempts 8
     Expect $table.Opened 8
     Expect $table.Closed 8
-    'Binding, authorization, capacity, revocation and lease expiry during idle input and a paused guard passed. Eight limited opens, eight closes.'
+    'Binding, authorization, capacity and idle expiry passed. Eight limited opens, eight closes.'
+    'After 64 delayed denials or errors, new grants remained usable. Concurrent revocation closed a pending handle while its peer stayed live. Four further opens and closes.'
 } finally {
     $table.Dispose()
     [void]$gate.Set()

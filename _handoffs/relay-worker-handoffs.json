@@ -6,7 +6,18 @@
     "acceptance": "64 denied requests expiring before authorization must not exhaust the table. Explicit revocation keeps its tombstone; count actual opens/closes, verify a peer remains usable.",
     "revision": "638fe70a1fa31da0b53ee93137eece45d3eed5ca",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "638fe70a1fa31da0b53ee93137eece45d3eed5ca",
+      "verdict": "pass",
+      "evidence": "Reproduced full capacity after 64 expired unauthorized attempts. Corrected source reclaimed them without opens. Explicit revocation retained its tombstone. A separate runspace revoked a pending post-open attachment and its peer stayed live. Twelve opens matched twelve closes across the controls.",
+      "limitations": "Native fixture using local synthetic grants only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for final independent recheck.",
+      "next": "Verify code review, real operator replay and Windows CI."
+    }
   },
   {
     "id": "shared-native-lease-review",
