@@ -6,7 +6,18 @@
     "acceptance": "Identify both preconditions and independent dispositions including a failed first trial and a denied access-list check. Documentation only.",
     "revision": "ffd0d6286dc93a517e1cd2520f5a757756375ec1",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "ffd0d6286dc93a517e1cd2520f5a757756375ec1",
+      "verdict": "Pass on the revised documentation.",
+      "evidence": "The operator found separate command blocks and immediate exit checks, discarded partial output after interruption, and retained unknown status on access denial.",
+      "limitations": "Documentation-only agent replay. No additional service, provider or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Both walkthrough findings resolved.",
+      "next": "Use the revised instructions for repeated qualification."
+    }
   },
   {
     "id": "process-end-premise-review",
