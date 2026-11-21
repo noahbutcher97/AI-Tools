@@ -5,7 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
-import { discoverTargets } from "./client.mjs";
+import { createLocalInventory, discoverTargets } from "./client.mjs";
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const SESSION = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
@@ -48,27 +48,33 @@ export function loadDirectory() {
   return parseDirectory(read("machine.json"), read("hosts.json"));
 }
 
-export async function inventory(options = {}) {
-  // A provider database or directory read may block synchronously. Keep it off
-  // the receive/MCP event loop so one stalled local store cannot hold a sweep.
-  if (isMainThread) {
-    return new Promise((resolve, reject) => {
-      const worker = new Worker(new URL(import.meta.url), {
-        workerData: { relayInventoryWorker: true, options }, execArgv: [],
-      });
-      const timer = setTimeout(() => {
-        worker.unref();
-        void worker.terminate();
-        reject(new Error("inventory deadline"));
-      }, 2300);
-      worker.once("message", resolve);
-      worker.once("error", reject);
-      worker.once("exit", () => {
-        clearTimeout(timer);
-        reject(new Error("inventory worker exited"));
-      });
+// A provider database or directory read may block synchronously. Both fleet
+// listing and exact receive surveys keep these reads off the receiver's loop.
+function inventoryWorker(data) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL(import.meta.url), { workerData: data, execArgv: [] });
+    const timer = setTimeout(() => {
+      worker.unref();
+      void worker.terminate();
+      reject(new Error("inventory deadline"));
+    }, 2300);
+    worker.once("message", resolve);
+    worker.once("error", reject);
+    worker.once("exit", () => {
+      clearTimeout(timer);
+      reject(new Error("inventory worker exited"));
     });
-  }
+  });
+}
+
+export async function surveyRemoteSelection(installed, selector, options) {
+  try {
+    return await inventoryWorker({ relayExactSurvey: true, enabled: installed.readerKinds, selector, options });
+  } catch { return { ok: false, state: "incomplete_inventory" }; }
+}
+
+export async function inventory(options = {}) {
+  if (isMainThread) return inventoryWorker({ relayInventoryWorker: true, options });
   const { targets, warnings } = await discoverTargets({ scope: "all", ...options });
   const rows = [];
   let partial = warnings.length > 0;
@@ -87,6 +93,10 @@ export async function inventory(options = {}) {
 
 if (!isMainThread && parentPort && workerData?.relayInventoryWorker) {
   parentPort.postMessage(await inventory(workerData.options));
+}
+if (!isMainThread && parentPort && workerData?.relayExactSurvey) {
+  const installed = createLocalInventory([], workerData.enabled);
+  parentPort.postMessage(await installed.resolve(workerData.selector, workerData.options));
 }
 
 export function sshInvocation(entry) {

@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-remote-final-selection",
+    "worker": "remote receiver implementer",
+    "coordinator": "relay coordinator",
+    "revision": "4383a0cc8b1bf632faa6b4102c9337332ef2b9c1",
+    "scope": "Apply installed exact selection and dispatch-time policy to the existing remote Codex path, retaining the approved wire, protected queue and durable reservations.",
+    "acceptance": "Point-of-effect fixture shows zero provider calls on incomplete selection, collisions, changed label, disabled reader, eligibility loss or grant withdrawal during proof preparation. Stable send and probe submit once; cold status and retries never resend.",
+    "state": "accepted",
+    "result": {
+      "revision": "4383a0cc8b1bf632faa6b4102c9337332ef2b9c1",
+      "verdict": "v2 receive now checks the installed exact match and policy at submission.",
+      "evidence": "A partial projected inventory previously passed a dry run. The updated fixture refused incomplete and ambiguous matches and withdrew delivery after policy or eligibility changed. A stable target received one recorded submission, and a fresh receiver proved its consumed input. Seventeen receive/remote tests and 38 related regressions passed.",
+      "limitations": "Recording provider, temporary native stores and an isolated Windows CLI. Each remote inventory survey uses the former 2.3-second worker deadline. No SSH or live provider delivery by the worker."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept for independent review and the constrained sender walkthrough.",
+      "next": "Verify the fixed CLI and the remote receipt boundary at the committed revision."
+    }
+  },
+  {
     "id": "relay-bound-final-review",
     "worker": "independent delivery reviewer",
     "coordinator": "relay coordinator",
