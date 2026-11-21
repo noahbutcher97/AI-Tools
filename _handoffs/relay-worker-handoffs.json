@@ -1,5 +1,34 @@
 [
   {
+    "id": "relay-remote-v2-review",
+    "worker": "independent receiver reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+    "scope": "Audit the v2 receiver change against its existing authority and proof contract.",
+    "acceptance": "Check complete installed selection, last authorization, native eligibility, deadline and reservation recovery. Report blockers with recording fixtures only.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-remote-v2-operator",
+    "worker": "constrained sender operator",
+    "coordinator": "relay coordinator",
+    "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+    "scope": "Use a read-only terminal to determine whether the indicated remote session can receive a notice.",
+    "acceptance": "Use the public CLI under incomplete coverage. Distinguish the address returned by inventory from eligibility for sending. Avoid sending or waking a session.",
+    "state": "accepted",
+    "result": {
+      "revision": "d4898482b34ec26bfa131ac39efcd054819b7d3e",
+      "verdict": "Safe refusal with unclear recovery guidance.",
+      "evidence": "The first-time operator saw a ready host with partial inventory and an idle addressable row. A dry run returned unresolved plus a handle. The operator stopped and recognized the need to check reader coverage. No effect frame was sent.",
+      "limitations": "Real sender CLI with synthetic in-memory receive frames and a recording incomplete survey. No actual SSH, provider or delivery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Explain how to check the destination ID and coverage, identify the missing submission, and omit a new receipt from a failed dry run.",
+      "next": "Repeat the same operator task after the text and result change."
+    }
+  },
+  {
     "id": "relay-remote-final-selection",
     "worker": "remote receiver implementer",
     "coordinator": "relay coordinator",

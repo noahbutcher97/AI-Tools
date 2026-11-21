@@ -175,6 +175,7 @@ async function main() {
     if (options.json) console.log(JSON.stringify(result, null, 2));
     else for (const row of result.hosts) {
       console.log(`${row.host}  ${row.status}${row.partial ? "  partial inventory" : ""}`);
+      if (row.partial) console.log("  A listed session may still be ambiguous. Check the target with relay send --dry-run.");
       for (const t of row.targets || []) console.log(`  ${row.host}:${t.id}  ${t.kind}  ${t.status}${t.addressable ? "" : "  unavailable"}`);
     }
     process.exitCode = result.complete ? 0 : 3;

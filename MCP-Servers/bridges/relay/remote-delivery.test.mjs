@@ -196,7 +196,12 @@ test("incomplete, ambiguous or unenrolled selection refuses a remote submission"
     f.adapters.check = () => { checks++; };
     const result = await sendAddressed({ to: address, message: "notice" }, f.api);
     assert.equal(result.cause, "unresolved", state);
-    assert.equal(f.frames.length, 1);
+    assert.equal(result.dispatch, "not_submitted");
+    const dry = await sendAddressed({ to: address, message: "notice", dryRun: true }, f.api);
+    assert.equal(dry.handle, undefined);
+    assert.match(dry.detail, /reader coverage.*repeat the dry run/);
+    assert.deepEqual(f.frames.map(frame => [frame.op, Object.hasOwn(frame, "message")]),
+      [["resolve", false], ["resolve", false]]);
     assert.equal(checks, 0);
     assert.equal(f.calls.length, 0);
   }

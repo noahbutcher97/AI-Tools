@@ -47,7 +47,7 @@ server.tool(
 
 server.tool(
   "relay_list",
-  "List sessions from local inventory adapters or query the configured hosts. Local results report whether each adapter enumerated its sessions. Workspace and activity details can still be unknown.",
+  "List sessions from local inventory adapters or query the configured hosts. Local results report whether each adapter enumerated its sessions. Workspace and activity details can still be unknown. For partial remote inventory, use relay_send with dry_run to check current target eligibility.",
   {
     scope: z
       .enum(["cwd", "all"])
