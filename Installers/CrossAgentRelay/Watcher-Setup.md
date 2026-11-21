@@ -118,6 +118,20 @@ Use a disposable branch with one writer. Keep its initial and intended successor
 
 If the desktop runner is interrupted, retain its task result and exchange directory. In the provider's session history, independently match the name `relay-check-<trial-guid>` and recorded raw ID, archive that exact disposable session if necessary, and verify its archived state. If the session cannot be identified, preserve the exchange for inspection. From ordinary PowerShell under the enrolled desktop account, run the protected client script with `-Stage RecoverSession -BranchWatch -TrialId <trial-guid> -Target <verified-raw-id> -ExpectedPackage <installed-digest> -ArchiveVerified`. This checks the stopped task and removes only recognised files in that trial's exchange. Run elevated Cleanup afterward, supplying `-RecordedTaskResult <original-code>` when the original result was nonzero. Recovery preserves the failed trial's disposition. A new attempt takes a new condition GUID.
 
+## Qualify access to an external process
+
+Use elevated Windows PowerShell under the enrolled desktop user while the interactive desktop is signed in. Stage a reviewed, administrator-controlled copy of `Test-ProcessEndInstalledAccount.ps1`, `Install-CompletionWatcher.ps1`, and the `fixtures/ProcessEndProbeCommand.ps1` and `fixtures/ProcessEndObservation.cs` files together. Verify their hashes against the reviewed revision before launching the controller. Supply the installed package digest from the private deployment record. The broker must be running with empty grants, disabled delivery and an idle worker.
+
+From that tool directory, run the desktop preflight first. It creates one temporary task and checks a disposable process with queryable identity and creation time. Each invocation takes a fresh trial ID.
+
+```powershell
+.\Test-ProcessEndInstalledAccount.ps1 -ExpectedPackage $expectedPackage -TrialId ([guid]::NewGuid())
+```
+
+For the live check, repeat with `-RotateBrokerPassword` under the owner's authorization for the dedicated account. This rotates the account password once and passes it in memory to Task Scheduler to register a separate limited S4U observer. The enrolled watcher keeps its own registration. Allow up to two minutes. The target and observer confirm their expected non-administrative identities. The controller pins the disposable process through the open attempt and checks its exit control. No AI session or network notice is involved.
+
+Require successful script completion and `enrolledBrokerLogon` and `ownHandleVerified` both true. A `desktopProcessAccess` value of `denied` is a conclusive access result and leaves external-process notifications disabled. A value of `granted` establishes read access to this fixture. Any other result leaves the trial inconclusive. A hard interruption can leave stopped trial tasks. Retain the trial ID, verify each task's description, principal and fixed action against that trial before cleanup, and check that the enrolled watcher is still in reports-only mode before another attempt.
+
 ## Deactivate and retain state
 
 ```text

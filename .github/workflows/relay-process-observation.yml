@@ -5,6 +5,7 @@ on:
       - '.github/workflows/relay-process-observation.yml'
       - 'Installers/CrossAgentRelay/Test-ProcessEnd*.ps1'
       - 'Installers/CrossAgentRelay/fixtures/ProcessEndObservation.cs'
+      - 'Installers/CrossAgentRelay/fixtures/ProcessEndProbeCommand.ps1'
 permissions:
   contents: read
 jobs:
