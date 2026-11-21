@@ -20,7 +20,9 @@ The independent review held the initial revision because a legacy PID could reso
 
 PR review also found that the fixture launch flags required a newer Node release. With the revised test loader, an isolated Node 18.0.0 Windows executable resolved the same synthetic address through the CLI and a fresh MCP stdio server. The full suite ran on Node 22.20.0.
 
-The next checkpoint carries the binding into local send and proof. Recheck eligibility at the last point before submission; keep an ambiguous or incomplete lookup from reaching a provider. Exercise the existing local callers and the synthetic reader with a recording delivery adapter. Then qualify the same binding through receive, receipt lookup and watcher grants before connecting external process-end delivery. The first compatibility claim for an additional client still requires a real session.
+Local send and proof are under qualification. Literal CLI and MCP selectors pin the original local binding. The Codex route checks the writer and queue again after proof preparation. The fixture reproduces a writer disappearing during that interval and verifies zero submissions after the correction. Another fixture records sends separately from inbound items and exercises recovery from a fresh process. An opt-in Windows trial (`Qualify-CodexCompletion.mjs <provider-image> --bound-ping`) uses one disposable low-effort thread, sends one probe, checks its receipt from a fresh CLI process, counts consumed inputs and archives the thread. Keep this checkpoint open pending independent review and the terminal walkthrough.
+
+After local acceptance, qualify the binding through remote receive, receipt lookup and watcher grants before connecting external process-end delivery. The first compatibility claim for an additional client still requires a real session.
 
 ### External process-end observation
 

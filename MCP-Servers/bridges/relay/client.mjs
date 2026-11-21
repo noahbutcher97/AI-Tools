@@ -904,7 +904,7 @@ async function threadIsInStore(codexHome, id, openDb) {
 // Relay to a Claude session through the confined delegate. Success is reported
 // only against the confirmation token, never against exit status: the path
 // contains a model call and could in principle do something other than relay.
-async function relayViaDelegate({ target, message, origin, originTarget, identity, reference, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew, beforeSubmit }) {
+async function relayViaDelegate({ target, message, origin, originTarget, identity, reference, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew, beforeSubmit, checkLocalBinding, checkRecipient }) {
   let invocation;
   try {
     invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, identity, reference, kind, conversation, messageId, inReplyTo, openedNew, recipient: target.id });
@@ -913,12 +913,16 @@ async function relayViaDelegate({ target, message, origin, originTarget, identit
   }
 
   if (dryRun) {
+    const refusal = await checkLocalBinding() || checkRecipient();
+    if (refusal) return refusal;
     return { ok: true, to: target.name, target, queuedId: null, conversation, messageId, detail: `would relay to ${target.name} via the delegate` };
   }
 
   let outcome;
   try {
     if (beforeSubmit) await beforeSubmit(target, invocation.delivered);
+    const refusal = await checkLocalBinding() || checkRecipient();
+    if (refusal) return refusal;
     outcome = await runDelegate(invocation);
   } catch (err) {
     return fail(SEND_CAUSES.DELEGATE_FAILED, `delegate could not be invoked: ${err.message}`, target.kind);
@@ -962,15 +966,18 @@ async function relayViaDelegate({ target, message, origin, originTarget, identit
 //
 // Threshold default 30s: three times the largest measured wake latency (9.3s),
 // so ordinary in-flight traffic is never mistaken for a stall.
-async function readQueueBacklog(codexHome, threadId, openDb, now, thresholdMs = 30_000) {
+async function openQueueStore(codexHome, openDb) {
   const file = path.join(codexHome, "queue_1.sqlite");
   if (!fs.existsSync(file)) return null;
-  let db;
   try {
-    db = await openDb(file);
+    return await openDb(file);
   } catch {
     return null;
   }
+}
+
+function readQueueBacklog(db, threadId, now, thresholdMs) {
+  if (!db) return null;
   try {
     const row = db
       .prepare("select count(*) as n, min(created_at_ms) as oldest from queued_items where thread_id = ?")
@@ -981,15 +988,23 @@ async function readQueueBacklog(codexHome, threadId, openDb, now, thresholdMs = 
     return { count: row.n, oldestMs };
   } catch {
     return null;
-  } finally {
-    db.close?.();
   }
 }
 
 export async function codexQueueBlock(id, {
-  codexHome = defaultCodexHome(), openDb = defaultOpenDb, now = Date.now(), backlogThresholdMs = 30_000,
+  codexHome = defaultCodexHome(), openDb = defaultOpenDb, now, backlogThresholdMs = 30_000, checkBinding,
 } = {}) {
-  const backlog = await readQueueBacklog(codexHome, id, openDb, now, backlogThresholdMs);
+  const db = await openQueueStore(codexHome, openDb);
+  let backlog;
+  try {
+    if (checkBinding) {
+      const refusal = await checkBinding();
+      if (refusal) return refusal;
+    }
+    backlog = readQueueBacklog(db, id, now ?? Date.now(), backlogThresholdMs);
+  } finally {
+    db?.close?.();
+  }
   if (backlog) return {
     cause: SEND_CAUSES.NOT_CONSUMING,
     detail: `that thread has ${backlog.count} undelivered message(s) pending, the oldest for ${formatDuration(backlog.oldestMs)}; ` +
@@ -1002,7 +1017,7 @@ export async function codexQueueBlock(id, {
   return null;
 }
 
-export async function sendMessage(options = {}) {
+export async function sendMessage(options = {}, { binding, buildEnvelope = buildRelayEnvelope } = {}) {
   const {
     to,
     message,
@@ -1033,17 +1048,27 @@ export async function sendMessage(options = {}) {
     ...discovery
   } = options;
 
+  let queueStarted = false;
   const fail = (cause, detail, kind) => {
+    if (binding) {
+      if (queueStarted) return { ok: false, cause: "unknown", detail: "The Codex queue submission outcome is unknown.", to, dispatch: "unknown" };
+      return { ok: false, cause, detail: cause === SEND_CAUSES.QUEUE_FAILED ? "Could not prepare the exact local delivery." : detail,
+        to, dispatch: "not_submitted" };
+    }
     if (dryRun || options.beforeSubmit) return { ok: false, cause, detail, to };
     const written = spool(spoolPath, spoolFallbackPath, { now, to, kind, cause, detail, message });
     return { ok: false, cause, detail, to, spooled: written.path, spoolError: written.error };
   };
 
+  if (binding && (binding.adapter !== "codex" || binding.id !== to || !isThreadId(to))) {
+    return { ...fail("invalid_target", "A bound Codex send requires its exact native thread ID."), dispatch: "not_submitted" };
+  }
   // Discovery is run here rather than accepting a listing from the caller: a
   // listing that is seconds old is already stale on both sides.
-  const { targets } = await discoverTargets({ ...discovery, codexHome, openDb, now, scope: "all" });
-  const exact = targets.filter((t) => t.id === to);
-  const matches = exact.length || options.exactId ? exact : targets.filter((t) => t.name === to);
+  const { targets } = binding ? await readCodexTargets(codexHome, now, openDb)
+    : await discoverTargets({ ...discovery, codexHome, openDb, now, scope: "all" });
+  const exact = targets.filter((t) => t.id === to && (!binding || t.kind === binding.adapter));
+  const matches = exact.length || binding || options.exactId ? exact : targets.filter((t) => t.name === to);
   if (matches.length > 1) return fail(SEND_CAUSES.NOT_ADDRESSABLE, "ambiguous session address");
   const target = matches[0];
   // Resolved against the same live listing, so the header can tell the
@@ -1069,11 +1094,21 @@ export async function sendMessage(options = {}) {
     return fail(SEND_CAUSES.NOT_FOUND, `no live agent session is named "${to}"`);
   }
 
+  async function checkLocalBinding() {
+    if (!options.checkLocalBinding) return null;
+    const refusal = await options.checkLocalBinding(target);
+    return refusal && { ...fail(refusal.cause, refusal.detail, target.kind), dispatch: "not_submitted" };
+  }
+  if (options.checkLocalBinding) {
+    const refusal = await checkLocalBinding();
+    if (refusal) return refusal;
+  }
+
   // Host metadata is passed through by name, so drift is invisible without
   // something watching for it. Recorded once per new key to the spool, which is
   // human-readable and never agent-drained. Never blocks a send: an unfamiliar
   // field is a thing to look at, not a reason to refuse.
-  const freshKeys = dryRun ? [] : newHostKeys(buildHostMetadata(identity?.host).kept);
+  const freshKeys = dryRun || binding ? [] : newHostKeys(buildHostMetadata(identity?.host).kept);
   if (freshKeys.length > 0) {
     spool(spoolPath, spoolFallbackPath, {
       now,
@@ -1101,14 +1136,17 @@ export async function sendMessage(options = {}) {
     const reference = re ? await resolveClaudeReference(target, options, re, 280) : null;
     if (reference && !reference.ok) return fail(SEND_CAUSES.REFERENCE_UNRESOLVED, reference.detail, target.kind);
     // SendMessage consumes the current name, even when the caller selected an ID.
-    const current = readClaudeTargets(discovery.claudeSessionsDir ?? defaultClaudeSessionsDir(),
-      now, discovery.readFile ?? fs.readFileSync, []);
-    const named = current.filter((row) => row.name === target.name);
-    if (named.length !== 1 || named[0].id !== target.id || named[0].pid !== target.pid ||
-        named[0].startedAt !== target.startedAt || !named[0].addressable) {
-      return fail(SEND_CAUSES.NOT_ADDRESSABLE, "target binding changed or is ambiguous", target.kind);
+    function checkRecipient() {
+      const current = readClaudeTargets(discovery.claudeSessionsDir ?? defaultClaudeSessionsDir(),
+        now, discovery.readFile ?? fs.readFileSync, []);
+      const named = current.filter((row) => row.name === target.name);
+      if (named.length !== 1 || named[0].id !== target.id || named[0].pid !== target.pid ||
+          named[0].startedAt !== target.startedAt || !named[0].addressable) {
+        return { ...fail(SEND_CAUSES.NOT_ADDRESSABLE, "target binding changed or is ambiguous", target.kind), dispatch: "not_submitted" };
+      }
+      return null;
     }
-    return relayViaDelegate({ target, message, origin, originTarget, identity, reference, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew, beforeSubmit: options.beforeSubmit });
+    return relayViaDelegate({ target, message, origin, originTarget, identity, reference, runDelegate, fail, dryRun, kind, conversation, messageId, inReplyTo, openedNew, beforeSubmit: options.beforeSubmit, checkLocalBinding, checkRecipient });
   }
 
   if (target.kind !== "codex") {
@@ -1140,7 +1178,27 @@ export async function sendMessage(options = {}) {
   const blocked = await codexQueueBlock(target.id, { codexHome, openDb, now, backlogThresholdMs });
   if (blocked) return fail(blocked.cause, blocked.detail, target.kind);
 
+  // A cursor or reservation can take time. Re-read native eligibility and the
+  // original selector, then sample queue age and writer lock at submission.
+  async function checkQueueRecipient() {
+    const freshTime = () => options.now ?? Date.now();
+    const current = await readCodexTargets(codexHome, freshTime(), openDb);
+    const eligible = current.targets.find(row => row.id === target.id);
+    if (!eligible?.addressable) {
+      const cause = eligible ? SEND_CAUSES.NOT_ADDRESSABLE : SEND_CAUSES.DISAPPEARED;
+      return { ...fail(cause, eligible?.reason || "The selected Codex writer is no longer present.", target.kind), dispatch: "not_submitted" };
+    }
+    const block = await codexQueueBlock(target.id, {
+      codexHome, openDb, now: options.now, backlogThresholdMs, checkBinding: () => options.checkLocalBinding?.(target),
+    });
+    return block && { ...fail(block.cause, block.detail, target.kind), dispatch: "not_submitted" };
+  }
+
   if (dryRun) {
+    if (options.checkLocalBinding) {
+      const refusal = await checkQueueRecipient();
+      if (refusal) return refusal;
+    }
     return { ok: true, to, target, queuedId: null, conversation, messageId, detail: `would queue into ${target.id}` };
   }
 
@@ -1151,7 +1209,7 @@ export async function sendMessage(options = {}) {
   // spawn, and wrapping this in it once turned a ReferenceError in relay's own
   // code into a reported "codex queue could not be invoked", which would have
   // sent someone debugging the transport for a bug in the caller.
-  const stamped = buildRelayEnvelope({
+  const stamped = buildEnvelope({
     message,
     origin,
     originTarget,
@@ -1169,6 +1227,11 @@ export async function sendMessage(options = {}) {
   let outcome;
   try {
     if (options.beforeSubmit) await options.beforeSubmit(target, stamped);
+    if (options.checkLocalBinding || options.beforeSubmit) {
+      const refusal = await checkQueueRecipient();
+      if (refusal) return refusal;
+    }
+    queueStarted = true;
     outcome = await runQueue(target.id, stamped);
   } catch (err) {
     return fail(SEND_CAUSES.QUEUE_FAILED, `codex queue could not be invoked: ${err.message}`, target.kind);
@@ -1179,8 +1242,10 @@ export async function sendMessage(options = {}) {
     return fail(SEND_CAUSES.QUEUE_FAILED, `codex queue exited ${outcome.code}: ${said}`, target.kind);
   }
 
-  const confirmation = QUEUE_CONFIRMATION.exec(outcome.stdout || "");
-  if (!confirmation) {
+  const confirmation = binding
+    ? /^Queued message ([a-f0-9-]{36}) for thread ([a-f0-9-]{36})\.?$/i.exec((outcome.stdout || "").trim())
+    : QUEUE_CONFIRMATION.exec(outcome.stdout || "");
+  if (!confirmation || (binding && (!isThreadId(confirmation[1]) || confirmation[2] !== binding.id))) {
     return fail(
       SEND_CAUSES.QUEUE_FAILED,
       "codex queue exited 0 but printed no confirmation line; treating as not queued",
@@ -1327,6 +1392,21 @@ const COMMANDS = new Set(["list", "resolve", "send", "ping", "doctor", "run", "w
 const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
 
+function readSelectorOption(token, args, selector) {
+  const separator = token.indexOf("=");
+  const flag = separator < 0 ? token : token.slice(0, separator);
+  if (!["--id", "--adapter", "--host"].includes(flag)) return false;
+  const key = flag.slice(2);
+  if (Object.hasOwn(selector, key)) throw new Error(`duplicate option ${flag}`);
+  if (separator < 0 && (!args[0] || args[0].startsWith("--"))) {
+    throw new Error(`${flag} needs a value. For a literal beginning with -- use ${flag}=VALUE.`);
+  }
+  const value = separator < 0 ? args.shift() : token.slice(separator + 1);
+  if (!value) throw new Error(`${flag} needs a value`);
+  selector[key] = value;
+  return true;
+}
+
 function parseResolveArgs(args) {
   const selector = {};
   let json = false;
@@ -1337,19 +1417,9 @@ function parseResolveArgs(args) {
       json = true;
       continue;
     }
-    const separator = token.indexOf("=");
-    const flag = separator < 0 ? token : token.slice(0, separator);
-    if (!["--id", "--adapter", "--host"].includes(flag)) {
+    if (!readSelectorOption(token, args, selector)) {
       throw new Error("unknown resolve option. See relay resolve --help.");
     }
-    const key = flag.slice(2);
-    if (Object.hasOwn(selector, key)) throw new Error(`duplicate resolve option ${flag}`);
-    if (separator < 0 && (!args[0] || args[0].startsWith("--"))) {
-      throw new Error(`${flag} needs a value. For a literal beginning with -- use ${flag}=VALUE.`);
-    }
-    const value = separator < 0 ? args.shift() : token.slice(separator + 1);
-    if (!value) throw new Error(`${flag} needs a value`);
-    selector[key] = value;
   }
   if (!Object.hasOwn(selector, "id")) throw new Error("Use relay resolve --id LITERAL. See relay resolve --help.");
   return { command: "resolve", selector, json };
@@ -1379,16 +1449,16 @@ export function parseArgs(argv = []) {
   }
   const options = { command, scope: "cwd", cwd: undefined, json: false, dryRun: false, viaDelegate: false, kind: "notice" };
 
-  if (command === "send") {
-    if (!args.length || args[0].startsWith("--")) {
-      throw new Error("send needs a target: relay send <name-or-thread-id> --message <text>");
-    }
-    options.to = args.shift();
-  }
-
-  if (command === "ping" && args[0] && !args[0].startsWith("--")) options.to = args.shift();
+  const delivery = command === "send" || command === "ping";
+  const selector = {};
+  const flags = new Set();
+  let repeatedFlag;
+  if (delivery && args[0] && !args[0].startsWith("--")) options.to = args.shift();
   while (args.length) {
     const flag = args.shift();
+    if (delivery && readSelectorOption(flag, args, selector)) continue;
+    if (flags.has(flag)) repeatedFlag = flag;
+    flags.add(flag);
     if (command === "doctor") {
       if (flag === "--json") options.json = true;
       else if (flag === "--all-hosts") options.allHosts = true;
@@ -1408,7 +1478,7 @@ export function parseArgs(argv = []) {
       options.allHosts = true;
       continue;
     }
-    if (command === "ping" && flag !== "--json" && !(flag === "--via-delegate" && options.to)) {
+    if (command === "ping" && flag !== "--json" && flag !== "--via-delegate") {
       throw new Error("invalid ping option");
     }
     if (BOOLEAN_FLAGS.has(flag)) {
@@ -1447,8 +1517,20 @@ export function parseArgs(argv = []) {
       options.cwd = value;
     }
   }
-  if (command === "ping" && [options.allHosts, options.statusHandle, options.to].filter(Boolean).length !== 1) {
-    throw new Error("ping requires one target, --all-hosts or --status <handle>");
+  if (Object.keys(selector).length) {
+    if (!selector.id) throw new Error("--adapter and --host require --id LITERAL");
+    if (options.to || options.allHosts || options.statusHandle || options.requestId || options.explicitScope || options.cwd !== undefined) {
+      throw new Error("Use --id for one exact local target. It cannot be combined with another target, mode, scope or request ID.");
+    }
+    if (!inventoryText(selector.id, 256) || (selector.host !== undefined && !matches(HOST, selector.host)) ||
+        (selector.adapter !== undefined && !matches(HOST, selector.adapter))) throw new Error("invalid local selector");
+    if (repeatedFlag) throw new Error(`duplicate option ${repeatedFlag}`);
+    options.selector = selector;
+  }
+  if (command === "send" && !options.to && !options.selector) throw new Error("send needs a target. See relay send --help.");
+  if (command === "ping" && ([options.allHosts, options.statusHandle, options.to, options.selector].filter(Boolean).length !== 1 ||
+      options.viaDelegate && !options.to && !options.selector)) {
+    throw new Error("ping requires one target, --id LITERAL, --all-hosts or --status <handle>");
   }
   if (command === "doctor" && options.allHosts && options.probeTarget) throw new Error("a live doctor probe is local");
   return options;
@@ -1575,6 +1657,7 @@ export function createLocalInventory(additionalAdapters = [], enabledKinds) {
   }
 
   const list = options => collectInventory(enabled, options, "list");
+  list.hasReader = kind => enabled.some(reader => reader.kind === kind);
   list.resolve = (selector, options) => resolveInventory(enabled, selector, options);
   return list;
 }

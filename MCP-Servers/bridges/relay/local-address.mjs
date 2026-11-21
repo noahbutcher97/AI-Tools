@@ -13,6 +13,13 @@ function readOptional(root, file) {
   }
 }
 
+function readHost(dir) {
+  const machine = readOptional(dir, "machine.json");
+  if (machine === undefined) return null;
+  if (!exactKeys(machine, ["host"]) || !matches(HOST, machine.host)) throw new Error("invalid machine record");
+  return machine.host;
+}
+
 const resolutionDetails = {
   resolved: "Exact local match. This lookup did not send a notice.",
   invalid_selector: "Use the literal session ID and, if needed, its adapter and local host label.",
@@ -62,11 +69,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
       dir = root();
       // Local-only use also works before fleet enrollment. An invalid machine
       // record must never supply the identity in a resolved address.
-      const machine = readOptional(dir, "machine.json");
-      if (machine !== undefined && (!exactKeys(machine, ["host"]) || !matches(HOST, machine.host))) {
-        return { ok: false, state: "host_unavailable" };
-      }
-      localHost = machine?.host ?? null;
+      localHost = readHost(dir);
     } catch {
       return { ok: false, state: "host_unavailable" };
     }
@@ -88,9 +91,19 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return { ...result, detail: resolutionDetails[result.state] };
   }
 
-  return { list, resolve };
+  function permitsProof(binding) {
+    try {
+      const dir = root();
+      return readHost(dir) === binding.host && readers(dir).hasReader(binding.adapter);
+    } catch {
+      return false;
+    }
+  }
+
+  return { list, resolve, permitsProof };
 }
 
 const local = createLocalAddresses();
 export const listInstalledTargets = local.list;
 export const resolveLocalAddress = local.resolve;
+export const permitsLocalProof = local.permitsProof;

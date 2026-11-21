@@ -6,6 +6,7 @@ import { toolJsonResult } from "../../lib/tool-result.mjs";
 import { formatTargets } from "./client.mjs";
 import { listInstalledTargets, resolveLocalAddress } from "./local-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { pingBound, sendBound } from "./installed-delivery.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 import { fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
@@ -99,24 +100,27 @@ server.tool(
   },
 );
 
+const selectorFields = {
+  id: z.string().min(1).describe("Case-sensitive, literal native session ID. Colons, slashes and leading dashes are part of the ID."),
+  adapter: z.string().min(1).optional().describe("With id, select the installed adapter shown as kind in relay_list."),
+  host: z.string().min(1).optional().describe("With id, check the canonical label of this local machine."),
+};
+
 server.registerTool("relay_resolve", {
   description: "Resolve an exact local session ID across installed inventory adapters without waking the session. Use relay_list with scope all to discover IDs and adapter keys.",
-  inputSchema: z.object({
-    id: z.string().min(1).describe("Case-sensitive, literal native session ID. Colons, slashes and leading dashes are part of the ID."),
-    adapter: z.string().min(1).optional().describe("Installed adapter key, shown as kind in relay_list. Limits lookup to that reader."),
-    host: z.string().min(1).optional().describe("Canonical label of this local machine, if enrolled."),
-  }).strict(),
+  inputSchema: z.object(selectorFields).strict(),
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 }, async selector => {
   const result = await resolveLocalAddress(selector);
   return { ...toolJsonResult(result), isError: !result.ok };
 });
 
-server.tool(
-  "relay_send",
-  "Send a message to another agent session. Codex targets are queued directly; Claude targets are relayed by a confined delegate that may use no tool but SendMessage.",
-  {
-    to: z.string().describe("Local session ID or Claude name, or host:id on a configured machine."),
+server.registerTool("relay_send", {
+  description: "Send a message using either to or an exact local id. Use dry_run to check eligibility. A queue acknowledgment confirms submission.",
+  inputSchema: z.object({
+    ...selectorFields,
+    id: selectorFields.id.optional(),
+    to: z.string().min(1).optional().describe("Local session ID or Claude name, or host:id on a configured machine. Use this or id."),
     request_id: z.string().optional().describe("A UUIDv7 for a retryable cross-host send."),
     re: z.string().optional().describe("Quote a bounded excerpt from this turn in the target session."),
     message: z.string().min(1).describe("Message body. Multi-line prose is preserved."),
@@ -144,51 +148,67 @@ server.tool(
       .string()
       .optional()
       .describe("The message id being answered, quoted from a relay header."),
-  },
+  }).strict(),
   // NOT read-only: it queues a message into another agent's session. Claiming
   // otherwise to dodge an approval prompt would be a lie told to the host's
   // safety layer. It is non-destructive — it adds a message, removes nothing.
-  { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  async ({ to, message, dry_run = false, from, conversation, kind, in_reply_to, request_id, re }, extra) => {
-    const result = await sendAddressed({
-      to,
-      message,
-      dryRun: dry_run,
-      // The delegate exists on this side of the sandbox boundary and nowhere
-      // else, which is the reason this face exists at all.
-      allowDelegate: true,
-      origin: from,
-      // Resolved per call, from the request rather than the arguments. `extra`
-      // carries the metadata the host attached; the arguments object is never
-      // consulted, and a caller passing a counterfeit `_meta` there is ignored.
-      identity: resolveCallerIdentity({ extra }),
-      conversation,
-      kind,
-      inReplyTo: in_reply_to,
-      requestId: request_id,
-      re,
-      // RELAY_SPOOL relocates the failure spool. The registration tests set it
-      // so a test run cannot append to the operator's real spool.
-      ...(process.env.RELAY_SPOOL ? { spoolPath: process.env.RELAY_SPOOL } : {}),
-    });
-    return toolJsonResult(result);
-  },
-);
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+}, async ({ to, id, adapter, host, message, dry_run = false, from, conversation, kind, in_reply_to, request_id, re }, extra) => {
+  if ((id === undefined) === (to === undefined) || (id === undefined && (adapter !== undefined || host !== undefined)) ||
+      (id !== undefined && request_id !== undefined)) {
+    return { ...toolJsonResult({ ok: false, cause: "invalid_send_mode", detail: "Use either to or id. Only id accepts adapter and host. A request_id requires a remote to address." }), isError: true };
+  }
+  const options = {
+    message,
+    dryRun: dry_run,
+    // The delegate exists on this side of the sandbox boundary and nowhere
+    // else, which is the reason this face exists at all.
+    allowDelegate: true,
+    origin: from,
+    // Resolved per call, from the request rather than the arguments. `extra`
+    // carries the metadata the host attached; the arguments object is never
+    // consulted, and a caller passing a counterfeit `_meta` there is ignored.
+    identity: resolveCallerIdentity({ extra }),
+    conversation,
+    kind,
+    inReplyTo: in_reply_to,
+    re,
+    // RELAY_SPOOL relocates the failure spool. The registration tests set it
+    // so a test run cannot append to the operator's real spool.
+    ...(process.env.RELAY_SPOOL ? { spoolPath: process.env.RELAY_SPOOL } : {}),
+  };
+  if (id !== undefined) {
+    const result = await sendBound({ id, adapter, host }, options);
+    return { ...toolJsonResult(result), isError: !result.ok };
+  }
+  return toolJsonResult(await sendAddressed({ ...options, to, requestId: request_id }));
+});
 
-server.tool(
-  "relay_ping",
-  "Wake one target with a transcript-proved delivery probe, check a receipt, or check fleet reachability.",
-  { all_hosts: z.literal(true).optional(), status: z.string().optional(), target: z.string().optional() },
-  { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  async ({ all_hosts, status, target }) => {
-    if ([all_hosts, status, target].filter(Boolean).length !== 1) return toolJsonResult({ ok: false, cause: "invalid_ping_mode" });
-    try {
-      if (target) return toolJsonResult(await pingTarget(target, { allowDelegate: true }));
-      return toolJsonResult(status ? await sendStatus(status) : await queryFleet("probe"));
-    }
-    catch { return toolJsonResult({ ok: false, cause: "directory_unavailable" }); }
-  },
-);
+server.registerTool("relay_ping", {
+  description: "Wake one target with a delivery probe using target or an exact local id. Check a returned receipt with status without waking the session again. Use all_hosts for fleet reachability.",
+  inputSchema: z.object({
+    ...selectorFields,
+    id: selectorFields.id.optional(),
+    all_hosts: z.literal(true).optional(),
+    status: z.string().min(1).optional(),
+    target: z.string().min(1).optional(),
+  }).strict(),
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+}, async ({ all_hosts, status, target, id, adapter, host }) => {
+  if ([all_hosts, status, target, id].filter(value => value !== undefined).length !== 1 ||
+      (id === undefined && (adapter !== undefined || host !== undefined))) {
+    return { ...toolJsonResult({ ok: false, cause: "invalid_ping_mode", detail: "Use one of target, id, status or all_hosts. Only id accepts adapter and host." }), isError: true };
+  }
+  if (id !== undefined) {
+    const result = await pingBound({ id, adapter, host }, { allowDelegate: true });
+    return { ...toolJsonResult(result), isError: !result.ok };
+  }
+  try {
+    if (target) return toolJsonResult(await pingTarget(target, { allowDelegate: true }));
+    return toolJsonResult(status ? await sendStatus(status) : await queryFleet("probe"));
+  }
+  catch { return toolJsonResult({ ok: false, cause: "directory_unavailable" }); }
+});
 
 const transport = new StdioServerTransport();
 server.tool(

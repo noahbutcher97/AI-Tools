@@ -1,5 +1,65 @@
 [
   {
+    "id": "relay-bound-dispatch",
+    "worker": "local dispatch implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+    "scope": "Implement local literal send with pinned addresses and independent pre-submission checks.",
+    "acceptance": "Verify core recording adapter, refusal on changed or incomplete binding, and reuse the qualified Codex transport.",
+    "state": "accepted",
+    "result": {
+      "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+      "verdict": "Bound dispatch ready for independent review.",
+      "evidence": "A removed writer lock previously still reached the recording queue. Corrected tests show zero calls after writer loss, revoked selection during queue-store opening, incomplete or ambiguous lookup and changed target. 102 focused tests passed.",
+      "limitations": "Synthetic provider launches and native fixture stores. The implementation worker did not make a live submission."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for joint review with public proof and compatibility tests.",
+      "next": "Verify the actual submission boundary, outcome reporting and local selector handling."
+    }
+  },
+  {
+    "id": "relay-bound-proof",
+    "worker": "delivery proof implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+    "scope": "Bind local literal probe and status to adapter, exact native ID and host; preserve original handles.",
+    "acceptance": "Verify cursor and result evidence cannot cross adapter or recipient, and queue acceptance alone stays pending.",
+    "state": "accepted",
+    "result": {
+      "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+      "verdict": "Bound probe and cold status tests passed.",
+      "evidence": "31 tests across new and legacy proof paths passed. Synthetic adapter and SQLite fixtures covered exact digest, pending acknowledgement, wrong binding, missing capability and late refusal with zero submissions.",
+      "limitations": "Disposable profiles; this worker did not invoke a real provider."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for independent review alongside the live Codex probe.",
+      "next": "Review versioned and legacy proof behavior at the implementation revision."
+    }
+  },
+  {
+    "id": "relay-bound-faces",
+    "worker": "public interface implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+    "scope": "Expose literal local send and ping through CLI and MCP using the shared exact binding.",
+    "acceptance": "Keep old selector shapes; reject conflicts; exercise real entry points including receipt status and unsupported operations.",
+    "state": "accepted",
+    "result": {
+      "revision": "f4a4ebec7f344e5a597bc64e3d576df724284878",
+      "verdict": "Local literal send and ping implemented on both public faces.",
+      "evidence": "122 Windows client, fleet, reference, readiness and server tests passed. Tests covered input validation, stdin, MCP and CLI dry-run on an indexed Codex fixture without any submission.",
+      "limitations": "No live provider; these tests exercise separate real clients with fixture stores."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for joint integration review.",
+      "next": "Perform a constrained walkthrough of pending and cold proof."
+    }
+  },
+  {
     "id": "relay-exact-review-recheck",
     "worker": "independent selection reviewer",
     "coordinator": "relay coordinator",

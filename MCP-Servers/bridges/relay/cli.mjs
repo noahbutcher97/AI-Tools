@@ -13,13 +13,12 @@
 //   ... | node cli.mjs send <thread-id>   message on stdin, for multi-line prose
 //   node cli.mjs send <thread-id> --dry-run   resolve the target, queue nothing
 //
-// send reaches Codex threads only. Claude targets are refused by name with the
-// reason: SendMessage is an in-session tool, so a shell-invocable path to a
-// Claude session needs the delegate that Unit 3 adds.
+// The CLI requires --via-delegate for Claude delivery.
 
 import { formatTargets, parseArgs } from "./client.mjs";
 import { listInstalledTargets, resolveLocalAddress } from "./local-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { pingBound, sendBound } from "./installed-delivery.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { checkReadiness, fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
@@ -35,7 +34,9 @@ const help = `Usage: relay <command> [options]
   resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
                                Look up an exact local session ID without waking it
   send <target> --message TEXT Send a notice; --dry-run previews the destination
+  send --id LITERAL            Send to an exact local session (see send --help)
   ping <target>                Wake the session once and check for delivery
+  ping --id LITERAL            Probe an exact local session (see ping --help)
   ping --status <receipt>      Check the existing receipt without waking it again
   doctor                       Check readiness; --all-hosts includes peers
   watch --notify <id> <condition-id>  Activate an approved watch
@@ -50,6 +51,27 @@ Copy the case-sensitive id from relay list --scope all --json. Keep any colon
 or slash inside the ID. For an ID beginning with -- use --id=VALUE.
 Use the row's kind as --adapter to narrow the lookup to one installed reader.
 The optional --host must identify this machine. Resolution only reads inventory.`;
+
+const literalTargetHelp = `Copy the case-sensitive id from relay list --scope all --json. For a leading
+double dash use --id=VALUE. If multiple adapters match, pass the row's kind as
+--adapter KEY. The optional --host LABEL must name this machine. Exact local
+delivery requires an adapter that can submit to that ID. The legacy Claude
+target form uses --via-delegate.`;
+
+const sendHelp = `Usage: relay send <target> | --id LITERAL [--adapter KEY] [--host LABEL]
+  --message TEXT or piped stdin supplies the message. Use --dry-run to check
+  eligibility first. --kind, --from, --re, --conversation and --in-reply-to
+  carry message metadata. --json prints the full result.
+  For remote delivery use a host:id target. --request-id applies to remote sends.
+
+${literalTargetHelp}`;
+
+const pingHelp = `Usage: relay ping <target> | --id LITERAL [--adapter KEY] [--host LABEL]
+  ping wakes one session. --json prints its result and available receipt.
+  relay ping --status RECEIPT checks an existing probe without another wake.
+  relay ping --all-hosts checks fleet reachability.
+
+${literalTargetHelp}`;
 
 // node:sqlite is experimental and announces itself on every load. The warning
 // is noise here and would be noise in a bridge log, so it is filtered while
@@ -69,12 +91,13 @@ async function main() {
     return;
   }
   const args = process.argv.slice(2);
-  if (args.length === 2 && args[0] === "resolve" && ["-h", "--help"].includes(args[1])) {
-    console.log(resolveHelp);
+  const commandHelp = { resolve: resolveHelp, send: sendHelp, ping: pingHelp };
+  if (args.length === 2 && Object.hasOwn(commandHelp, args[0]) && ["-h", "--help"].includes(args[1])) {
+    console.log(commandHelp[args[0]]);
     return;
   }
   if (args.length === 1 && ["help", "-h", "--help"].includes(args[0]) ||
-      args.length === 2 && ["list","send","ping","doctor","watch","run"].includes(args[0]) &&
+      args.length === 2 && ["list","doctor","watch","run"].includes(args[0]) &&
       ["-h","--help"].includes(args[1])) {
     console.log(help);
     return;
@@ -131,10 +154,15 @@ async function main() {
     return;
   }
   if (options.command === "ping" && !options.allHosts) {
-    const result = options.statusHandle ? await sendStatus(options.statusHandle) : await pingTarget(options.to, {
-      allowDelegate: options.viaDelegate, onHandle: handle => console.error("relay receipt " + handle),
-    });
-    console.log(options.json ? JSON.stringify(result) : result.detail);
+    const hooks = { allowDelegate: options.viaDelegate, onHandle: printReceipt };
+    let result;
+    if (options.statusHandle) result = await sendStatus(options.statusHandle);
+    else if (options.selector) result = await pingBound(options.selector, hooks);
+    else result = await pingTarget(options.to, hooks);
+    console.log(options.json ? JSON.stringify(result) : result.detail ?? result.state ?? result.cause);
+    if (!options.json && !result.ok && result.handle && !result.detail?.includes("ping --status")) {
+      console.error("Check the receipt without another wake: relay ping --status " + result.handle);
+    }
     process.exitCode = result.ok ? 0 : 1;
     return;
   }
@@ -166,6 +194,10 @@ async function readStdin() {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+function printReceipt(handle) {
+  console.error("relay receipt " + handle);
+}
+
 async function runSend(options) {
   // The CLI inherits its host session's environment, so a Claude session
   // shelling out identifies itself exactly as a Codex MCP call does.
@@ -187,8 +219,7 @@ async function runSend(options) {
     return;
   }
 
-  const result = await sendAddressed({
-    to: options.to,
+  const sendOptions = {
     message,
     dryRun: options.dryRun,
     allowDelegate: options.viaDelegate,
@@ -201,16 +232,19 @@ async function runSend(options) {
     conversation: options.conversation,
     kind: options.kind,
     inReplyTo: options.inReplyTo,
-    requestId: options.requestId,
-  }, { onHandle: handle => console.error("relay receipt " + handle) });
+  };
+  const result = options.selector
+    ? await sendBound(options.selector, sendOptions)
+    : await sendAddressed({ ...sendOptions, to: options.to, requestId: options.requestId }, { onHandle: printReceipt });
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
   } else if (result.ok) {
-    console.log(result.detail);
+    console.log(result.detail ?? result.state);
   } else {
-    console.error(`relay: ${result.cause}`);
-    console.error(`  ${result.detail}`);
+    console.error(`relay: ${result.cause ?? result.state}`);
+    if (result.detail) console.error(`  ${result.detail}`);
+    if (result.adapters?.length) console.error(`  Adapters: ${JSON.stringify(result.adapters)}`);
     // Only report a location when something was actually written. Printing a
     // path that holds nothing sends an operator looking for a message that is
     // not there.
