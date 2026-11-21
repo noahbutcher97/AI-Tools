@@ -10,6 +10,8 @@ Provider coverage is open-ended. Claude Code and Codex are the first clients to 
 
 ### External process-end observation
 
+Before wiring process exit to grants or delivery, qualify the shared adapter contract in Phase I. Keep the prior A/B evidence as a regression baseline. The native observation work can continue independently. The product rollout remains A/B, I/C, F/E, G/H, then D. [Contract and acceptance cases](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work)
+
 On one enrolled desktop an ordinary Windows process could reopen its own live disposable child with limited query and synchronization rights and match its creation time. After the process handle signaled, the observer read exit codes 7 and 259 in separate trials. A mismatched creation time and a discarded observer handle both produced `unknown`. The launcher kept its original process handle during the reopen check. This exercises handle replacement within one account. Real PID reuse and an installed broker restart remain unexercised.
 
 The access-list checks on both enrolled desktops found that the desktop trustee had both required rights and the distinct broker trustee did not. A subsequent installed-account trial on one desktop exercised the open under the enrolled broker identity.
@@ -162,6 +164,8 @@ Use a short-lived branch for each independently reviewable relay checkpoint. If 
 | Sync and qualify | After merge, fast-forward both desktop checkouts, preserving unrelated work. Verify the resulting main SHA on each. Install or activate only through the separately authorized setup path. | Record source sync, installed package and live evidence separately. An offline desktop stays pending. If the merged result needs reversal, use a reviewed revert and record affected installations. |
 
 Keep a multi-checkpoint feature behind its existing disabled or fail-closed boundary until its live gates pass. A source-only PR may merge with explicitly deferred installed trials when it preserves that boundary. Keep the deployment or stage checkpoint open. Record independent agent reviews as such, including the SHA and verdict; a review performed through the owner's account does not constitute a second GitHub approving identity. GitHub branch rules are repository-wide settings and their enforcement must be verified separately.
+
+Before merging, read PR conversation comments, review summaries (including findings outside the diff) and every inline review thread, paging through results. Inspect the current code for each finding, including comments marked outdated. Fix applicable findings with a regression or record the reason for declining them. Link the verified revision or disposition in the thread and resolve it on GitHub. For a finding in a review body with no thread, post its disposition on the PR. Check again after the last push. Wait for requested reviews to finish on the final affected bytes before merging. If a review is unavailable or times out, record why and obtain an independent replacement on those bytes. A passing build alone does not clear the review gate. For feedback that arrives after merge, use a follow-up PR and close the original thread after verifying the fix on main.
 
 ### Human usability checkpoints
 

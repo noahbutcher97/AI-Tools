@@ -1,5 +1,94 @@
 [
   {
+    "id": "provider-sequence-contract-recheck",
+    "worker": "independent contract reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "a4eb2df30ca52eaca9d11320bd1ca153a891e6b9",
+    "scope": "Recheck partial exact lookup, retry conflict, capability granularity and review completion gates. Read only.",
+    "acceptance": "Disposition for the corrected design with scope and remaining implementation work.",
+    "state": "accepted",
+    "result": {
+      "revision": "a4eb2df30ca52eaca9d11320bd1ca153a891e6b9",
+      "verdict": "pass",
+      "evidence": "Verified host-local complete lookup and pinned eligibility, a single peer/request reservation, separately evidenced capabilities and final-revision review dispositions.",
+      "limitations": "Design only. Actual adapter conformance and live client qualification remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Closed the focused design review.",
+      "next": "Implement the adapter contract before adding the new watcher delivery path."
+    }
+  },
+  {
+    "id": "provider-sequence-contract-review",
+    "worker": "independent contract reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "d2d333ac3abc509f060a140172c68e58b96802d0",
+    "scope": "Review the new design checkpoint and phase ordering independently against owner requirements, source contracts and the amended review workflow. Source only.",
+    "acceptance": "Identify concrete design or sequencing blockers and any premature compatibility claims.",
+    "state": "accepted",
+    "result": {
+      "revision": "d2d333ac3abc509f060a140172c68e58b96802d0",
+      "verdict": "changes required",
+      "evidence": "Independent review found partial exact lookup could be mistaken for uniqueness and a per-adapter deduplication key could allow a changed-target retry.",
+      "limitations": "Design and source only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Specified host-local lookup completeness, final binding check, and one existing peer/request reservation with an immutable target.",
+      "next": "Recheck both cases before closing the design pass."
+    }
+  },
+  {
+    "id": "provider-sequence-cleanup-record",
+    "worker": "cleanup implementer",
+    "coordinator": "relay coordinator",
+    "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+    "scope": "Verify and fix the outstanding final-directory removal finding in credential isolation qualification. Local synthetic regression, no installed or provider effects.",
+    "acceptance": "Demonstrate the failure and preserve recovery identity on a failed final removal.",
+    "state": "assigned"
+  },
+  {
+    "id": "provider-sequence-pr-audit",
+    "worker": "review auditor",
+    "coordinator": "relay coordinator",
+    "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+    "scope": "Read review threads and review bodies for relay pull requests 10 through 29. Verify the two unresolved branch trial comments and identify other actionable findings in review or conversation bodies. Read only.",
+    "acceptance": "Provide revision or file evidence, comment identifiers, and current dispositions.",
+    "state": "accepted",
+    "result": {
+      "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+      "verdict": "pass",
+      "evidence": "Audited PRs 10–29 across conversation, review bodies and inline threads. Verified both branch trial fixes at abd6c30 and found one still-applicable credential trial cleanup bug. Three additional body findings received individual dispositions.",
+      "limitations": "Source audit. Some historical automation reported review failed after the PR closed."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Link verified fixes and record the remaining cleanup fix before resolving its original thread.",
+      "next": "Finish the credential cleanup regression and check final review state on new PRs."
+    }
+  },
+  {
+    "id": "provider-sequence-design-advice",
+    "worker": "design reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+    "scope": "Examine provider coupling in relay source, the rollout sequence and prior design. Read only.",
+    "acceptance": "Identify minimum design and sequencing change, existing compatibility risks, and a qualification strategy.",
+    "state": "accepted",
+    "result": {
+      "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+      "verdict": "pass",
+      "evidence": "Read-only review traced fixed provider kinds and UUID assumptions through discovery, watcher activation, proof, receive, inventory and readiness. The current parser accepts a hyphenated fixture ID but rejects delimiter-bearing IDs.",
+      "limitations": "Source and parser review. No real additional client or installed transport."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Added an adapter checkpoint and compatibility migration before provider-facing phase I work.",
+      "next": "Review the resulting design and qualify its implementation separately."
+    }
+  },
+  {
     "id": "native-lease-capacity-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck denied-capacity reclamation, tombstones, concurrent revocation and source attribution.",
