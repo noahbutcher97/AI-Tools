@@ -1,5 +1,23 @@
 [
   {
+    "id": "provider-sequence-cleanup-review",
+    "worker": "independent recovery reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "ebb467a2e6599b3db930e8fc111110208a7c7848",
+    "scope": "Review the PR15 correction, original metadata preservation, no-replace cleanup, old records and tests. Source and local fixtures only.",
+    "acceptance": "Evidence for the failed final delete and zero overwrite/traversal.",
+    "state": "assigned"
+  },
+  {
+    "id": "provider-sequence-cleanup-walkthrough",
+    "worker": "independent operator",
+    "coordinator": "relay coordinator",
+    "revision": "ebb467a2e6599b3db930e8fc111110208a7c7848",
+    "scope": "From the setup guide follow the interrupted credential-isolation cleanup and exercise the local regression in an ordinary Windows shell. No elevated, installed or real credential actions.",
+    "acceptance": "Report operator interpretation for a retained record, successful clearance and when to stop, with the local regression result.",
+    "state": "assigned"
+  },
+  {
     "id": "provider-sequence-contract-recheck",
     "worker": "independent contract reviewer",
     "coordinator": "relay coordinator",
@@ -46,7 +64,18 @@
     "revision": "26ce4ede2562fea94ea453860079be1624bae859",
     "scope": "Verify and fix the outstanding final-directory removal finding in credential isolation qualification. Local synthetic regression, no installed or provider effects.",
     "acceptance": "Demonstrate the failure and preserve recovery identity on a failed final removal.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+      "verdict": "pass",
+      "evidence": "Original failed final directory delete reproduced under ordinary Windows. Implemented protected no-replace sibling recovery record in ebb467a. Regression covers deletion success, lock, existing record, changed metadata and redirected directory.",
+      "limitations": "Disposable synthetic fixtures. No enrolled broker or real credential."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted implementation for independent source review and operator replay.",
+      "next": "Resolve the original PR15 thread once the reviewed fix is on main."
+    }
   },
   {
     "id": "provider-sequence-pr-audit",
