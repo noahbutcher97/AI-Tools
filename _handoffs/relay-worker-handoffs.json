@@ -1,5 +1,85 @@
 [
   {
+    "id": "installed-process-account-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck limited installed observer admission, identity, cleanup and health after corrections.",
+    "acceptance": "Disposition for each prior finding and any remaining blocker.",
+    "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+      "verdict": "pass",
+      "evidence": "Both temporary names are checked before reset. Definition, ACL, principal, fixed action and absence are verified during cleanup. Success follows a bound fresh reports-only heartbeat.",
+      "limitations": "Source only. The probe uses a separate S4U task."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the source gate at the reviewed revision.",
+      "next": "Verify the installed preflight and live broker account outcome."
+    }
+  },
+  {
+    "id": "installed-process-operator-recheck",
+    "worker": "independent operator",
+    "scope": "Follow the installed procedure from the handoff including interruption recovery.",
+    "acceptance": "Return navigation, outcome interpretation and recovery obstacles.",
+    "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+      "verdict": "pass",
+      "evidence": "From the rollout handoff the operator found both commands, recorded both identifiers and correctly interpreted denial. The interruption exercise preserved unverifiable tasks and handed the private record to the maintainer.",
+      "limitations": "Agent documentation walkthrough. No real interruption or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the repeated walkthrough.",
+      "next": "Capture the actual installed trial separately."
+    }
+  },
+  {
+    "id": "installed-process-account-review",
+    "worker": "independent qualification reviewer",
+    "scope": "Review the fixed task actions, low-privilege controls, target pinning, rotation and cleanup. No installed actions or credentials.",
+    "acceptance": "Check the read-only boundary, negative result and success criteria before live rotation.",
+    "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
+      "verdict": "changes required",
+      "evidence": "Source review identified name collision after rotation, partial cleanup identity checks and early success without fresh health.",
+      "limitations": "Source only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Added name preflight, full definition and ACL readback, fresh health and cleanup before success.",
+      "next": "Recheck corrected revision before rotation."
+    }
+  },
+  {
+    "id": "installed-process-account-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Walk through preflight, live rotation, diagnosis and cleanup using only public guidance. No services or credentials.",
+    "acceptance": "Locate commands, cost and effect of a denial or interruption from the normal starting point.",
+    "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
+      "verdict": "changes required",
+      "evidence": "The operator could find the installed command only by search and could lose the trial ID required for recovery.",
+      "limitations": "Documentation walkthrough only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Linked the installed procedure and documented saved IDs, task identity and interruption handoff.",
+      "next": "Repeat the walkthrough on corrected instructions."
+    }
+  },
+  {
     "id": "process-end-operator-replay",
     "worker": "constrained qualification operator",
     "scope": "Repeat the command selection, exit code and interrupted-trial walkthrough from the updated handoff.",

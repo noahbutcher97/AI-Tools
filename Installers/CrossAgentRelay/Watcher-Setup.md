@@ -118,6 +118,30 @@ Use a disposable branch with one writer. Keep its initial and intended successor
 
 If the desktop runner is interrupted, retain its task result and exchange directory. In the provider's session history, independently match the name `relay-check-<trial-guid>` and recorded raw ID, archive that exact disposable session if necessary, and verify its archived state. If the session cannot be identified, preserve the exchange for inspection. From ordinary PowerShell under the enrolled desktop account, run the protected client script with `-Stage RecoverSession -BranchWatch -TrialId <trial-guid> -Target <verified-raw-id> -ExpectedPackage <installed-digest> -ArchiveVerified`. This checks the stopped task and removes only recognised files in that trial's exchange. Run elevated Cleanup afterward, supplying `-RecordedTaskResult <original-code>` when the original result was nonzero. Recovery preserves the failed trial's disposition. A new attempt takes a new condition GUID.
 
+## Qualify access to an external process
+
+Use elevated Windows PowerShell under the enrolled desktop user while the interactive desktop is signed in. Stage a reviewed, administrator-controlled copy of `Test-ProcessEndInstalledAccount.ps1`, `Install-CompletionWatcher.ps1`, and the `fixtures/ProcessEndProbeCommand.ps1` and `fixtures/ProcessEndObservation.cs` files together. Verify their hashes against the reviewed revision before launching the controller. Supply the installed package digest from the private deployment record. The broker must be running with empty grants, disabled delivery and an idle worker.
+
+From that tool directory, run the desktop preflight first. It creates one temporary task and checks a disposable process with queryable identity and creation time. Each invocation takes a fresh trial ID.
+
+```powershell
+$preflightId = [guid]::NewGuid()
+$preflightId   # Record this value in the private trial journal before continuing.
+.\Test-ProcessEndInstalledAccount.ps1 -ExpectedPackage $expectedPackage -TrialId $preflightId
+```
+
+For the live check, repeat with `-RotateBrokerPassword` under the owner's authorization for the dedicated account. This rotates the account password once and passes it in memory to Task Scheduler to register a separate limited S4U observer. The enrolled watcher keeps its own registration. Allow up to two minutes. The target and observer confirm their expected non-administrative identities. The controller pins the disposable process through the open attempt and checks its exit control. No AI session or network notice is involved.
+
+```powershell
+$liveId = [guid]::NewGuid()
+$liveId   # Record this second value in the private trial journal.
+.\Test-ProcessEndInstalledAccount.ps1 -ExpectedPackage $expectedPackage -TrialId $liveId -RotateBrokerPassword
+```
+
+Require successful script completion and `enrolledBrokerLogon` and `ownHandleVerified` both true. A `desktopProcessAccess` value of `denied` is a conclusive access result and leaves external-process notifications disabled. A value of `granted` establishes read access to this fixture. The controller returns success after deleting its temporary tasks and checking the enrolled broker's fresh reports-only heartbeat. Any other outcome leaves the trial inconclusive.
+
+After an interruption, give the private deployment maintainer the recorded ID, whether the rotation switch was present, the reviewed revision and the last completed step. Identify the two possible root tasks by their exact names, `RelayProcessEnd-<guid-without-hyphens>-Desktop` and `RelayProcessEnd-<guid-without-hyphens>-Observer`. Each description is the name up to the final suffix. The desktop principal is the enrolled desktop SID with interactive-token logon. The observer principal is the enrolled broker SID with S4U logon. Both have limited run level, zero triggers and a single hidden, noninteractive Windows PowerShell action from the system directory. The encoded argument is specific to the trial. Preserve the task definitions and ACLs privately. Leave a task intact if the maintainer cannot independently match its entire definition, including the encoded action, before removing it. Confirm reports-only health and use fresh IDs for a rerun.
+
 ## Deactivate and retain state
 
 ```text

@@ -10,7 +10,7 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 On one enrolled desktop an ordinary Windows process could reopen its own live disposable child with limited query and synchronization rights and match its creation time. After the process handle signaled, the observer read exit codes 7 and 259 in separate trials. A mismatched creation time and a discarded observer handle both produced `unknown`. The launcher kept its original process handle during the reopen check. This exercises handle replacement within one account. Real PID reuse and an installed broker restart remain unexercised.
 
-The enrollment check evaluated the disposable PowerShell process's discretionary access list for the enrolled desktop user and the separately named broker account. The desktop control had both required rights. The broker trustee did not have the combination. This is an access-list result. The installed broker has yet to try the open under its own logon token.
+The access-list checks on both enrolled desktops found that the desktop trustee had both required rights and the distinct broker trustee did not. A subsequent installed-account trial on one desktop exercised the open under the enrolled broker identity.
 
 From the checkout root in ordinary PowerShell on Windows, run the disposable handle check. It needs no enrollment, credentials or provider turns.
 
@@ -30,7 +30,9 @@ If the handle trial is interrupted, discard partial output. Its disposable child
 
 In the hosted Windows trial, the service account opened its own process and the kernel denied the same rights on the live runner process. Its account and target differ from the enrolled broker and desktop. The result and the enrolled access-list check both support keeping direct observation disabled.
 
-The next installed gate is a read-only open on one explicitly granted disposable process from the actual broker logon. Record access denied or the matching creation time. Only a verified signaled handle may become an exit receipt. Leave external-process notifications disabled until that boundary, grant revocation, restart and one consumed notice pass. The existing `run --` completion path remains available for commands started through the relay.
+The [installed-account procedure](../Installers/CrossAgentRelay/Watcher-Setup.md#qualify-access-to-an-external-process) passed preflight and completed over SSH on one enrolled desktop at `19d983a`. A separate limited S4U task verified the enrolled broker SID and its own live process handle. Windows returned access denied for the limited query and synchronization open on the pinned ordinary interactive process. The target stayed alive through that attempt and then returned its expected exit code. The controller verified removal of both tasks and a fresh reports-only heartbeat. The dedicated password was rotated once. The four staged qualification files were removed. The trial used no provider turns. The independent source review and documentation walkthrough passed on those bytes. [Worker returns](relay-worker-handoffs.json)
+
+Direct broker observation stays disabled. The separate S4U task establishes the account and logon result on this fixture. Broker restart, observation of an external exit and delivery to a subscriber remain open. The next design checkpoint is how the enrolled desktop worker could report an explicitly granted process exit without occupying the sole delivery task or losing the bound handle between samples. The existing `run --` completion path remains available for commands started through the relay.
 
 ### Delivery proof and turn identity
 

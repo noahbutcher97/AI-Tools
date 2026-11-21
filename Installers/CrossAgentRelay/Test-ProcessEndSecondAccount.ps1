@@ -8,36 +8,9 @@ if ($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hos
 }
 $tag = 'RelayProcessTrial-' + [Guid]::NewGuid().ToString('N')
 $sid = 'S-1-5-19' # Local Service
-$source = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'fixtures/ProcessEndObservation.cs') -Raw
 $creation = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToFileTimeUtc()
-$probe = @'
-$ErrorActionPreference = 'Stop'
-try {
-    if ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne 'S-1-5-19') { exit 2 }
-    Add-Type -TypeDefinition ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('SOURCE_BYTES')))
-    $self = [Diagnostics.Process]::GetCurrentProcess()
-    $own = [ProcessEndObservationFixture]::Open($self)
-    try {
-        if ([ProcessEndObservationFixture]::Observe($own, $self.StartTime.ToUniversalTime().ToFileTimeUtc(), 0) -ne 'running') { exit 3 }
-    } finally { $own.Dispose(); $self.Dispose() }
-    $target = [Diagnostics.Process]::GetProcessById(TARGET_PID)
-    try {
-        try { $other = [ProcessEndObservationFixture]::Open($target) }
-        catch {
-            $cause = $_.Exception.GetBaseException()
-            if ($cause -is [ComponentModel.Win32Exception] -and $cause.NativeErrorCode -eq 5) { exit 42 }
-            throw
-        }
-        try {
-            if ([ProcessEndObservationFixture]::Observe($other, TARGET_TIME, 0) -eq 'running') { exit 43 }
-        } finally { $other.Dispose() }
-    } finally { $target.Dispose() }
-} catch { exit 4 }
-exit 5
-'@
-$probe = $probe.Replace('SOURCE_BYTES', [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($source)))
-$probe = $probe.Replace('TARGET_PID', [string]$PID).Replace('TARGET_TIME', [string]$creation + 'L')
-$command = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe))
+. (Join-Path $PSScriptRoot 'fixtures/ProcessEndProbeCommand.ps1')
+$command = New-ProcessEndProbeCommand $sid $PID $creation
 $service = New-Object -ComObject Schedule.Service
 $service.Connect()
 $folder = $service.GetFolder('\')
