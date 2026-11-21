@@ -1,5 +1,14 @@
 [
   {
+    "id": "shared-process-worker-design-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck corrected shared worker design and remaining decision boundaries.",
+    "acceptance": "Disposition of prior findings and scope cleared for next checkpoint.",
+    "revision": "847161ade991e0f0d0986f7b8f25ccb87baab1ea",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "shared-process-worker-design-review",
     "worker": "independent source reviewer",
     "scope": "Review the shared desktop worker design against the installed worker transport, single-instance requirement and grant boundaries.",
