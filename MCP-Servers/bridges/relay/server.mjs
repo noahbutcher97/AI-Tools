@@ -3,7 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod/v3";
 
 import { toolJsonResult } from "../../lib/tool-result.mjs";
-import { listLocalTargets, formatTargets } from "./client.mjs";
+import { formatTargets } from "./client.mjs";
+import { listInstalledTargets, resolveLocalAddress } from "./local-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
@@ -70,7 +71,7 @@ server.tool(
       }
     }
     scope ??= "cwd";
-    const result = await listLocalTargets({ scope, cwd: cwd || process.cwd() });
+    const result = await listInstalledTargets({ scope, cwd: cwd || process.cwd() });
     // Resolved per call like the send path, so a caller asking who it is gets
     // the same answer relay would stamp on its next message.
     const identity = resolveCallerIdentity({ extra });
@@ -97,6 +98,19 @@ server.tool(
     });
   },
 );
+
+server.registerTool("relay_resolve", {
+  description: "Resolve an exact local session ID across installed inventory adapters without waking the session. Use relay_list with scope all to discover IDs and adapter keys.",
+  inputSchema: z.object({
+    id: z.string().min(1).describe("Case-sensitive, literal native session ID. Colons, slashes and leading dashes are part of the ID."),
+    adapter: z.string().min(1).optional().describe("Installed adapter key, shown as kind in relay_list. Limits lookup to that reader."),
+    host: z.string().min(1).optional().describe("Canonical label of this local machine, if enrolled."),
+  }).strict(),
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+}, async selector => {
+  const result = await resolveLocalAddress(selector);
+  return { ...toolJsonResult(result), isError: !result.ok };
+});
 
 server.tool(
   "relay_send",

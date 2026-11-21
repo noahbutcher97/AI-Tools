@@ -35,7 +35,7 @@ jobs:
         working-directory: MCP-Servers/bridges/relay
         run: |
           npm ci --ignore-scripts
-          node --test client.test.mjs server.test.mjs
+          node --test client.test.mjs local-address.test.mjs server.test.mjs
       - run: node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs Installers/CrossAgentRelay/turn-metadata.test.mjs MCP-Servers/bridges/relay/proof.test.mjs
 
   relay-handoffs:

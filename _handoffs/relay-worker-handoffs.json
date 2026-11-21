@@ -1,5 +1,45 @@
 [
   {
+    "id": "relay-exact-inventory",
+    "worker": "inventory implementer",
+    "coordinator": "relay coordinator",
+    "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+    "scope": "Implement exact local selection on a trusted reader composition and regression fixtures.",
+    "acceptance": "Preserve case and literal delimiters. Cover single reader, incomplete enumeration, duplicate rows, collisions and qualified lookup without provider effects.",
+    "state": "accepted",
+    "result": {
+      "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+      "verdict": "Implemented exact reader selection.",
+      "evidence": "Baseline lacked the resolver and ignored an invalid enabled set. After implementation 73 client tests passed, including a class reader, case-sensitive delimiters, duplicate and incomplete results, disabled readers and workspace independence.",
+      "limitations": "Synthetic fixtures; no provider processes launched."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for independent code review.",
+      "next": "Verify the same binding through both read-only entry points."
+    }
+  },
+  {
+    "id": "relay-exact-faces",
+    "worker": "interface implementer",
+    "coordinator": "relay coordinator",
+    "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+    "scope": "Expose read-only exact lookup through the local CLI and MCP and test the operator-facing contract.",
+    "acceptance": "Local selectors use a literal ID plus optional adapter and host; exercise both public faces and validate conflicting or unsafe input before effects.",
+    "state": "accepted",
+    "result": {
+      "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+      "verdict": "Implemented the CLI and MCP exact lookup.",
+      "evidence": "Original CLI refused resolve and MCP tools omitted it. The completed client and server suites passed 90 tests on Windows, including literal flags, reader restriction, ambiguity, damaged registry and configuration reload on an open server.",
+      "limitations": "Offline profiles and installed-setting fixtures. No live wake or grant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for independent code review and a constrained walkthrough.",
+      "next": "Exercise real CLI and MCP against an independently composed reader and review the committed bytes."
+    }
+  },
+  {
     "id": "relay-local-inventory-recheck",
     "worker": "independent inventory reviewer",
     "coordinator": "relay coordinator",
