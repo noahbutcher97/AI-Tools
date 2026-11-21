@@ -30,6 +30,7 @@ const resolutionDetails = {
   host_unavailable: "The local machine label is unavailable. Check machine enrollment.",
   nonlocal_host: "This lookup runs locally. Run it on the named machine.",
   inventory_unavailable: "Local inventory configuration is unavailable. Check the installed reader settings.",
+  installation_changed: "The local host or applicable reader set changed during lookup. Resolve the intended session again.",
 };
 
 // Only installation code supplies readers and the configuration root. Both
@@ -82,6 +83,24 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
       return { ok: false, state: "inventory_unavailable" };
     }
     const result = await inventory.resolve({ id, adapter });
+    // Both an exact match and a miss can start delivery: a miss permits
+    // looking up a legacy name. Only use them under the installation surveyed.
+    if (result.ok || result.state === "missing") {
+      try {
+        if (root() !== dir || readHost(dir) !== localHost) return { ok: false, state: "installation_changed" };
+      } catch {
+        return { ok: false, state: "host_unavailable" };
+      }
+      let current;
+      try {
+        current = readers(dir);
+      } catch {
+        return { ok: false, state: "inventory_unavailable" };
+      }
+      const sameReaders = adapter !== undefined ? current.hasReader(adapter) :
+        inventory.readerKinds.length === current.readerKinds.length && inventory.readerKinds.every(current.hasReader);
+      if (!sameReaders) return { ok: false, state: "installation_changed" };
+    }
     if (!result.ok) return result;
     return { ...result, target: { ...result.target, host: localHost } };
   }

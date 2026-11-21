@@ -831,10 +831,15 @@ export function resolveCodexCommand({
 export async function defaultRunQueue(threadId, text, {
   resolveCommand = resolveCodexCommand,
   run = runProvider,
+  codexHome = defaultCodexHome(),
 } = {}) {
   const resolved = resolveCommand();
   if (!resolved) throw new Error("No shell-free Codex launcher found on PATH; use a native codex.exe or an npm launcher with adjacent node_modules/@openai/codex/bin/codex.js");
-  return run(resolved.command, [...resolved.prefix, "queue", "--thread", threadId, "--message", text]);
+  // Windows environment keys are case-insensitive. Drop every spelling before
+  // pinning the queue to the same store discovery and cursor capture used.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== "CODEX_HOME"));
+  env.CODEX_HOME = codexHome;
+  return run(resolved.command, [...resolved.prefix, "queue", "--thread", threadId, "--message", text], { env });
 }
 
 // Where the spool goes when the primary location cannot be written. Measured:
@@ -1232,7 +1237,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
       if (refusal) return refusal;
     }
     queueStarted = true;
-    outcome = await runQueue(target.id, stamped);
+    outcome = await runQueue(target.id, stamped, { codexHome });
   } catch (err) {
     return fail(SEND_CAUSES.QUEUE_FAILED, `codex queue could not be invoked: ${err.message}`, target.kind);
   }
@@ -1575,7 +1580,8 @@ export function formatTargets({ targets = [], warnings = [], inventory = [], com
     lines.push(bits.join("  "));
     // An unaddressable target is listed precisely so the caller learns why here
     // rather than as a delivery error later.
-    if (!t.addressable) lines.push(`    not addressable: ${t.reason || "reason unknown"}`);
+    if (t.addressable === null) lines.push(`    ${t.reason}`);
+    else if (!t.addressable) lines.push(`    not addressable: ${t.reason || "reason unknown"}`);
   }
   // Warnings are part of the answer, not a side channel: a list read with the
   // thread store missing is a different answer from a complete one.
@@ -1605,9 +1611,13 @@ function inventoryText(value, maxLength) {
     !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value);
 }
 
-// Installed adapters enumerate native IDs. Project only the fields used by
-// local listings. Delivery capability requires its own qualified integration.
-function projectLocalInventory(kind, result) {
+export function hasLocalDeliveryRoute(adapter) {
+  return ["validId", "ready", "submit"].every(key => typeof adapter[key] === "function");
+}
+
+// Route availability comes from the installed adapter, never from a row's
+// self-reported fields. Listing does not run delivery or readiness operations.
+function projectLocalInventory(kind, result, hasRoute) {
   if (!Array.isArray(result?.targets) || typeof result.complete !== "boolean" ||
       (result.warnings !== undefined && (!Array.isArray(result.warnings) ||
         !result.warnings.every(warning => inventoryText(warning, 1024))))) {
@@ -1625,7 +1635,8 @@ function projectLocalInventory(kind, result) {
       kind, id: row.id, name: null, cwd: inventoryText(row.cwd, 32767) ? row.cwd : null,
       status: ["idle", "busy"].includes(row.status) ? row.status : "unknown",
       idleFor: null, turns: null, pid: null, startedAt: null,
-      addressable: false, reason: "local inventory only",
+      addressable: hasRoute ? null : false,
+      reason: hasRoute ? "Delivery route installed, eligibility unchecked. Use --dry-run or relay_send with dry_run to check." : "local inventory only",
     });
   }
   if (targets.length !== result.targets.length) warnings.push(`${kind}: omitted an invalid session ID`);
@@ -1642,7 +1653,8 @@ export function createLocalInventory(additionalAdapters = [], enabledKinds) {
       throw new Error("invalid or duplicate inventory adapter");
     }
     const enumerate = adapter.enumerate.bind(adapter);
-    adapters.push({ kind, enumerate: async () => projectLocalInventory(kind, await enumerate()) });
+    const hasRoute = hasLocalDeliveryRoute(adapter);
+    adapters.push({ kind, enumerate: async () => projectLocalInventory(kind, await enumerate(), hasRoute) });
   }
 
   let enabled = adapters;
@@ -1658,6 +1670,7 @@ export function createLocalInventory(additionalAdapters = [], enabledKinds) {
 
   const list = options => collectInventory(enabled, options, "list");
   list.hasReader = kind => enabled.some(reader => reader.kind === kind);
+  list.readerKinds = Object.freeze(enabled.map(reader => reader.kind));
   list.resolve = (selector, options) => resolveInventory(enabled, selector, options);
   return list;
 }

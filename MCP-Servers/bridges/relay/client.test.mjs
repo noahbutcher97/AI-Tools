@@ -271,6 +271,18 @@ test("installed local inventory keeps opaque IDs, colliding rows and workspace s
   assert.deepEqual(all.targets.filter(row => row.kind === "example").map(row => row.id), [id, "Outside", "Unknown"]);
 });
 
+test("listing an installed delivery operation preserves unchecked readiness without calling it", async () => {
+  const calls = [];
+  const reader = { kind: "example", enumerate: () => ({ complete: true, targets: [{ id: "sample", addressable: true }] }) };
+  const delivery = Object.fromEntries(["validId", "ready", "submit"].map(key => [key, () => { calls.push(key); return true; }]));
+  const list = async adapter => (await createLocalInventory([adapter], ["example"])({ scope: "all" })).targets[0];
+  assert.equal((await list({ ...reader, submit: delivery.submit })).addressable, false);
+  const row = await list({ ...reader, ...delivery });
+  assert.equal(row.addressable, null);
+  assert.match(row.reason, /eligibility unchecked/);
+  assert.deepEqual(calls, []);
+});
+
 test("partial enumeration retains available rows and healthy adapters", async () => {
   const discover = createLocalInventory([
     { kind: "timed-out", enumerate() { throw new Error("diagnostic detail"); } },

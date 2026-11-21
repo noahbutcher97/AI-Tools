@@ -67,7 +67,8 @@ const sendHelp = `Usage: relay send <target> | --id LITERAL [--adapter KEY] [--h
 ${literalTargetHelp}`;
 
 const pingHelp = `Usage: relay ping <target> | --id LITERAL [--adapter KEY] [--host LABEL]
-  ping wakes one session. --json prints its result and available receipt.
+  ping wakes one session. --json writes one result to stdout. An early
+  receipt on stderr lets you check status if the command is interrupted.
   relay ping --status RECEIPT checks an existing probe without another wake.
   relay ping --all-hosts checks fleet reachability.
 

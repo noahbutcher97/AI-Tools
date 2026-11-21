@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { buildMetaLine, mintConversationId, sendMessage } from "./client.mjs";
+import { buildMetaLine, hasLocalDeliveryRoute, mintConversationId, sendMessage } from "./client.mjs";
 import { HOST, matches, UUID } from "./delivery-protocol.mjs";
 import { resolveLocalAddress } from "./local-address.mjs";
 
@@ -56,8 +56,7 @@ export function createBoundDelivery({ resolve = resolveLocalAddress, adapters = 
     if (!matches(HOST, kind) || kind === "claude" || kind === "codex" || routes.has(kind)) {
       throw new Error("Invalid or duplicate local delivery adapter.");
     }
-    const complete = ["validId", "ready", "submit"].every(key => typeof adapter[key] === "function");
-    routes.set(kind, complete ? { validId: adapter.validId.bind(adapter), ready: adapter.ready.bind(adapter),
+    routes.set(kind, hasLocalDeliveryRoute(adapter) ? { validId: adapter.validId.bind(adapter), ready: adapter.ready.bind(adapter),
       submit: adapter.submit.bind(adapter) } : null);
   }
 

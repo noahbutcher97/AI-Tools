@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createBoundDelivery } from "./bound-delivery.mjs";
 import { parseMetaFromMessage, sendMessage } from "./client.mjs";
 import { addIndexedSession } from "./fixtures/session-index.mjs";
@@ -114,6 +116,38 @@ test("dry run checks eligibility without reserving; lost readiness and an uncert
 let DatabaseSync;
 try { ({ DatabaseSync } = await import("node:sqlite")); } catch {}
 const sqlite = { skip: DatabaseSync ? false : "node:sqlite unavailable" };
+test("the CLI submits only in the Codex profile whose writer it selected", sqlite, t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-queue-profile-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const selected = path.join(profile, ".codex");
+  const other = path.join(profile, "other");
+  for (const store of [selected, other]) {
+    fs.mkdirSync(path.join(store, "thread-writer-locks"), { recursive: true });
+    fs.writeFileSync(path.join(store, "thread-writer-locks", native.id + ".lock"), "");
+    addIndexedSession(DatabaseSync, store, native.id, store);
+  }
+  const bin = path.join(profile, "bin");
+  const entry = path.join(bin, "node_modules", "@openai", "codex", "bin", "codex.js");
+  fs.mkdirSync(path.dirname(entry), { recursive: true });
+  fs.writeFileSync(path.join(bin, "codex"), "");
+  fs.writeFileSync(entry, [
+    'const fs = require("node:fs"), path = require("node:path");',
+    'const id = process.argv[process.argv.indexOf("--thread") + 1];',
+    'fs.appendFileSync(path.join(process.env.CODEX_HOME, "submitted"), id + "\\n");',
+    'console.log("Queued message " + id + " for thread " + id + ".");',
+  ].join("\n"));
+  const loader = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-loader.mjs", import.meta.url);
+  const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
+  const output = execFileSync(process.execPath, ["--no-warnings", "--experimental-loader", loader.href, cli,
+    "send", "--id", native.id, "--adapter", "codex", "--message", "fixture", "--json"], {
+    env: { ...process.env, PATH: bin, HOME: profile, USERPROFILE: profile, CODEX_HOME: other, RELAY_FIXTURE_ROOT: "" },
+    encoding: "utf8", timeout: 15000,
+  });
+  assert.equal(JSON.parse(output).dispatch, "accepted");
+  assert.equal(fs.readFileSync(path.join(selected, "submitted"), "utf8"), native.id + "\n");
+  assert.equal(fs.existsSync(path.join(other, "submitted")), false);
+});
+
 function codexFixture(t, { outcome, resolve = () => resolved(native), openDb } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bound-codex-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

@@ -22,14 +22,15 @@ test("public local send and ping pin the exact binding; cold status proves only 
   const queue = () => fs.readFileSync(submitted, "utf8").trimEnd().split("\n").map(line => JSON.parse(line));
   write("machine.json", { host: "host-a" });
   write("inventory-adapters.json", { enabled: ["other", "sample"] });
-  const cli = (...args) => {
-    const result = spawnSync(process.execPath, [...nodeArgs, "cli.mjs", ...args, "--json"], {
+  const runCli = (...args) => {
+    const result = spawnSync(process.execPath, [...nodeArgs, "cli.mjs", ...args], {
       cwd: bridge, env, encoding: "utf8", timeout: 15000,
     });
     if (result.error) throw result.error;
     assert.ok([0, 1].includes(result.status), result.stderr);
-    return JSON.parse(result.stdout);
+    return result;
   };
+  const cli = (...args) => JSON.parse(runCli(...args, "--json").stdout);
 
   const id = "Sample:Chat/One";
   const binding = { host: "host-a", adapter: "sample", id };
@@ -41,15 +42,29 @@ test("public local send and ping pin the exact binding; cold status proves only 
     return JSON.parse(result.content[0].text);
   };
   try {
+    const listing = await call("relay_list", { scope: "all" });
+    assert.deepEqual(listing.targets, cli("list", "--scope", "all").targets);
+    const sample = listing.targets.find(row => row.kind === "sample" && row.id === id);
+    assert.equal(sample.addressable, null);
+    assert.match(sample.reason, /eligibility unchecked.*--dry-run/);
+    const other = listing.targets.find(row => row.kind === "other" && row.id === id);
+    assert.equal(other.addressable, false);
+    assert.equal(other.reason, "local inventory only");
+    const plain = runCli("list", "--scope", "all").stdout.trimEnd();
+    assert.equal(plain, listing.rendered);
+    assert.match(plain, /\[sample\][^\n]*\n\s+Delivery route installed/);
+    assert.match(plain, /\[other\][^\n]*\n\s+not addressable: local inventory only/);
     assert.equal(cli("send", "--id", id, "--message", "test").cause, "ambiguous");
     assert.equal((await call("relay_send", { ...binding, adapter: "other", message: "test" })).cause, "unsupported_route");
     assert.equal((await call("relay_send", { ...binding, dry_run: true, message: "test" })).ok, true);
     assert.equal(fs.existsSync(submitted), false);
     assert.equal((await call("relay_send", { ...binding, message: "Example notice." })).state, "queued");
     assert.equal(cli("send", "SamplePlain", "--message", "From CLI").state, "queued");
-    const pending = cli("ping", "--id", id, "--adapter", "sample");
+    const probe = runCli("ping", "--id", id, "--adapter", "sample", "--json");
+    const pending = JSON.parse(probe.stdout);
     assert.equal(pending.state, "pending");
     assert.equal(pending.dispatch, "accepted");
+    assert.equal(probe.stderr.trim(), "relay receipt " + pending.handle);
     const records = queue();
     assert.equal(records.length, 3);
     assert.deepEqual(records[0].binding, binding);

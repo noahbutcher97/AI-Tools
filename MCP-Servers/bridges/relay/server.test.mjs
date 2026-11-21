@@ -358,7 +358,8 @@ test("every listed target states whether it can be sent to", async () => {
   });
 
   for (const target of targets) {
-    assert.equal(typeof target.addressable, "boolean", `${target.id} has no addressable flag`);
+    if (target.addressable === null) assert.match(target.reason, /eligibility unchecked/);
+    else assert.equal(typeof target.addressable, "boolean", `${target.id} has no addressable flag`);
     assert.ok(typeof target.kind === "string" && target.kind.length > 0);
   }
 });
@@ -392,20 +393,26 @@ test("local CLI and MCP report incomplete enumeration and recovery in the same p
   }, env);
 });
 
-test("relay_send refuses an unknown target without delivering anything", async () => {
+test("relay_send refuses an unknown target without delivering anything", async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-missing-target-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(profile, ".claude", "sessions"), { recursive: true });
+  fs.mkdirSync(path.join(profile, ".codex", "thread-writer-locks"), { recursive: true });
+  const spool = path.join(profile, "spool.log");
   const payload = await withClient("relay-send-refusal", async (c) => {
     const result = await c.callTool({
       name: "relay_send",
       arguments: { to: "01a09999-0000-7000-a000-000000000000", message: "registration test, never delivered" },
     });
     return JSON.parse(result.content[0].text);
-  });
+  }, { HOME: profile, USERPROFILE: profile, RELAY_FIXTURE_ROOT: "", RELAY_SPOOL: spool });
 
   assert.equal(payload.ok, false);
   assert.equal(payload.cause, "target_not_found");
   // The refusal spooled, and it spooled to the throwaway path rather than the
   // operator's real one.
-  assert.equal(payload.spooled, TEST_SPOOL);
+  assert.equal(payload.spooled, spool);
+  assert.ok(fs.readFileSync(spool, "utf8").includes("registration test, never delivered"));
 });
 
 test("relay_send requires a non-empty message", async () => {

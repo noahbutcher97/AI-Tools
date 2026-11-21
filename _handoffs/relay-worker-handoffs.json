@@ -1,5 +1,74 @@
 [
   {
+    "id": "relay-binding-recheck-fix",
+    "worker": "local dispatch implementer",
+    "coordinator": "relay coordinator",
+    "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+    "scope": "Close the observed authorization change during final enumeration and add dispatch-level regression cases.",
+    "acceptance": "Zero calls on changed host, reader set expansion changing uniqueness or withdrawal during enumeration. Preserve qualified lookup semantics.",
+    "state": "accepted",
+    "result": {
+      "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+      "verdict": "Final lookup now refuses changed installation authority.",
+      "evidence": "During final enumeration, changing the host, withdrawing the reader or enabling a competing reader resulted in zero submissions. A stale miss produced zero legacy calls. A change confined to an unrelated reader preserved a qualified send.",
+      "limitations": "Recording adapter and private disposable configuration. Twenty-three focused tests passed."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the correction for independent recheck.",
+      "next": "Review the final dispatch and profile selection together."
+    }
+  },
+  {
+    "id": "relay-bound-list-fix",
+    "worker": "interface implementer",
+    "coordinator": "relay coordinator",
+    "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+    "scope": "Correct local inventory delivery eligibility for an installed exact operation and stabilize the hosted missing-target fixture.",
+    "acceptance": "Separate installed delivery capability from proven session readiness. Verify normal CLI inventory and isolated missing-target refusal.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-bound-independent",
+    "worker": "independent delivery reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+    "scope": "Review the local effect boundary, compatibility and capability selection at the committed revision.",
+    "acceptance": "Inspect exact versus legacy routes, late ambiguity/rebinding/revocation, native gating and receipt recovery; reproduce suspected issues using synthetic stores.",
+    "state": "accepted",
+    "result": {
+      "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+      "verdict": "Hold for two reproduced dispatch mismatches.",
+      "evidence": "A reader withdrawal or machine-label change during enumeration still submitted once. With two stores containing the same raw ID, selection and the queue used different Codex homes. Twenty-three focused tests passed.",
+      "limitations": "Independent synthetic installation, CLI and recording provider. No live provider or remote traffic."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Require installation revalidation after enumeration and pin the queue process to the checked store.",
+      "next": "Reproduce both cases against the corrected revision before closure."
+    }
+  },
+  {
+    "id": "relay-bound-operator",
+    "worker": "independent terminal operator",
+    "coordinator": "relay coordinator",
+    "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+    "scope": "Inspect normal CLI recovery for an exact local probe in an isolated installation.",
+    "acceptance": "Find the intended session, issue at most one harmless probe, and verify arrival without sending again. Report attempts and friction.",
+    "state": "accepted",
+    "result": {
+      "revision": "ff9b41b8a545dff8862d7c2d663beeda1b1af025",
+      "verdict": "Delivered once with inventory friction.",
+      "evidence": "Operator found colliding IDs using all-workspace inventory, selected one reader, saw pending and verified delivery with the same receipt. The listing called the routable target unaddressable.",
+      "limitations": "Agent operating a real CLI with synthetic installation and inbound records. The terminal combined stderr receipts and stdout JSON."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Correct the inventory wording and repeat the workflow. Keep the early receipt on stderr for interrupted callers.",
+      "next": "Repeat after correction using a fresh disposable fixture."
+    }
+  },
+  {
     "id": "relay-bound-dispatch",
     "worker": "local dispatch implementer",
     "coordinator": "relay coordinator",
