@@ -6,6 +6,23 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+### External process-end observation
+
+On one enrolled desktop an ordinary Windows process could reopen its own live disposable child with limited query and synchronization rights and match its creation time. After the process handle signaled, the observer read exit codes 7 and 259 in separate trials. A mismatched creation time and a discarded observer handle both produced `unknown`. The launcher kept its original process handle during the reopen check. This exercises handle replacement within one account. Real PID reuse and an installed broker restart remain unexercised.
+
+The enrollment check evaluated the disposable PowerShell process's discretionary access list for the enrolled desktop user and the separately named broker account. The desktop control had both required rights. The broker trustee did not have the combination. This is an access-list result. The installed broker has yet to try the open under its own logon token.
+
+Run these from the checkout root in ordinary PowerShell on Windows. The first command needs no enrollment. The second needs the signed-in owner of an installed watcher. Each starts a fresh process and uses no provider turns or credentials.
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-ProcessEndObservation.ps1
+powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-ProcessEndBrokerAccess.ps1
+```
+
+Check the exit code after each command. A successful second check can report `brokerDaclAllowsObservation: false`. Keep direct broker observation unqualified in that case. Missing enrollment or an elevated shell makes that check inconclusive. The separate Windows CI fixture opens its own process as a service account, then attempts the same rights on the live runner process and records the actual kernel result. Its account and target differ from the enrolled broker and desktop.
+
+The next installed gate is a read-only open on one explicitly granted disposable process from the actual broker logon. Record access denied or the matching creation time. Only a verified signaled handle may become an exit receipt. Leave external-process notifications disabled until that boundary, grant revocation, restart and one consumed notice pass. The existing `run --` completion path remains available for commands started through the relay.
+
 ### Delivery proof and turn identity
 
 The overlap and restart checkpoint passed on one Windows desktop at `6b82960` with Codex CLI 0.170.0 and the low-effort test model. After queue acceptance the provider accepted a steer on the original ordinary turn. Exactly one scheduled notice appeared in a separate completed turn. The watcher store reopened before proof and a fresh process recovered the same binding after retirement. The thread was archived. Sharing one turn with ordinary input was exercised synthetically. The independent source recheck and constrained operator replay both passed. No installed-service restart, Claude recipient, remote notice or automatic session-state dispatch was exercised. Positive eligibility for an ordinary completion remains open. [Review returns](relay-worker-handoffs.json)

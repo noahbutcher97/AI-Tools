@@ -6,7 +6,18 @@
     "acceptance": "Demonstrate creation-token binding, reopening the live instance after dropping a handle, unknown on lost instance or wrong token, and signaled exits including 259. Use hidden bounded fixtures and synthetic output. No installed service, network or credentials.",
     "revision": "f41a8b7556f263a196dd8d4d695c6592b9e98d5b",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "f41a8b7556f263a196dd8d4d695c6592b9e98d5b",
+      "verdict": "Disposable Windows process fixture delivered.",
+      "evidence": "Windows PowerShell and PowerShell 7 observed two signaled exit codes, rejected a mismatched creation token, and returned unknown after handle disposal. An unexpected PID option was rejected.",
+      "limitations": "Same desktop user. Reopened handles with the launcher still holding the child. No broker logon, actual PID reuse or provider calls."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept for independent source and operator review.",
+      "next": "Check the installed broker boundary separately."
+    }
   },
   {
     "id": "receipt-turn-review-recheck",

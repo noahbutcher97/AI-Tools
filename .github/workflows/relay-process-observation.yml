@@ -1,0 +1,21 @@
+name: Relay process observation
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/relay-process-observation.yml'
+      - 'Installers/CrossAgentRelay/Test-ProcessEnd*.ps1'
+      - 'Installers/CrossAgentRelay/fixtures/ProcessEndObservation.cs'
+permissions:
+  contents: read
+jobs:
+  observe:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Observe owned fixtures
+        shell: powershell
+        run: ./Installers/CrossAgentRelay/Test-ProcessEndObservation.ps1
+      - name: Measure access from a separate service account
+        shell: powershell
+        run: ./Installers/CrossAgentRelay/Test-ProcessEndSecondAccount.ps1
