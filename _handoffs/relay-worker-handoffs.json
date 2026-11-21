@@ -6,7 +6,18 @@
     "acceptance": "Check the read-only boundary, negative result and success criteria before live rotation.",
     "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
+      "verdict": "changes required",
+      "evidence": "Source review identified name collision after rotation, partial cleanup identity checks and early success without fresh health.",
+      "limitations": "Source only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Added name preflight, full definition and ACL readback, fresh health and cleanup before success.",
+      "next": "Recheck corrected revision before rotation."
+    }
   },
   {
     "id": "installed-process-account-operator",
@@ -15,7 +26,18 @@
     "acceptance": "Locate commands, cost and effect of a denial or interruption from the normal starting point.",
     "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a24a386ab1713a10ab617360e6840bb14f8f3cdc",
+      "verdict": "changes required",
+      "evidence": "The operator could find the installed command only by search and could lose the trial ID required for recovery.",
+      "limitations": "Documentation walkthrough only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Linked the installed procedure and documented saved IDs, task identity and interruption handoff.",
+      "next": "Repeat the walkthrough on corrected instructions."
+    }
   },
   {
     "id": "process-end-operator-replay",

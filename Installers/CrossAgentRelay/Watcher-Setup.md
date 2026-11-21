@@ -125,12 +125,22 @@ Use elevated Windows PowerShell under the enrolled desktop user while the intera
 From that tool directory, run the desktop preflight first. It creates one temporary task and checks a disposable process with queryable identity and creation time. Each invocation takes a fresh trial ID.
 
 ```powershell
-.\Test-ProcessEndInstalledAccount.ps1 -ExpectedPackage $expectedPackage -TrialId ([guid]::NewGuid())
+$preflightId = [guid]::NewGuid()
+$preflightId   # Record this value in the private trial journal before continuing.
+.\Test-ProcessEndInstalledAccount.ps1 -ExpectedPackage $expectedPackage -TrialId $preflightId
 ```
 
 For the live check, repeat with `-RotateBrokerPassword` under the owner's authorization for the dedicated account. This rotates the account password once and passes it in memory to Task Scheduler to register a separate limited S4U observer. The enrolled watcher keeps its own registration. Allow up to two minutes. The target and observer confirm their expected non-administrative identities. The controller pins the disposable process through the open attempt and checks its exit control. No AI session or network notice is involved.
 
-Require successful script completion and `enrolledBrokerLogon` and `ownHandleVerified` both true. A `desktopProcessAccess` value of `denied` is a conclusive access result and leaves external-process notifications disabled. A value of `granted` establishes read access to this fixture. Any other result leaves the trial inconclusive. A hard interruption can leave stopped trial tasks. Retain the trial ID, verify each task's description, principal and fixed action against that trial before cleanup, and check that the enrolled watcher is still in reports-only mode before another attempt.
+```powershell
+$liveId = [guid]::NewGuid()
+$liveId   # Record this second value in the private trial journal.
+.\Test-ProcessEndInstalledAccount.ps1 -ExpectedPackage $expectedPackage -TrialId $liveId -RotateBrokerPassword
+```
+
+Require successful script completion and `enrolledBrokerLogon` and `ownHandleVerified` both true. A `desktopProcessAccess` value of `denied` is a conclusive access result and leaves external-process notifications disabled. A value of `granted` establishes read access to this fixture. The controller returns success after deleting its temporary tasks and checking the enrolled broker's fresh reports-only heartbeat. Any other outcome leaves the trial inconclusive.
+
+After an interruption, give the private deployment maintainer the recorded ID, whether the rotation switch was present, the reviewed revision and the last completed step. Identify the two possible root tasks by their exact names, `RelayProcessEnd-<guid-without-hyphens>-Desktop` and `RelayProcessEnd-<guid-without-hyphens>-Observer`. Each description is the name up to the final suffix. The desktop principal is the enrolled desktop SID with interactive-token logon. The observer principal is the enrolled broker SID with S4U logon. Both have limited run level, zero triggers and a single hidden, noninteractive Windows PowerShell action from the system directory. The encoded argument is specific to the trial. Preserve the task definitions and ACLs privately. Leave a task intact if the maintainer cannot independently match its entire definition, including the encoded action, before removing it. Confirm reports-only health and use fresh IDs for a rerun.
 
 ## Deactivate and retain state
 

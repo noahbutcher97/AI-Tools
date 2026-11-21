@@ -30,7 +30,7 @@ If the handle trial is interrupted, discard partial output. Its disposable child
 
 In the hosted Windows trial, the service account opened its own process and the kernel denied the same rights on the live runner process. Its account and target differ from the enrolled broker and desktop. The result and the enrolled access-list check both support keeping direct observation disabled.
 
-The next installed gate is a read-only open on one explicitly granted disposable process from the actual broker logon. Record access denied or the matching creation time. Only a verified signaled handle may become an exit receipt. Leave external-process notifications disabled until that boundary, grant revocation, restart and one consumed notice pass. The existing `run --` completion path remains available for commands started through the relay.
+The next installed gate is a read-only open on a disposable ordinary desktop process by a separate task using the enrolled broker account and logon type. Follow the [installed-account preflight, live command and interruption procedure](../Installers/CrossAgentRelay/Watcher-Setup.md#qualify-access-to-an-external-process). Record access denied or the matching creation time. Only a verified signaled handle may become an exit receipt. Leave external-process notifications disabled until that boundary, grant revocation, restart and one consumed notice pass. The existing `run --` completion path remains available for commands started through the relay.
 
 ### Delivery proof and turn identity
 

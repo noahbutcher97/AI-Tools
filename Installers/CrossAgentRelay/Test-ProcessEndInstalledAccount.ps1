@@ -46,12 +46,29 @@ function New-ProbeTask($suffix,$sid,$logon,$arguments,[securestring]$password) {
     return $folder.RegisterTaskDefinition($name,$d,18,$sid,$null,$logon,$acl)
 }
 
-function Remove-ProbeTask($task,$arguments) {
-    if (!$task) { return }
+function Assert-TrialNameFree($name) {
+    try { $null = $folder.GetTask($name) } catch {
+        if ($_.Exception.GetBaseException().HResult -eq -2147024894) { return }
+        throw
+    }
+    throw 'Trial task name is already in use. Retain the previous trial record.'
+}
+
+function Get-VerifiedTrialTask($task,$arguments,$sid,$logon,$savedXml,$savedAcl) {
     $t = $folder.GetTask($task.Name)
     $d = $t.Definition
-    if ($d.RegistrationInfo.Description -cne $tag -or $d.Actions.Count -ne 1 -or
-        $d.Actions.Item(1).Path -ine $image -or $d.Actions.Item(1).Arguments -cne $arguments) { throw 'Trial task changed' }
+    $a = $d.Actions.Item(1)
+    if ($d.RegistrationInfo.Description -cne $tag -or $d.Actions.Count -ne 1 -or $d.Triggers.Count -ne 0 -or
+        (Resolve-Principal $d.Principal.UserId) -cne $sid -or $d.Principal.LogonType -ne $logon -or
+        $d.Principal.RunLevel -ne 0 -or $a.Type -ne 0 -or $a.WorkingDirectory -ine [Environment]::SystemDirectory -or
+        $a.Path -ine $image -or $a.Arguments -cne $arguments -or $t.Xml -cne $savedXml -or
+        $t.GetSecurityDescriptor(7) -cne $savedAcl) { throw 'Trial task changed. Preserve it for inspection.' }
+    return $t
+}
+
+function Remove-ProbeTask($task,$arguments,$sid,$logon,$savedXml,$savedAcl) {
+    if (!$task) { return }
+    $t = Get-VerifiedTrialTask $task $arguments $sid $logon $savedXml $savedAcl
     if ($t.State -in 2,4) {
         $t.Stop(0)
         $end = [datetime]::UtcNow.AddSeconds(10)
@@ -60,7 +77,31 @@ function Remove-ProbeTask($task,$arguments) {
             Start-Sleep -Milliseconds 100
         }
     }
+    $null = Get-VerifiedTrialTask $task $arguments $sid $logon $savedXml $savedAcl
     $folder.DeleteTask($task.Name,0)
+    Assert-TrialNameFree $task.Name
+}
+
+function Assert-ReportsOnly($record) {
+    foreach ($name in @($brokerTask,$workerTask)) { Assert-RegisteredTask ($folder.GetTask($name)) $record }
+    if ($folder.GetTask($brokerTask).State -ne 4 -or $folder.GetTask($workerTask).State -ne 3 -or
+        [IO.File]::ReadAllText((Join-Path $root 'completion-policy.json')) -cne '{"v":1,"grants":[]}' -or
+        [IO.File]::ReadAllText((Join-Path $root 'completion-worker.json')) -cne '{"v":1,"enabled":false}') { throw 'Trial requires an idle reports-only installation' }
+    $health = Join-Path $root 'completion-health/watcher.json'
+    Assert-PlainPath $health
+    $stream = [IO.File]::Open($health,'Open','Read',[IO.FileShare]'ReadWrite,Delete')
+    try {
+        $size = $stream.Length
+        if ($size -le 0 -or $size -gt 8192) { throw 'Unexpected health projection size' }
+        $reader = [IO.BinaryReader]::new($stream)
+        $bytes = $reader.ReadBytes([int]$size)
+        if ($bytes.Length -ne $size -or $stream.Length -ne $size) { throw 'Health projection changed' }
+        $beat = [Text.UTF8Encoding]::new($false,$true).GetString($bytes) | ConvertFrom-Json
+    } finally { $stream.Dispose() }
+    if ($beat.mode -cne 'reports_only' -or !(Test-BrokerInstance $scheduler $beat.pid) -or
+        [math]::Abs(([datetime]::UtcNow-[datetimeoffset]::Parse($beat.heartbeat).UtcDateTime).TotalSeconds) -ge 10) {
+        throw 'Fresh reports-only broker heartbeat required'
+    }
 }
 
 function Get-PinnedTarget($instance,$arguments) {
@@ -77,6 +118,9 @@ function Get-PinnedTarget($instance,$arguments) {
                 $proc = [Diagnostics.Process]::GetProcessById($row.ProcessId)
                 try {
                     $null = $proc.SafeHandle
+                    $row = Get-CimInstance Win32_Process -Filter "ProcessId=$($proc.Id)"
+                    if (!$row -or $row.ExecutablePath -ine $image -or
+                        !$row.CommandLine.EndsWith($arguments,[StringComparison]::Ordinal)) { throw 'Trial process changed' }
                     $owner = Invoke-CimMethod -InputObject $row -MethodName GetOwnerSid
                     if ($owner.ReturnValue -ne 0 -or $owner.Sid -ne $desktopSid -or $proc.SessionId -le 0 -or
                         $proc.HasExited -or $proc.MainModule.FileName -ine $image -or
@@ -98,10 +142,8 @@ try {
         $record.brokerSid -eq $desktopSid -or $record.package -cne $ExpectedPackage) { throw 'Installation mismatch' }
     $account = Get-LocalUser -Name $accountName
     if (!$account.Enabled -or $account.SID.Value -cne $record.brokerSid -or $account.Description -cne $record.tag) { throw 'Broker account mismatch' }
-    foreach ($name in @($brokerTask,$workerTask)) { Assert-RegisteredTask ($folder.GetTask($name)) $record }
-    if ($folder.GetTask($brokerTask).State -ne 4 -or $folder.GetTask($workerTask).State -ne 3 -or
-        [IO.File]::ReadAllText((Join-Path $root 'completion-policy.json')) -cne '{"v":1,"grants":[]}' -or
-        [IO.File]::ReadAllText((Join-Path $root 'completion-worker.json')) -cne '{"v":1,"enabled":false}') { throw 'Trial requires an idle reports-only installation' }
+    Assert-ReportsOnly $record
+    foreach ($suffix in @('-Desktop','-Observer')) { Assert-TrialNameFree ($tag+$suffix) }
     $seconds = if ($RotateBrokerPassword) { 60 } else { 5 }
     $desktopCode = '$i=[Security.Principal.WindowsIdentity]::GetCurrent();if($i.User.Value -ne '''+$desktopSid+
         ''' -or ([Security.Principal.WindowsPrincipal]::new($i)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){exit 6};'+
@@ -109,41 +151,51 @@ try {
     $targetArgs = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand '+
         [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($desktopCode))
     $targetTask = New-ProbeTask '-Desktop' $desktopSid 3 $targetArgs
-    $instance = $targetTask.Run($null)
+    $targetXml = $targetTask.Xml
+    $targetAcl = $targetTask.GetSecurityDescriptor(7)
+    $verified = Get-VerifiedTrialTask $targetTask $targetArgs $desktopSid 3 $targetXml $targetAcl
+    $instance = $verified.Run($null)
     $target = Get-PinnedTarget $instance $targetArgs
     if (!$RotateBrokerPassword) {
         if (!$target.WaitForExit(12000) -or $target.ExitCode -ne 44) { throw 'Ordinary target control failed' }
-        'Desktop fixture verified. Broker check requires the approved rotation switch.'
-        return
+        $result = 'Desktop fixture verified. Broker check requires the approved rotation switch.'
+    } else {
+        $command = New-ProcessEndProbeCommand $record.brokerSid $target.Id $target.StartTime.ToUniversalTime().ToFileTimeUtc()
+        $observerArgs = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand '+$command
+        if ($target.HasExited) { throw 'Desktop trial process ended before registration' }
+        Assert-TrialNameFree ($tag+'-Observer')
+        $password = New-BrokerPassword
+        try {
+            Set-LocalUser -SID $account.SID -Password $password
+            $observerTask = New-ProbeTask '-Observer' $record.brokerSid 2 $observerArgs $password
+        } finally { $password.Dispose() }
+        $observerXml = $observerTask.Xml
+        $observerAcl = $observerTask.GetSecurityDescriptor(7)
+        $verified = Get-VerifiedTrialTask $observerTask $observerArgs $record.brokerSid 2 $observerXml $observerAcl
+        $null = $verified.Run($null)
+        $end = [datetime]::UtcNow.AddSeconds(45)
+        do {
+            Start-Sleep -Milliseconds 200
+            $current = $folder.GetTask($observerTask.Name)
+            if ($current.State -eq 3 -and $current.LastTaskResult -in 42,43) { break }
+            if ($current.State -eq 3 -and $current.LastTaskResult -notin 0,267009,267011) {
+                throw "Broker trial inconclusive. Task result $($current.LastTaskResult)."
+            }
+            if ($target.HasExited -or [datetime]::UtcNow -ge $end) { throw 'Broker trial deadline or lost target' }
+        } while ($true)
+        if ($target.HasExited) { throw 'Lost trial process' }
+        if (!$target.WaitForExit(65000) -or $target.ExitCode -ne 44) { throw 'Ordinary target control failed' }
+        $result = [pscustomobject]@{ enrolledBrokerLogon = $true; ownHandleVerified = $true
+            desktopProcessAccess = if ($current.LastTaskResult -eq 42) { 'denied' } else { 'granted' } } | ConvertTo-Json -Compress
     }
-    $command = New-ProcessEndProbeCommand $record.brokerSid $target.Id $target.StartTime.ToUniversalTime().ToFileTimeUtc()
-    $observerArgs = '-NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand '+$command
-    if ($target.HasExited) { throw 'Desktop trial process ended before registration' }
-    $password = New-BrokerPassword
-    try {
-        Set-LocalUser -SID $account.SID -Password $password
-        $observerTask = New-ProbeTask '-Observer' $record.brokerSid 2 $observerArgs $password
-    } finally { $password.Dispose() }
-    $null = $observerTask.Run($null)
-    $end = [datetime]::UtcNow.AddSeconds(45)
-    do {
-        Start-Sleep -Milliseconds 200
-        $current = $folder.GetTask($observerTask.Name)
-        if ($current.State -eq 3 -and $current.LastTaskResult -in 42,43) { break }
-        if ($current.State -eq 3 -and $current.LastTaskResult -notin 0,267009,267011) {
-            throw "Broker trial inconclusive. Task result $($current.LastTaskResult)."
-        }
-        if ($target.HasExited -or [datetime]::UtcNow -ge $end) { throw 'Broker trial deadline or lost target' }
-    } while ($true)
-    if ($target.HasExited) { throw 'Lost trial process' }
-    if (!$target.WaitForExit(65000) -or $target.ExitCode -ne 44) { throw 'Ordinary target control failed' }
-    [pscustomobject]@{ enrolledBrokerLogon = $true; ownHandleVerified = $true
-        desktopProcessAccess = if ($current.LastTaskResult -eq 42) { 'denied' } else { 'granted' } } | ConvertTo-Json -Compress
 } finally {
-    try { Remove-ProbeTask $observerTask $observerArgs } finally {
-        try { Remove-ProbeTask $targetTask $targetArgs } finally {
-            if ($target) { $target.Dispose() }
-            $lock.Dispose()
-        }
+    try {
+        try { Remove-ProbeTask $observerTask $observerArgs $record.brokerSid 2 $observerXml $observerAcl }
+        finally { Remove-ProbeTask $targetTask $targetArgs $desktopSid 3 $targetXml $targetAcl }
+        if ($result) { Assert-ReportsOnly $record }
+    } finally {
+        if ($target) { $target.Dispose() }
+        $lock.Dispose()
     }
 }
+$result
