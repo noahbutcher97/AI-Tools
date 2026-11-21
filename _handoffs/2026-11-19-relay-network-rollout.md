@@ -18,6 +18,8 @@ Exact local selection is implemented for read-only lookup. CLI `resolve` and MCP
 
 The independent review held the initial revision because a legacy PID could resolve as a native Claude session ID. The reviewer accepted the correction at `30b5651` after eight paired CLI and MCP lookups and three paired listings, including recovery when the native ID appeared. A fresh terminal operator found a duplicate raw ID and recovered the requested address using the ambiguity message. The Windows suite passed 393 tests with one opt-in skip. This closes the read-only selection checkpoint within its fixture scope. [Implementation review and operator returns](relay-worker-handoffs.json)
 
+PR review also found that the fixture launch flags required a newer Node release. With the revised test loader, an isolated Node 18.0.0 Windows executable resolved the same synthetic address through the CLI and a fresh MCP stdio server. The full suite ran on Node 22.20.0.
+
 The next checkpoint carries the binding into local send and proof. Recheck eligibility at the last point before submission; keep an ambiguous or incomplete lookup from reaching a provider. Exercise the existing local callers and the synthetic reader with a recording delivery adapter. Then qualify the same binding through receive, receipt lookup and watcher grants before connecting external process-end delivery. The first compatibility claim for an additional client still requires a real session.
 
 ### External process-end observation

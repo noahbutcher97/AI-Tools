@@ -63,8 +63,8 @@ test("CLI and MCP select the same literal ID from an independently composed read
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-reader-install-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const env = { ...process.env, HOME: root, USERPROFILE: root, RELAY_FIXTURE_ROOT: root };
-  const preload = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-install.mjs", import.meta.url);
-  const args = ["--disable-warning=ExperimentalWarning", "--experimental-test-module-mocks", "--import", preload.href];
+  const loader = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-loader.mjs", import.meta.url);
+  const args = ["--no-warnings", "--experimental-loader", loader.href];
   const bridge = fileURLToPath(new URL(".", import.meta.url));
   const config = path.join(root, "inventory-adapters.json");
   const id = "Sample:Chat/One";

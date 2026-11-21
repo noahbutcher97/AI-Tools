@@ -24,11 +24,8 @@ const TEST_SPOOL = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-server
 function profileNodeArgs(env) {
   // Leave the real installed settings untouched on either platform.
   if (!env.USERPROFILE) return [];
-  if (process.platform === "win32") {
-    return ["--import", "data:text/javascript,process.env.ProgramFiles=process.env.USERPROFILE"];
-  }
-  const preload = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-install.mjs", import.meta.url);
-  return ["--experimental-test-module-mocks", "--import", preload.href];
+  const loader = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-loader.mjs", import.meta.url);
+  return ["--no-warnings", "--experimental-loader", loader.href];
 }
 
 async function withClient(name, fn, env = {}) {

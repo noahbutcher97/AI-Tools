@@ -1,6 +1,4 @@
-// Preloaded only by the public-interface test. Replace the installed reader
-// composition while keeping the real CLI, stdio server and resolver.
-import { mock } from "node:test";
+// The test loader substitutes this installation binding at the public faces.
 import path from "node:path";
 import { createLocalAddresses } from "../../../MCP-Servers/bridges/relay/local-address.mjs";
 
@@ -14,6 +12,5 @@ const local = createLocalAddresses({
   root: () => fixtureRoot || path.join(process.env.USERPROFILE, "CrossAgentRelay"),
   additionalAdapters: fixtureRoot ? readers : [],
 });
-mock.module(new URL("../../../MCP-Servers/bridges/relay/local-address.mjs", import.meta.url), {
-  namedExports: { listInstalledTargets: local.list, resolveLocalAddress: local.resolve },
-});
+export const listInstalledTargets = local.list;
+export const resolveLocalAddress = local.resolve;
