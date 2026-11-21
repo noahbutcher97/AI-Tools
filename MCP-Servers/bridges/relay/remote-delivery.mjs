@@ -4,10 +4,13 @@ import { captureCursor, prove } from "./proof.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { codexQueueBlock, resolveCodexReference } from "./client.mjs";
-import { inventory, installationRoot } from "./fleet.mjs";
+import { codexQueueBlock, resolveCodexReference, SEND_CAUSES } from "./client.mjs";
+import { installationRoot, surveyRemoteSelection } from "./fleet.mjs";
+import { createLocalAddresses } from "./local-address.mjs";
 import { digest, exactKeys, HOST, UUID, matches, remoteEnvelope, requestDigest } from "./delivery-protocol.mjs";
 import { openReceipts } from "./receipts.mjs";
+
+const resolveRemoteRecipient = createLocalAddresses({ survey: surveyRemoteSelection }).resolve;
 
 function policyAllows(peer, id) {
   try {
@@ -42,12 +45,12 @@ async function queue(id, text) {
 }
 
 export async function dispatchRemote(request, peer, {
-  allowed = policyAllows, list = inventory, check = codexQueueBlock, reference = resolveCodexReference,
+  allowed = policyAllows, resolve = resolveRemoteRecipient, check = codexQueueBlock, reference = resolveCodexReference,
   available = providerPath, run = queue, receipts = () => openReceipts(path.join(installationRoot(), "receipts.sqlite")),
   now = Date.now, capture = captureCursor, verify = prove,
 } = {}) {
   const id = request.to ?? null;
-  if (!allowed(peer, id)) return "receive_denied";
+  if (allowed(peer, id) !== true) return "receive_denied";
   let store;
   let reserved = false;
   let hash;
@@ -56,7 +59,7 @@ export async function dispatchRemote(request, peer, {
       if (state !== "pending" && state !== "unknown") return state;
       const proof = store.proof(peer, request.requestId);
       if (!proof) return state;
-      if (!allowed(peer, proof.cursor.id)) return "receive_denied";
+      if (allowed(peer, proof.cursor.id) !== true) return "receive_denied";
       return verify(proof.cursor, proof.expected);
     }
     if (request.op === "status") {
@@ -74,23 +77,40 @@ export async function dispatchRemote(request, peer, {
       if (reserved) store.finish(peer, request.requestId, hash, state);
       return state;
     }
-    const snapshot = await list();
-    const targets = snapshot.targets.filter(row => row.id === id);
-    if (targets.length !== 1) return finish("unresolved");
-    const target = targets[0];
-    if (target.kind !== "codex") return finish("restricted_route");
-    if (!matches(UUID, id) || !target.addressable) return finish("unaddressable");
+    // receive() matched request.host to the forced receiver's host label.
+    // Version 2 has no adapter field, so every lookup must remain unqualified.
+    async function selectionRefusal() {
+      const result = await resolve({ host: request.host, id }, { requireCodexEligibility: true });
+      if (!result?.ok) return result?.state === SEND_CAUSES.NOT_ADDRESSABLE ? "unaddressable" : "unresolved";
+      if (result.target?.host !== request.host || result.target?.id !== id) return "unresolved";
+      if (result.target.adapter !== "codex") return "restricted_route";
+      return matches(UUID, id) ? null : "unaddressable";
+    }
+    const first = await selectionRefusal();
+    if (first) return finish(first);
     try { available(); } catch { return finish("provider_unavailable"); }
+    async function queueRefusal() {
+      // The queue store can take time to open. Re-survey after opening it,
+      // then let the native barrier sample the current backlog and writer lock.
+      let selection = "unresolved";
+      const blocked = await check(id, { checkBinding: async () => {
+        selection = await selectionRefusal();
+        return selection;
+      } });
+      return selection ?? (blocked ? "unaddressable" : null);
+    }
+    const ping = request.op === "ping";
+    if (request.re || ping || request.op === "resolve") {
+      const blocked = await queueRefusal();
+      if (blocked) return finish(blocked);
+      if (allowed(peer, id) !== true) return finish("receive_denied");
+      if (request.op === "resolve") return "eligible";
+    }
     let quote = null;
     if (request.re) {
       quote = await reference(id, request.re);
       if (!quote.ok) return finish("reference_unresolved");
     }
-    const blocked = await check(id);
-    if (blocked) return finish("unaddressable");
-    if (request.op === "resolve") return "eligible";
-    if (!allowed(peer, id)) return finish("receive_denied");
-    const ping = request.op === "ping";
     const payload = ping ? { ...request, kind: "notice", from: null, inReplyTo: null,
       message: "Delivery probe " + randomUUID() + ". No reply is needed." } : request;
     const text = remoteEnvelope(payload, peer, quote);
@@ -98,9 +118,13 @@ export async function dispatchRemote(request, peer, {
     if (text.length * 2 + 1024 > 32767) return finish("message_too_large");
     if (ping) {
       let cursor;
-      try { cursor = await capture(target); } catch { return finish("proof_unavailable"); }
+      try { cursor = await capture({ kind: "codex", id }); } catch { return finish("proof_unavailable"); }
+      if (cursor?.kind !== "codex" || cursor.id !== id) return finish("proof_unavailable");
       store.saveProof(peer, request.requestId, cursor, digest(text));
     }
+    const blocked = await queueRefusal();
+    if (blocked) return finish(blocked);
+    if (allowed(peer, id) !== true) return finish("receive_denied");
     const outcome = await run(id, text);
     if (ping && outcome === "queued") return await current(finish("pending"));
     return finish(outcome);

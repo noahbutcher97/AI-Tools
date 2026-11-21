@@ -37,7 +37,8 @@ const resolutionDetails = {
 
 // Only installation code supplies readers and the configuration root. Both
 // public faces re-read the enabled set for each request.
-export function createLocalAddresses({ root = installationRoot, additionalAdapters = [] } = {}) {
+export function createLocalAddresses({ root = installationRoot, additionalAdapters = [],
+  survey = (installed, selector, options) => installed.resolve(selector, options) } = {}) {
   function readers(dir) {
     const config = readOptional(dir, "inventory-adapters.json");
     if (config === undefined) return createLocalInventory(additionalAdapters);
@@ -86,7 +87,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     } catch {
       return { ok: false, state: "inventory_unavailable" };
     }
-    const result = aliasTargetId === undefined ? await inventory.resolve({ id, adapter }, { requireCodexEligibility })
+    const result = aliasTargetId === undefined ? await survey(inventory, { id, adapter }, { requireCodexEligibility })
       : await inventory.resolveAlias(id, aliasTargetId);
     // Both an exact match and a miss can start delivery: a miss permits
     // looking up a legacy name. Only use them under the installation surveyed.

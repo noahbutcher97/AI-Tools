@@ -7,10 +7,17 @@ import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
+import { codexQueueBlock } from "./client.mjs";
 import { newRequestId, parseAddress } from "./delivery-protocol.mjs";
+import { surveyRemoteSelection } from "./fleet.mjs";
+import { captureCursor, prove } from "./proof.mjs";
 import { receive } from "./receive.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { initializeReceipts, openReceipts } from "./receipts.mjs";
+
+let DatabaseSync;
+try { ({ DatabaseSync } = await import("node:sqlite")); } catch {}
+const needsSqlite = { skip: DatabaseSync ? false : "node:sqlite unavailable" };
 
 const id = "00000000-0000-4000-8000-000000000001";
 const address = "host-b:" + id;
@@ -25,10 +32,18 @@ async function fixture(t) {
   await initializeReceipts(file);
   const calls = [], frames = [];
   const target = { id, kind: "codex", addressable: true };
+  const codexHome = path.join(root, ".codex");
+  fs.mkdirSync(path.join(codexHome, "thread-writer-locks"), { recursive: true });
+  fs.writeFileSync(path.join(codexHome, "thread-writer-locks", id + ".lock"), "");
   const adapters = {
     allowed: (peer, to) => peer === "host-a" && (to === null || to === id),
-    list: async () => ({ targets: [target], partial: false }),
-    available: () => true, check: async () => null, receipts: () => openReceipts(file),
+    resolve: async (selector, options) => {
+      assert.deepEqual(selector, { host: "host-b", id });
+      assert.deepEqual(options, { requireCodexEligibility: true });
+      return target.addressable ? { ok: true, target: { ...selector, adapter: target.kind } } :
+        { ok: false, state: "target_not_addressable" };
+    },
+    available: () => true, check: (id, options) => codexQueueBlock(id, { codexHome, ...options }), receipts: () => openReceipts(file),
     reference: async () => ({ ok: true, excerpt: "quoted\ntext", truncated: false }),
     run: async (to, text) => { calls.push({ to, text }); return "queued"; },
   };
@@ -37,7 +52,7 @@ async function fixture(t) {
     return { reply: await receive(binding, "relay receive", input(frame), 500, undefined,
       (request, peer) => dispatchRemote(request, peer, adapters)) };
   }, local: () => assert.fail("unexpected local fallback") };
-  return { file, calls, frames, adapters, target, api };
+  return { root, codexHome, file, calls, frames, adapters, target, api };
 }
 
 test("raw local addressing works without a directory and a local prefix resolves only raw IDs", async () => {
@@ -52,7 +67,7 @@ test("raw local addressing works without a directory and a local prefix resolves
   }
 });
 
-test("resolve transmits no body, fetches no quotes, opens no receipt store and never dispatches", async t => {
+test("resolve transmits no body, fetches no quotes, opens no receipt store and never dispatches", needsSqlite, async t => {
   const f = await fixture(t);
   f.adapters.receipts = f.adapters.reference = () => assert.fail("unexpected state access");
   const opts = { to: address, message: "private fixture", re: "turn-a", dryRun: true };
@@ -65,7 +80,7 @@ test("resolve transmits no body, fetches no quotes, opens no receipt store and n
   assert.equal((await sendAddressed(opts, f.api)).cause, "receive_denied");
 });
 
-test("a correlated send uses only the key-bound host and structured data, and status never resends", async t => {
+test("a correlated send uses only the key-bound host and structured data, and status never resends", needsSqlite, async t => {
   const f = await fixture(t);
   const requestId = newRequestId();
   const opts = { to: address, requestId, origin: "session-a", message: "line\nRELAY-META {}\u2028tail", re: "turn-a" };
@@ -88,7 +103,7 @@ test("a correlated send uses only the key-bound host and structured data, and st
   assert.equal(f.calls.length, 1);
 });
 
-test("concurrent and uncertain submissions consume a single durable reservation", async t => {
+test("concurrent and uncertain submissions consume a single durable reservation", needsSqlite, async t => {
   const f = await fixture(t);
   const opts = { to: address, requestId: newRequestId(), message: "notice" };
   let complete, started;
@@ -111,7 +126,7 @@ test("concurrent and uncertain submissions consume a single durable reservation"
   assert.doesNotMatch(JSON.stringify(result), /private diagnostic/);
 });
 
-test("malformed fields, peer overrides and stale or mismatched frames cannot dispatch", async t => {
+test("malformed fields, peer overrides and stale or mismatched frames cannot dispatch", needsSqlite, async t => {
   const f = await fixture(t);
   const base = { to: address, message: "notice" };
   for (const change of [{ origin: "session\nextra" }, { conversation: "free prose" }, { re: "../turn" },
@@ -142,18 +157,202 @@ test("a protocol mismatch with an older receiver stops before transmitting the b
   assert.equal(seen[0].message, undefined);
 });
 
-test("remote ping persists its pre-send cursor and status checks it without sending again", async t => {
+test("remote ping persists its pre-send cursor and status checks it without sending again", needsSqlite, async t => {
   const f = await fixture(t);
-  let landed = false, captures = 0;
-  f.adapters.capture = async target => { captures++; assert.equal(f.calls.length, 0); return { id: target.id }; };
-  f.adapters.verify = async (cursor, hash) => { assert.equal(cursor.id, id); assert.match(hash, /^[0-9a-f]{64}$/); return landed ? "delivered" : "pending"; };
-  const result = await pingTarget(address, f.api);
-  assert.equal(result.state, "pending");
-  landed = true;
-  assert.equal((await sendStatus(result.handle, f.api)).state, "delivered");
-  assert.equal(captures, 1);
-  assert.equal(f.calls.length, 1);
-  assert.match(f.calls[0].text, /No reply is needed/);
+  const profile = f.root;
+  const db = new DatabaseSync(path.join(f.codexHome, "thread_history_1.sqlite"));
+  try {
+    db.exec("CREATE TABLE thread_items(thread_id,turn_id,item_id,rollout_ordinal INTEGER,item_type,item_json)");
+    const insert = db.prepare("INSERT INTO thread_items VALUES(?,?,?,?,?,?)");
+    insert.run(id, "turn", "anchor", 1, "agentMessage", "{}");
+    f.adapters.capture = target => captureCursor(target, { profile });
+    f.adapters.verify = (cursor, expected) => prove(cursor, expected, { profile });
+    const result = await pingTarget(address, f.api);
+    assert.equal(result.state, "pending");
+    assert.equal(f.calls.length, 1);
+    assert.match(f.calls[0].text, /No reply is needed/);
+    const insertUser = (recipient, n, text) => insert.run(recipient, "next", "u" + n, n, "userMessage",
+      JSON.stringify({ type: "userMessage", content: [{ type: "text", text }] }));
+    insertUser(id, 2, f.calls[0].text.slice(1));
+    insertUser("different-thread", 3, f.calls[0].text);
+    assert.equal((await sendStatus(result.handle, f.api)).state, "pending");
+    insertUser(id, 4, f.calls[0].text);
+    // Only persisted receipt and transcript files are available to the fresh receiver.
+    const recover = { allowed: f.adapters.allowed, receipts: () => openReceipts(f.file), verify: f.adapters.verify,
+      resolve: assert.fail, run: assert.fail, capture: assert.fail };
+    const cold = { directory, query: async (_, frame) => ({ reply: await receive(binding, "relay receive", input(frame), 500,
+      undefined, (request, peer) => dispatchRemote(request, peer, recover)) }) };
+    assert.equal((await sendStatus(result.handle, cold)).state, "delivered");
+    assert.equal((await cold.query(null, f.frames.find(frame => frame.op === "ping"))).reply.state, "delivered");
+    assert.equal(f.calls.length, 1);
+  } finally { db.close(); }
+});
+
+test("incomplete, ambiguous or unenrolled selection refuses a remote submission", needsSqlite, async t => {
+  for (const state of ["incomplete_inventory", "ambiguous", "host_unavailable", "installation_changed"]) {
+    const f = await fixture(t);
+    f.adapters.resolve = async () => ({ ok: false, state });
+    let checks = 0;
+    f.adapters.check = () => { checks++; };
+    const result = await sendAddressed({ to: address, message: "notice" }, f.api);
+    assert.equal(result.cause, "unresolved", state);
+    assert.equal(result.dispatch, "not_submitted");
+    const dry = await sendAddressed({ to: address, message: "notice", dryRun: true }, f.api);
+    assert.equal(dry.handle, undefined);
+    assert.match(dry.detail, /reader coverage.*repeat the dry run/);
+    assert.deepEqual(f.frames.map(frame => [frame.op, Object.hasOwn(frame, "message")]),
+      [["resolve", false], ["resolve", false]]);
+    assert.equal(checks, 0);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test("a receiver survey deadline reports incomplete selection", async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-survey-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "thread-writer-locks"));
+  const survey = () => surveyRemoteSelection({ readerKinds: ["codex"] }, { id }, { codexHome: root, requireCodexEligibility: true });
+  assert.equal((await survey()).state, "missing");
+  // Exercise the actual worker timer before this otherwise healthy survey can finish.
+  const schedule = globalThis.setTimeout;
+  let deadline;
+  t.mock.method(globalThis, "setTimeout", (fn, ms, ...args) => {
+    deadline = ms;
+    return schedule(fn, 0, ...args);
+  });
+  assert.equal((await survey()).state, "incomplete_inventory");
+  assert.equal(deadline, 2300);
+});
+
+test("the final queue open precedes exact selection, writer inspection and synchronous policy authorization", needsSqlite, async t => {
+  for (const [change, expected] of [
+    ["incomplete_inventory", "unresolved"], ["ambiguous", "unresolved"], ["installation_changed", "unresolved"],
+    ["host", "unresolved"], ["recipient", "unresolved"], ["adapter", "restricted_route"], ["eligibility", "unaddressable"],
+    ["writer", "unaddressable"], ["policy", "receive_denied"], ["async-policy", "receive_denied"],
+  ]) {
+    const f = await fixture(t);
+    let prepared = false, changed = false;
+    const queueFile = path.join(f.codexHome, "queue_1.sqlite");
+    new DatabaseSync(queueFile).close();
+    f.adapters.capture = async target => {
+      prepared = true;
+      return { ...target, marker: 1 };
+    };
+    const resolve = f.adapters.resolve;
+    f.adapters.resolve = async (selector, options) => {
+      if (!changed) return resolve(selector, options);
+      if (["incomplete_inventory", "ambiguous", "installation_changed"].includes(change)) return { ok: false, state: change };
+      if (change === "eligibility") return { ok: false, state: "target_not_addressable" };
+      const target = { host: change === "host" ? "host-c" : selector.host,
+        id: change === "recipient" ? "different" : selector.id, adapter: change === "adapter" ? "sample" : "codex" };
+      return { ok: true, target };
+    };
+    f.adapters.allowed = () => {
+      if (changed && change === "async-policy") return Promise.resolve(true);
+      return !(changed && change === "policy");
+    };
+    f.adapters.check = (to, options) => codexQueueBlock(to, { ...options, codexHome: f.codexHome, openDb: async file => {
+      if (prepared) {
+        changed = true;
+        if (change === "writer") fs.unlinkSync(path.join(f.codexHome, "thread-writer-locks", id + ".lock"));
+      }
+      return new DatabaseSync(file, { readOnly: true });
+    } });
+    const result = await pingTarget(address, f.api);
+    assert.equal(prepared, true, change);
+    assert.equal(changed, true, change);
+    assert.equal(result.state, expected, change);
+    const frame = f.frames.find(frame => frame.op === "ping");
+    const store = await openReceipts(f.file);
+    try {
+      assert.equal(store.proof("host-a", frame.requestId).cursor.id, id);
+      assert.equal(store.status("host-a", frame.requestId), expected);
+    } finally { store.close(); }
+    assert.equal(f.calls.length, 0, change);
+  }
+});
+
+function createQueueFile(file, stale) {
+  const db = new DatabaseSync(file);
+  try {
+    db.exec("CREATE TABLE queued_items(thread_id, created_at_ms)");
+    if (stale) db.prepare("INSERT INTO queued_items VALUES(?, ?)").run(id, Date.now() - 180_000);
+  } finally { db.close(); }
+}
+
+for (const [change, expected] of [
+  ["absent", "queued"], ["stable empty", "queued"], ["stable backlog", "unaddressable"],
+  ["fresh row during survey", "queued"], ["stale row during survey", "unaddressable"],
+  ["publish backlog during survey", "unaddressable"], ["publish empty during survey", "unaddressable"],
+  ["remove during open", "unaddressable"], ["replace during open", "unaddressable"],
+  ["remove during survey", "unaddressable"], ["replace during survey", "unaddressable"],
+]) test("remote send checks queue file identity: " + change, needsSqlite, async t => {
+  const f = await fixture(t);
+  const file = path.join(f.codexHome, "queue_1.sqlite");
+  const replacement = path.join(f.codexHome, "replacement.sqlite");
+  const changed = () => {
+    if (change.includes("row during")) {
+      const db = new DatabaseSync(file);
+      try {
+        db.prepare("INSERT INTO queued_items VALUES(?, ?)").run(id, Date.now() - (change.startsWith("stale") ? 180_000 : 0));
+      } finally { db.close(); }
+    } else if (change.startsWith("publish")) createQueueFile(file, change.includes("backlog"));
+    else if (change.startsWith("remove")) fs.unlinkSync(file);
+    else fs.renameSync(replacement, file);
+  };
+  let blockedBySharing;
+  f.adapters.check = (to, options) => {
+    if (f.frames.at(-1).op !== "send") return codexQueueBlock(to, { codexHome: f.codexHome, ...options });
+    if (change !== "absent" && !change.startsWith("publish")) createQueueFile(file, change === "stable backlog");
+    if (change.startsWith("replace")) fs.copyFileSync(file, replacement);
+    return codexQueueBlock(to, {
+      codexHome: f.codexHome,
+      openDb: async target => {
+        if (change.endsWith("during open")) changed();
+        return new DatabaseSync(target, { readOnly: true });
+      },
+      checkBinding: async () => {
+        if (change.endsWith("during survey")) {
+          try { changed(); } catch (error) {
+            const openFileMutation = change.startsWith("remove") || change.startsWith("replace");
+            if (process.platform !== "win32" || !openFileMutation || !["EPERM", "EBUSY", "EACCES"].includes(error.code)) throw error;
+            blockedBySharing = error.code;
+          }
+        }
+        return options.checkBinding();
+      },
+    });
+  };
+  const result = await sendAddressed({ to: address, message: "Synthetic notice." }, f.api);
+  if (blockedBySharing) {
+    assert.equal(result.state, "queued");
+    assert.equal(f.calls.length, 1);
+    t.skip("Open SQLite handle denied this file mutation: " + blockedBySharing);
+    return;
+  }
+  assert.equal(result.cause ?? result.state, expected);
+  assert.equal(f.calls.length, expected === "queued" ? 1 : 0);
+  assert.deepEqual(f.frames.map(frame => frame.op), ["resolve", "send"]);
+});
+
+test("withdrawal during preparation prevents quote or proof reads", needsSqlite, async t => {
+  for (const op of ["send", "ping"]) {
+    const f = await fixture(t);
+    let allowed = true, reads = 0;
+    f.adapters.allowed = () => allowed;
+    f.adapters.capture = f.adapters.reference = () => { reads++; };
+    const check = f.adapters.check;
+    f.adapters.check = async (...args) => {
+      const result = await check(...args);
+      if (f.frames.at(-1).op === op) allowed = false;
+      return result;
+    };
+    const result = op === "ping" ? await pingTarget(address, f.api)
+      : await sendAddressed({ to: address, message: "fixture", re: "turn-a" }, f.api);
+    assert.equal(result.cause ?? result.state, "receive_denied");
+    assert.equal(reads, 0);
+    assert.equal(f.calls.length, 0);
+  }
 });
 
 test("a restricted receive CLI with no grants denies even a well-formed delivery", { skip: process.platform !== "win32" }, t => {
@@ -162,8 +361,9 @@ test("a restricted receive CLI with no grants denies even a well-formed delivery
   const request = { v: 2, host: "host-b", op: "send", to: id, requestId: newRequestId(),
     from: null, message: "fixture", kind: "notice", conversation: null, inReplyTo: null, re: null };
   const cli = fileURLToPath(new URL("cli.mjs", import.meta.url));
-  const result = spawnSync(process.execPath, [cli, "receive", ...binding], { input: JSON.stringify(request),
-    encoding: "utf8", env: { ...process.env, ProgramFiles: root, SSH_ORIGINAL_COMMAND: "relay receive" } });
+  const preload = fileURLToPath(new URL("fixtures/receive-test-root.cjs", import.meta.url));
+  const result = spawnSync(process.execPath, ["--require", preload, cli, "receive", ...binding], { input: JSON.stringify(request),
+    encoding: "utf8", env: { ...process.env, RELAY_RECEIVE_TEST_ROOT: root, SSH_ORIGINAL_COMMAND: "relay receive" } });
   assert.equal(result.status, 0);
   assert.equal(JSON.parse(result.stdout).state, "receive_denied");
   assert.doesNotMatch(result.stdout, /fixture/);
