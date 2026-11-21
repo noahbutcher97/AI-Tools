@@ -1,5 +1,14 @@
 [
   {
+    "id": "process-end-kernel-fixture",
+    "worker": "Windows qualification worker",
+    "scope": "Implement a Windows-only self-contained qualification of a disposable process through limited query and synchronization rights. Keep it outside the installed package.",
+    "acceptance": "Demonstrate creation-token binding, reopening the live instance after dropping a handle, unknown on lost instance or wrong token, and signaled exits including 259. Use hidden bounded fixtures and synthetic output. No installed service, network or credentials.",
+    "revision": "f41a8b7556f263a196dd8d4d695c6592b9e98d5b",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "receipt-turn-review-recheck",
     "worker": "independent proof reviewer",
     "scope": "Recheck the concurrent history fixture and active-turn overlap proof against the revised implementation. Synthetic tests only.",
