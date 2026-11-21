@@ -1,5 +1,23 @@
 [
   {
+    "id": "external-exit-sampling-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the desktop sampling-gap fixture, exact evidence and cleanup.",
+    "acceptance": "Verify or identify blockers for the limited fixture and result interpretation.",
+    "revision": "2897e4613cb716970153faed26e40f8fa468704b",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "external-exit-sampling-operator",
+    "worker": "independent operator",
+    "scope": "Follow the documented ordinary-user external process trial; use only the disposable fixture.",
+    "acceptance": "Interpret launcher control versus later sample and verify the reported cases.",
+    "revision": "2897e4613cb716970153faed26e40f8fa468704b",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "installed-process-account-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck limited installed observer admission, identity, cleanup and health after corrections.",
