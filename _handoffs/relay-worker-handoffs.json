@@ -1,5 +1,23 @@
 [
   {
+    "id": "receipt-turn-review",
+    "worker": "independent proof reviewer",
+    "scope": "Read the exact candidate and review the opt-in binding, confinement, concurrent input and restart evidence. Use synthetic tests only.",
+    "acceptance": "Check scope and ambiguity, negative cases, ordinary proof compatibility and limits of live inference.",
+    "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "receipt-turn-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Start from repository guidance using only the public docs. Walk through running the receipt trial and interpreting positive, mixed and inconclusive outcomes.",
+    "acceptance": "Recover the correct flag, cost, version and cleanup steps without coaching. No provider or credential use.",
+    "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "turn-metadata-source-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck comparison failure handling, private sentinels and session-scoped completion in the corrected candidate.",
