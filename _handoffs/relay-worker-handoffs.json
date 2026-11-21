@@ -6,7 +6,18 @@
     "acceptance": "Identify blockers and missing qualification before changing production.",
     "revision": "c8f1e94e0623224fae91a14122f4b07c8f5f9ba8",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "c8f1e94e0623224fae91a14122f4b07c8f5f9ba8",
+      "verdict": "changes required",
+      "evidence": "The reviewer identified FILETIME precision, attachment-local deduplication, competing request lifetimes and exact PID reuse test semantics.",
+      "limitations": "Design and source only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Specified exact decimal timestamps, a durable event key, single lifecycle owner and phase correlation. Distinguished refusal before open from mismatch after a limited open.",
+      "next": "Recheck the corrected design."
+    }
   },
   {
     "id": "shared-process-worker-fixture",
