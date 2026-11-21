@@ -6,7 +6,18 @@
     "acceptance": "Return disposition on corrected source and remaining proof limits.",
     "revision": "b4ff41138f4e84fd7eddabbcac3b4a14576c16f5",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "b4ff41138f4e84fd7eddabbcac3b4a14576c16f5",
+      "verdict": "pass",
+      "evidence": "Controller independently checks both child PIDs while live and requires both to disappear after the worker exits in each scenario. Separate ACK/EOF, observer closure, interactive-token guard and source attribution reviewed.",
+      "limitations": "Source review only. Rapid PID reuse can yield an inconclusive cleanup result."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted corrected fixture at the recorded revision.",
+      "next": "Record the repeated operator run and keep installed observation disabled."
+    }
   },
   {
     "id": "shared-process-operator-replay",
@@ -15,7 +26,18 @@
     "acceptance": "Verify all three scenarios and describe interruption and revoked outcome.",
     "revision": "b4ff41138f4e84fd7eddabbcac3b4a14576c16f5",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "b4ff41138f4e84fd7eddabbcac3b4a14576c16f5",
+      "verdict": "pass",
+      "evidence": "Ordinary interactive Windows PowerShell returned success. Each of three runs recorded two acknowledgments, two closed handles and two independently absent child PIDs. Worker codes were 0, 0 and expected 17. Only the retained child had observed exit 7.",
+      "limitations": "Agent-operated fixture only. No installed restart, live provider, hard interruption or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the first shared-worker qualification gate.",
+      "next": "Continue with the authenticated broker protocol and durable grant/event tests."
+    }
   },
   {
     "id": "shared-process-fixture-review",
