@@ -6,6 +6,28 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Current handoff
 
+### Delivery proof and turn identity
+
+The overlap and restart checkpoint passed on one Windows desktop at `6b82960` with Codex CLI 0.170.0 and the low-effort test model. After queue acceptance the provider accepted a steer on the original ordinary turn. Exactly one scheduled notice appeared in a separate completed turn. The watcher store reopened before proof and a fresh process recovered the same binding after retirement. The thread was archived. Sharing one turn with ordinary input was exercised synthetically. The independent source recheck and constrained operator replay both passed. No installed-service restart, Claude recipient, remote notice or automatic session-state dispatch was exercised. Positive eligibility for an ordinary completion remains open. [Review returns](relay-worker-handoffs.json)
+
+Two initial live trials each found one consumed scheduled notice in a different turn from the ordinary input. The client had seen the ordinary turn start when it launched the queue command and received its completion later. A fresh process recovered the same thread, history-file instance and turn after the isolated watcher store retired its handle. The revised trial additionally asks the provider to accept another ordinary input on the exact active turn after queue confirmation. Automatic session-state notices remain disabled.
+
+From the checkout root on an enrolled Windows x64 desktop, use the signed-in default profile and a Node release with `node:sqlite`. Budget two to three low-effort model turns in one disposable thread per attempt. A further brief input targets the ordinary turn while it is active. The trial archives its thread and removes its temporary receipt on normal completion.
+
+```powershell
+$release = Join-Path $env:USERPROFILE '.codex/packages/app-server-daemon/releases/0.170.0-x86_64-pc-windows-msvc'
+$image = Join-Path $release 'bin/codex.exe'
+if (!(Test-Path -LiteralPath $image -PathType Leaf)) { throw 'Tested Codex release is unavailable' }
+if ((& $image --version) -ne 'codex-cli 0.170.0') { throw 'Codex version differs from the tested release' }
+node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs "$image" --turn-receipt
+```
+
+Require exit zero and the archive confirmation. A passing report has `ordinaryTurnConfirmedAfterQueue: true`, `consumedNotices: 1`, `observedCompleted: true` and `coldReceiptMatched: true`. The watcher store reopens before proof. Later a fresh process rechecks the saved receipt. The boolean `consumedInOrdinaryTurn` records whether the notice and the ordinary input shared a turn. Either result excludes the notice-bearing turn from automatic dispatch. A refused active-turn check leaves overlap inconclusive even when receipt recovery succeeds.
+
+After interruption, mark the run inconclusive. Check the local session history for the disposable `relay-check-` thread created at the run's start time. Archive only a uniquely identified trial thread. A hard stop can leave `turn-receipt.json` in the trial's `relay-resume-*` directory under the current user's temporary directory. Keep the receipt private. Once the trial has stopped, remove that receipt only if you can identify the directory from this run. Leave ambiguous matches untouched and record cleanup as pending. Each fresh attempt costs another two to three turns.
+
+### Earlier turn metadata trial
+
 The session-state premise check is complete for one Windows Codex build. Two disposable low-effort runs each paired an ordinary turn with one proved schedule wake in the same resumed thread. The second run sampled both turns in progress. Both completed with the same observable origin-related metadata pattern. A fresh process recovered the completion records after the isolated watcher store closed. The queue confirmation did not identify the consumed turn or input. Keep automatic idle and turn-end notices disabled. The next attribution experiment is to bind an authorized delivery proof to its provider turn ID and exercise interleaving and restart. An unmatched turn remains ambiguous. The independent process-end condition can proceed separately. [Design checkpoint](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#session-state-watch-design-checkpoint)
 
 To repeat the check, run `node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs <installed-codex-executable> --turn-metadata`. This opt-in trial creates and archives one low-cost thread, runs one ordinary turn and one scheduled wake, and reads only that thread's indexed metadata for the comparison. The normal private delivery-proof reader confirms the exact inbound message. The restarted observer has no live connection or experiment labels. Its bounded raw-ID projection stays inside the local child pipe. The public report contains comparisons. No installed watcher task, remote peer, Claude recipient or live watch loop was exercised.

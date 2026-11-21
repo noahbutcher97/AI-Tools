@@ -1,5 +1,85 @@
 [
   {
+    "id": "receipt-turn-review-recheck",
+    "worker": "independent proof reviewer",
+    "scope": "Recheck the concurrent history fixture and active-turn overlap proof against the revised implementation. Synthetic tests only.",
+    "acceptance": "Confirm transactional anchor plus scan and the post-queue provider precondition. Identify remaining evidence limits.",
+    "revision": "6b8296007ec0f502af93e6dd22ac01e911150e52",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "6b8296007ec0f502af93e6dd22ac01e911150e52",
+      "verdict": "Both findings resolved on the corrected candidate.",
+      "evidence": "The WAL rewrite test observed one coherent snapshot and returned zero bindings. Eight focused tests passed. A synthetic replay confirmed that missing queue confirmation, refused steer or a different returned turn leave overlap inconclusive.",
+      "limitations": "The coordinator performed the live run. The reviewer used synthetic checks only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the receipt as evidence that the turn contained a notice. Automatic dispatch remains disabled.",
+      "next": "Positive eligibility for other turns requires independent evidence."
+    }
+  },
+  {
+    "id": "receipt-turn-operator-replay",
+    "worker": "constrained qualification operator",
+    "scope": "Replay the receipt command, mixed-input interpretation, interruption and private receipt cleanup using the revised public guide.",
+    "acceptance": "Confirm runnable flag and consistent cost, failure and recovery steps without inspecting source.",
+    "revision": "6b8296007ec0f502af93e6dd22ac01e911150e52",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "6b8296007ec0f502af93e6dd22ac01e911150e52",
+      "verdict": "Corrected guide passed the constrained replay.",
+      "evidence": "The operator found the version guard, direct receipt command, two-to-three-turn cost, overlap and cold proof conditions, and specific recovery for ambiguous archives and private temporary receipts.",
+      "limitations": "Documentation-only agent walkthrough. No human participant or interrupted live cleanup."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Prior operator findings resolved.",
+      "next": "Use the revised guide for a future repeat."
+    }
+  },
+  {
+    "id": "receipt-turn-review",
+    "worker": "independent proof reviewer",
+    "scope": "Read the exact candidate and review the opt-in binding, confinement, concurrent input and restart evidence. Use synthetic tests only.",
+    "acceptance": "Check scope and ambiguity, negative cases, ordinary proof compatibility and limits of live inference.",
+    "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+      "verdict": "Two findings require correction.",
+      "evidence": "The two SQLite statements could observe different history snapshots. A two-connection WAL fixture demonstrated the race. Event arrival order established only client-observed overlap. Seven focused tests passed.",
+      "limitations": "Synthetic review and supplied redacted trial results. No live provider."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Use one read transaction and a provider-confirmed active-turn precondition after queue acceptance.",
+      "next": "Independently recheck the corrected candidate."
+    }
+  },
+  {
+    "id": "receipt-turn-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Start from repository guidance using only the public docs. Walk through running the receipt trial and interpreting positive, mixed and inconclusive outcomes.",
+    "acceptance": "Recover the correct flag, cost, version and cleanup steps without coaching. No provider or credential use.",
+    "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+      "verdict": "Recovery and command selection need clarification.",
+      "evidence": "The operator identified the success fields and mixed-input interpretation but found the linked older command, two-turn retry budget and unclear temporary receipt cleanup.",
+      "limitations": "Agent using documentation only. No human participant or live run."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Supply a complete current command and dedicated recovery instructions.",
+      "next": "Replay the operator task against the corrected guide."
+    }
+  },
+  {
     "id": "turn-metadata-source-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck comparison failure handling, private sentinels and session-scoped completion in the corrected candidate.",

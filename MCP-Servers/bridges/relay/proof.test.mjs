@@ -41,6 +41,35 @@ test("Codex proof consumes only an exact post-cursor user message in the same th
   db.close();
 });
 
+test("a concurrent history rewrite cannot combine an old cursor and a new consumed row", async t => {
+  const profile = profileDir(t), dir = path.join(profile, ".codex");
+  fs.mkdirSync(dir);
+  const writer = new DatabaseSync(path.join(dir, "thread_history_1.sqlite"));
+  try {
+    writer.exec("PRAGMA journal_mode=WAL; CREATE TABLE thread_items(thread_id,turn_id,item_id,rollout_ordinal INTEGER,item_type,item_json)");
+    const insert = writer.prepare("INSERT INTO thread_items VALUES(?,?,?,?,?,?)");
+    insert.run(id, other, "anchor", 1, "agentMessage", "{}");
+    const cursor = await captureCursor({ kind: "codex", id }, { profile });
+    const prepare = DatabaseSync.prototype.prepare;
+    let rewrites = 0, bindings = 0;
+    t.mock.method(DatabaseSync.prototype, "prepare", function(sql, ...args) {
+      if (sql.includes("item_type='userMessage'") && !rewrites) {
+        writer.exec("BEGIN; DELETE FROM thread_items");
+        insert.run(id, other, "replacement", 2, "userMessage", JSON.stringify({
+          type: "userMessage", content: [{ type: "text", text: "notice" }] }));
+        writer.exec("COMMIT");
+        rewrites++;
+      }
+      return prepare.call(this, sql, ...args);
+    });
+    const options = { profile, onCodexTurn: () => bindings++ };
+    assert.equal(await prove(cursor, digest("notice"), options), "pending");
+    assert.equal(rewrites, 1);
+    assert.equal(await prove(cursor, digest("notice"), options), "proof_unavailable");
+    assert.equal(bindings, 0);
+  } finally { writer.close(); }
+});
+
 test("Claude proof requires accepted peer metadata, original session and rendered bytes", async t => {
   const profile = profileDir(t);
   const dir = path.join(profile, ".claude", "projects", "fixture");
