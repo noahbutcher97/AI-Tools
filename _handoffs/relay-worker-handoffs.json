@@ -1,5 +1,14 @@
 [
   {
+    "id": "provider-sequence-cleanup-replay",
+    "worker": "independent operator",
+    "coordinator": "relay coordinator",
+    "revision": "023bdb9ceb8eaf3b4fa09c548f7f0e59af6bc6ac",
+    "scope": "Repeat the ordinary credential recovery walkthrough and local test after renaming the test output. No elevated or installed work.",
+    "acceptance": "Verify the cleanup assertion is discoverable and preserve the stop conditions.",
+    "state": "assigned"
+  },
+  {
     "id": "provider-sequence-cleanup-review",
     "worker": "independent recovery reviewer",
     "coordinator": "relay coordinator",
