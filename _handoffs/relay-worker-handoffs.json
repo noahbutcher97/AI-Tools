@@ -1,5 +1,23 @@
 [
   {
+    "id": "shared-native-lease-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the native lease table and tests at the implementation revision for resource ownership, exact identity, concurrent revocation and authority checks.",
+    "acceptance": "Report blockers and evidence limits for the disabled fixture.",
+    "revision": "638fe70a1fa31da0b53ee93137eece45d3eed5ca",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "shared-native-lease-replay",
+    "worker": "independent operator",
+    "scope": "Follow the current handoff to run the Windows lease controls and ordinary shared-worker trial.",
+    "acceptance": "Report terminal outcomes, friction and scope.",
+    "revision": "638fe70a1fa31da0b53ee93137eece45d3eed5ca",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "shared-native-process-lease",
     "worker": "native fixture implementer",
     "scope": "Implement the shared native process handle table for the disabled qualification path. Wire the existing ordinary interactive fixture through it. No installed entry point or scheduling changes.",
@@ -11,7 +29,8 @@
       "revision": "e4beb8e6ac7191132f47bfbf5b005d434d07dbe8",
       "verdict": "pass",
       "evidence": "The shared fixture now uses one native table. Two authority checks surround each limited open. Adjacent creation ticks, capacity, revocation and expiry while a guard is stalled were exercised. The focused run counted eight opens and eight closes.",
-      "limitations": "Synthetic grants and owned processes. Timer scheduling depends on the OS. No installed transport, durable event or subscriber."
+      "limitations": "Synthetic grants and owned processes. Timer scheduling depends on the OS. No installed transport, durable event or subscriber.",
+      "implementationRevision": "638fe70a1fa31da0b53ee93137eece45d3eed5ca"
     },
     "acknowledgment": {
       "by": "relay coordinator",
