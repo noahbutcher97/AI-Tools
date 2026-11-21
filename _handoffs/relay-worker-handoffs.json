@@ -6,7 +6,18 @@
     "acceptance": "Report remaining blockers on the corrected native fixture.",
     "revision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c",
+      "verdict": "pass",
+      "evidence": "Expired first-check denials and errors reclaim their own slot. Explicitly revoked IDs remain unusable. A separate runspace revokes after open during the paused guard and the unaffected peer remains usable.",
+      "limitations": "Source and test review only. No installed grant or delivery qualification."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the corrected native fixture.",
+      "next": "Use the durable grant and delivery gates for production integration."
+    }
   },
   {
     "id": "native-lease-capacity-replay",
@@ -15,7 +26,18 @@
     "acceptance": "Check twelve opens and closes and whether revocation preserves the other watch.",
     "revision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c",
+      "verdict": "pass",
+      "evidence": "Both documented commands passed in an ordinary shell. After 64 delayed denials or exceptions an authorized attach succeeded. The two control groups counted twelve opens and twelve closes. The interactive controller confirmed cleanup for all three scenarios.",
+      "limitations": "Agent-operated shell, disposable processes, synthetic grants. No authenticated broker or subscriber."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the corrected walkthrough and cleanup evidence.",
+      "next": "Keep public process watches disabled until protocol and subscriber gates pass."
+    }
   },
   {
     "id": "native-lease-denied-capacity-fix",
