@@ -1,5 +1,14 @@
 [
   {
+    "id": "provider-sequence-contract-recheck",
+    "worker": "independent contract reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "a4eb2df30ca52eaca9d11320bd1ca153a891e6b9",
+    "scope": "Recheck partial exact lookup, retry conflict, capability granularity and review completion gates. Read only.",
+    "acceptance": "Disposition for the corrected design with scope and remaining implementation work.",
+    "state": "assigned"
+  },
+  {
     "id": "provider-sequence-contract-review",
     "worker": "independent contract reviewer",
     "coordinator": "relay coordinator",
