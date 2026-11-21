@@ -36,6 +36,15 @@ Direct broker observation stays disabled. The separate S4U task establishes the 
 
 The ordinary handle check above now exercises a gap between samples. On one enrolled desktop the launcher independently verified exit code 19, released its control handle, and the later sample found the process absent. The live observer controls still confirmed 7 and 259 while holding the matching handles. In the JSON result, `controlExit` belongs to the fixture launcher. Only a matching signaled handle can establish exit status for the observer. `laterSample` can be `absent`, `unavailable`, `unknown` or the confirmed exit if the object is still accessible. An absent process produced no exit receipt.
 
+To exercise the shared-worker premise from the checkout root, run the following command under ordinary Windows PowerShell. It starts disposable children and a fixture worker. No enrollment or provider session is needed.
+
+```powershell
+powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-SharedProcessWorker.ps1
+if ($LASTEXITCODE -ne 0) { throw 'Shared worker fixture inconclusive' }
+```
+
+Look for all three scenarios, `revoke`, `shutdown` and `failure`. The last intentionally stops its worker with result 17. The controller must still exit successfully after checking cleanup. In the revocation case one worker answered health while both children were alive, closed one attachment and observed exit 7 on the other. Each child independently acknowledged release and closed its output pipe. The revoked child's numeric exit remains unknown. A hard interruption invalidates partial output. The children have their own 20-second wait deadline and a new run creates fresh fixtures. Broker authentication, real provider delivery and recovery across an installed restart are separate gates.
+
 ### Delivery proof and turn identity
 
 The overlap and restart checkpoint passed on one Windows desktop at `6b82960` with Codex CLI 0.170.0 and the low-effort test model. After queue acceptance the provider accepted a steer on the original ordinary turn. Exactly one scheduled notice appeared in a separate completed turn. The watcher store reopened before proof and a fresh process recovered the same binding after retirement. The thread was archived. Sharing one turn with ordinary input was exercised synthetically. The independent source recheck and constrained operator replay both passed. No installed-service restart, Claude recipient, remote notice or automatic session-state dispatch was exercised. Positive eligibility for an ordinary completion remains open. [Review returns](relay-worker-handoffs.json)

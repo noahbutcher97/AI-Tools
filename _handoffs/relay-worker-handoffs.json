@@ -46,7 +46,18 @@
     "acceptance": "Use existing limited-handle fixture; show attachment, revoke while live, continued response, independent exit control, correct cleanup and clear scope. No production changes.",
     "revision": "c8f1e94e0623224fae91a14122f4b07c8f5f9ba8",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "c8f1e94e0623224fae91a14122f4b07c8f5f9ba8",
+      "verdict": "pass",
+      "evidence": "Ordinary Windows fixture held two limited live handles, responded to a health request and revoked one attachment. Verified exit 7 on the retained handle. Orderly shutdown and injected failure each released both handles and both children acknowledged release and closed output.",
+      "limitations": "Fixture process and fixed health exchange only. The revoked child has no observed numeric exit."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted implementation for independent source review and replay.",
+      "next": "Record review and operator results before stage closure."
+    }
   },
   {
     "id": "external-exit-sampling-review",
