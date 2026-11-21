@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { buildHostMetadata, newHostKeys } from "./identity.mjs";
 import { runProvider } from "./provider-process.mjs";
-import { matches, HOST, UUID } from "./delivery-protocol.mjs";
+import { exactKeys, matches, HOST, UUID } from "./delivery-protocol.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
@@ -60,7 +60,7 @@ function defaultCodexHome() {
 // readFile is injectable so a test can assert on which paths were opened, not
 // merely that key contents stayed out of the output — an implementation that
 // read every .key file and discarded it would pass the weaker check.
-function readClaudeTargets(dir, now, readFile, warnings, allowIncompleteRows = false) {
+function readClaudeTargets(dir, now, readFile, warnings, purpose = "legacy") {
   let entries;
   try {
     entries = fs.readdirSync(dir);
@@ -91,12 +91,16 @@ function readClaudeTargets(dir, now, readFile, warnings, allowIncompleteRows = f
     const pid = session?.pid;
     let nativeId = session?.sessionId;
     if (nativeId == null || nativeId === "") {
+      if (purpose === "resolve") {
+        warnings.push("Claude session registry entry has no native session ID");
+        continue;
+      }
       if (Number.isSafeInteger(pid) && pid > 0) nativeId = String(pid);
       else if (typeof pid === "string" && /^[1-9][0-9]{0,9}$/.test(pid)) nativeId = pid;
     }
     if (!inventoryText(nativeId, 256)) {
       const warning = `claude session file ${entry} has no usable session identity`;
-      if (!allowIncompleteRows) throw new Error(warning);
+      if (purpose === "legacy") throw new Error(warning);
       warnings.push(warning);
       continue;
     }
@@ -1319,9 +1323,37 @@ export async function resolveCodexReference(id, re, {
 // Unit 1 knows one command. Unknown commands and flags are refused rather than
 // ignored: a mistyped --scope that silently fell back to the caller's own
 // workspace would report an empty machine and look like a broken relay.
-const COMMANDS = new Set(["list", "send", "ping", "doctor", "run", "watch"]);
+const COMMANDS = new Set(["list", "resolve", "send", "ping", "doctor", "run", "watch"]);
 const VALUE_FLAGS = new Set(["--scope", "--cwd", "--message", "--from", "--re", "--conversation", "--kind", "--in-reply-to"]);
 const BOOLEAN_FLAGS = new Set(["--json", "--dry-run", "--via-delegate"]);
+
+function parseResolveArgs(args) {
+  const selector = {};
+  let json = false;
+  while (args.length) {
+    const token = args.shift();
+    if (token === "--json") {
+      if (json) throw new Error("duplicate resolve option --json");
+      json = true;
+      continue;
+    }
+    const separator = token.indexOf("=");
+    const flag = separator < 0 ? token : token.slice(0, separator);
+    if (!["--id", "--adapter", "--host"].includes(flag)) {
+      throw new Error("unknown resolve option. See relay resolve --help.");
+    }
+    const key = flag.slice(2);
+    if (Object.hasOwn(selector, key)) throw new Error(`duplicate resolve option ${flag}`);
+    if (separator < 0 && (!args[0] || args[0].startsWith("--"))) {
+      throw new Error(`${flag} needs a value. For a literal beginning with -- use ${flag}=VALUE.`);
+    }
+    const value = separator < 0 ? args.shift() : token.slice(separator + 1);
+    if (!value) throw new Error(`${flag} needs a value`);
+    selector[key] = value;
+  }
+  if (!Object.hasOwn(selector, "id")) throw new Error("Use relay resolve --id LITERAL. See relay resolve --help.");
+  return { command: "resolve", selector, json };
+}
 
 export function parseArgs(argv = []) {
   const args = [...argv];
@@ -1333,6 +1365,7 @@ export function parseArgs(argv = []) {
     }
   }
 
+  if (command === "resolve") return parseResolveArgs(args);
   if (command === "run") {
     if (args.shift() !== "--" || !args[0]) throw new Error("Use relay run -- <executable> [args...].");
     return { command, argv: args };
@@ -1443,11 +1476,13 @@ function formatDuration(ms) {
     .join(" ");
 }
 
-export function formatTargets({ targets = [], warnings = [], inventory = [] } = {}) {
+export function formatTargets({ targets = [], warnings = [], inventory = [], complete } = {}) {
   const lines = [];
   const incomplete = inventory.filter(entry => !entry.complete).map(entry => entry.kind);
   if (incomplete.length) lines.push(`incomplete local inventory: ${incomplete.join(", ")}`);
-  if (!targets.length) {
+  if (complete === false && !inventory.length) {
+    lines.push("local inventory unavailable");
+  } else if (!targets.length) {
     lines.push(incomplete.length ? "no sessions found in the available inventory" : "no agent sessions in scope");
   }
   for (const t of targets) {
@@ -1469,9 +1504,9 @@ export function formatTargets({ targets = [], warnings = [], inventory = [] } = 
 const builtinInventory = [
   {
     kind: "claude",
-    enumerate({ claudeSessionsDir = defaultClaudeSessionsDir(), now, readFile = fs.readFileSync }, allowIncompleteRows) {
+    enumerate({ claudeSessionsDir = defaultClaudeSessionsDir(), now, readFile = fs.readFileSync }, purpose) {
       const warnings = [];
-      const targets = readClaudeTargets(claudeSessionsDir, now, readFile, warnings, allowIncompleteRows);
+      const targets = readClaudeTargets(claudeSessionsDir, now, readFile, warnings, purpose);
       return { targets, warnings, complete: warnings.length === 0 };
     },
   },
@@ -1517,7 +1552,7 @@ function projectLocalInventory(kind, result) {
 
 // Each trusted enumerator bounds its own I/O and reports complete: false on
 // timeout or truncation. A thrown error marks only that adapter incomplete.
-export function createLocalInventory(additionalAdapters = []) {
+export function createLocalInventory(additionalAdapters = [], enabledKinds) {
   const adapters = [...builtinInventory];
   for (const adapter of additionalAdapters) {
     const kind = adapter?.kind;
@@ -1528,24 +1563,62 @@ export function createLocalInventory(additionalAdapters = []) {
     adapters.push({ kind, enumerate: async () => projectLocalInventory(kind, await enumerate()) });
   }
 
-  return options => collectInventory(adapters, options, true);
+  let enabled = adapters;
+  if (enabledKinds !== undefined) {
+    if (!Array.isArray(enabledKinds) || enabledKinds.length === 0) {
+      throw new Error("enabled inventory adapters must be a nonempty array");
+    }
+    enabled = adapters.filter(adapter => enabledKinds.includes(adapter.kind));
+    if (enabled.length !== enabledKinds.length) {
+      throw new Error("unknown or duplicate enabled inventory adapter");
+    }
+  }
+
+  const list = options => collectInventory(enabled, options, "list");
+  list.resolve = (selector, options) => resolveInventory(enabled, selector, options);
+  return list;
 }
 
-async function collectInventory(adapters, options = {}, allowPartialFailure) {
+async function resolveInventory(enabled, selector, options) {
+  if (!exactKeys(selector, ["id"]) && !exactKeys(selector, ["id", "adapter"])) {
+    return { ok: false, state: "invalid_selector" };
+  }
+  const { id } = selector;
+  const adapter = Object.hasOwn(selector, "adapter") ? selector.adapter : undefined;
+  if (!inventoryText(id, 256) || (adapter !== undefined && !matches(HOST, adapter))) {
+    return { ok: false, state: "invalid_selector" };
+  }
+  const readers = adapter === undefined ? enabled : enabled.filter(reader => reader.kind === adapter);
+  if (!readers.length) return { ok: false, state: "unknown_adapter" };
+
+  const { targets, inventory, complete } = await collectInventory(readers, { ...options, scope: "all" }, "resolve");
+  if (!complete) {
+    return { ok: false, state: "incomplete_inventory", adapters: inventory.filter(row => !row.complete).map(row => row.kind) };
+  }
+  const found = targets.filter(row => row.id === id);
+  if (!found.length) return { ok: false, state: "missing" };
+  if (found.length > 1) {
+    return { ok: false, state: "ambiguous", adapters: [...new Set(found.map(row => row.kind))] };
+  }
+  return { ok: true, state: "resolved", target: { adapter: found[0].kind, id } };
+}
+
+async function collectInventory(adapters, options, purpose) {
+  options ??= {};
   const { scope = "cwd", cwd = process.cwd(), now = Date.now() } = options;
   const targets = [];
   const warnings = [];
   const inventory = [];
   for (const adapter of adapters) {
     try {
-      const result = await adapter.enumerate({ ...options, now }, allowPartialFailure);
+      const result = await adapter.enumerate({ ...options, now }, purpose);
       for (const row of result.targets) {
         if (scope === "all" || sharesWorkspace(row.cwd, cwd)) targets.push(row);
       }
       warnings.push(...result.warnings);
       inventory.push({ kind: adapter.kind, complete: result.complete });
     } catch (err) {
-      if (!allowPartialFailure) throw err;
+      if (purpose === "legacy") throw err;
       warnings.push(`${adapter.kind} inventory could not be read`);
       inventory.push({ kind: adapter.kind, complete: false });
     }
@@ -1553,10 +1626,10 @@ async function collectInventory(adapters, options = {}, allowPartialFailure) {
   return { targets, warnings, inventory, complete: inventory.every(adapter => adapter.complete) };
 }
 
-// Only the local CLI and MCP list use this installation binding. Send, proof
-// and fleet discovery retain the built-in provider set and existing protocols.
+// Default built-in inventory for callers that supply their own discovery roots.
+// The public local faces apply installation settings in local-address.mjs.
 export const listLocalTargets = createLocalInventory();
 export async function discoverTargets(options) {
-  const { targets, warnings } = await collectInventory(builtinInventory, options, false);
+  const { targets, warnings } = await collectInventory(builtinInventory, options, "legacy");
   return { targets, warnings };
 }

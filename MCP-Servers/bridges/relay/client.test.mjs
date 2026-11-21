@@ -343,6 +343,13 @@ test("Codex's lock inventory is complete when index and timing metadata are unav
   assert.match(formatTargets(listed), /turn counts unavailable/);
   assert.match(formatTargets(listed), /unknown index provenance/);
   assert.doesNotMatch(formatTargets(listed), /incomplete local inventory/);
+  const partiallyInstalled = { claudeSessionsDir: path.join(home, "absent"), codexHome: home };
+  assert.deepEqual(await listLocalTargets.resolve({ id: USER_THREAD }, partiallyInstalled), {
+    ok: false, state: "incomplete_inventory", adapters: ["claude"],
+  });
+  assert.deepEqual(await listLocalTargets.resolve({ adapter: "codex", id: USER_THREAD }, partiallyInstalled), {
+    ok: true, state: "resolved", target: { adapter: "codex", id: USER_THREAD },
+  });
 });
 
 test("local inventory refuses duplicate adapter registrations and keeps request options out of registration", async () => {
@@ -360,6 +367,87 @@ test("local inventory refuses duplicate adapter registrations and keeps request 
   const fleet = await fleetInventory({ ...options, additionalAdapters: [{ kind: "example", targets: [{ id: to }] }] });
   assert.deepEqual(fleet.targets, []);
   assert.equal(calls, 1);
+});
+
+test("only the trusted installation selects inventory readers for listing and exact lookup", async () => {
+  const calls = [];
+  class Reader {
+    constructor(kind) { this.kind = kind; }
+    enumerate() {
+      calls.push(this.kind);
+      return { complete: true, targets: [{ id: "-Chat:A/B", cwd: "D:/Other" }] };
+    }
+  }
+  const enabledKinds = ["first"];
+  const readers = [new Reader("first"), new Reader("second")];
+  for (const invalid of [[], null, "first", ["first", "first"], ["unknown"], [12], [undefined]]) {
+    assert.throws(() => createLocalInventory(readers, invalid), /enabled.*adapter/i);
+  }
+  const list = createLocalInventory(readers, enabledKinds);
+  enabledKinds.push("second");
+  const options = {
+    cwd: "D:/Mine", enabledKinds: ["second"], claudeSessionsDir: tmpdir(), codexHome: emptyCodexHome(),
+  };
+  const scoped = await list(options);
+  assert.deepEqual(scoped.inventory, [{ kind: "first", complete: true }]);
+  assert.deepEqual(scoped.targets, []);
+  assert.deepEqual(await list.resolve({ id: "-Chat:A/B" }, options), {
+    ok: true, state: "resolved", target: { adapter: "first", id: "-Chat:A/B" },
+  });
+  assert.deepEqual(await list.resolve({ adapter: "second", id: "-Chat:A/B" }, options), {
+    ok: false, state: "unknown_adapter",
+  });
+  assert.deepEqual(calls, ["first", "first"]);
+});
+
+test("exact lookup checks every applicable reader and refuses partial or colliding IDs", async () => {
+  const calls = [];
+  const id = "Chat:A/B";
+  let secondComplete = false;
+  const secondRows = [{ id }];
+  const list = createLocalInventory([
+    { kind: "first", enumerate() {
+      calls.push("first");
+      return { complete: true, targets: [{ id, privateField: "omitted" }] };
+    } },
+    { kind: "second", enumerate() {
+      calls.push("second");
+      return { complete: secondComplete, targets: secondRows, warnings: ["private reader detail"] };
+    } },
+  ], ["first", "second"]);
+  assert.deepEqual(await list.resolve({ id }, { enabledKinds: ["first"] }), {
+    ok: false, state: "incomplete_inventory", adapters: ["second"],
+  });
+  assert.deepEqual(calls.splice(0), ["first", "second"]);
+  assert.deepEqual(await list.resolve({ adapter: "first", id }), {
+    ok: true, state: "resolved", target: { adapter: "first", id },
+  });
+  assert.deepEqual(calls.splice(0), ["first"]);
+  secondComplete = true;
+  assert.deepEqual(await list.resolve({ id }), { ok: false, state: "ambiguous", adapters: ["first", "second"] });
+  secondRows.push({ id });
+  assert.deepEqual(await list.resolve({ id, adapter: "second" }), { ok: false, state: "ambiguous", adapters: ["second"] });
+  assert.deepEqual(await list.resolve({ id: id.toLowerCase() }), { ok: false, state: "missing" });
+});
+
+test("invalid exact selectors enumerate nothing and built-in lookup compares native IDs only", async () => {
+  let reads = 0;
+  const options = {
+    claudeSessionsDir: claudeRegistry([claudeSession()]), codexHome: emptyCodexHome(),
+    readFile(file, encoding) { reads++; return fs.readFileSync(file, encoding); },
+  };
+  const list = createLocalInventory([], ["claude"]);
+  for (const selector of [null, [], {}, { id: "" }, { id: "a\nb" }, { id: "x".repeat(257) },
+    { id: 1234 }, { id: ["sess-1000"] }, { id: "sess-1000", adapter: 42 },
+    { id: "sess-1000", adapter: null }, { id: "sess-1000", host: "other" }]) {
+    assert.deepEqual(await list.resolve(selector, options), { ok: false, state: "invalid_selector" });
+  }
+  assert.equal(reads, 0);
+  assert.deepEqual(await list.resolve({ id: "alpha-one" }, options), { ok: false, state: "missing" });
+  assert.deepEqual(await list.resolve({ id: "sess-1000" }, options), {
+    ok: true, state: "resolved", target: { adapter: "claude", id: "sess-1000" },
+  });
+  assert.equal(reads, 2);
 });
 
 // ── Codex discovery ──
@@ -764,6 +852,13 @@ test("list says the scope was empty instead of printing nothing", () => {
   const out = formatTargets({ targets: [], warnings: [] });
 
   assert.match(out, /no .*(target|session)/i);
+});
+
+test("unavailable installation inventory explains why the session list is empty", () => {
+  const out = formatTargets({ complete: false, inventory: [], targets: [], warnings: ["installation settings invalid"] });
+  assert.match(out, /local inventory unavailable/);
+  assert.match(out, /installation settings invalid/);
+  assert.doesNotMatch(out, /no agent sessions in scope/);
 });
 
 // ── CLI argument parsing ──

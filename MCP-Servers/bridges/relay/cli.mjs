@@ -17,7 +17,8 @@
 // reason: SendMessage is an in-session tool, so a shell-invocable path to a
 // Claude session needs the delegate that Unit 3 adds.
 
-import { listLocalTargets, formatTargets, parseArgs } from "./client.mjs";
+import { formatTargets, parseArgs } from "./client.mjs";
+import { listInstalledTargets, resolveLocalAddress } from "./local-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { checkReadiness, fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
@@ -31,6 +32,8 @@ const help = `Usage: relay <command> [options]
   list --scope all             List sessions in all local workspaces
   list --json                  Show raw session IDs and coverage for each local reader
   list --all-hosts             List sessions on enrolled machines
+  resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
+                               Look up an exact local session ID without waking it
   send <target> --message TEXT Send a notice; --dry-run previews the destination
   ping <target>                Wake the session once and check for delivery
   ping --status <receipt>      Check the existing receipt without waking it again
@@ -40,6 +43,13 @@ const help = `Usage: relay <command> [options]
 
 Use the host-qualified ID shown by list --all-hosts for a remote session.
 A queue receipt confirms acceptance. A delivered probe confirms arrival.`;
+
+const resolveHelp = `Usage: relay resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
+
+Copy the case-sensitive id from relay list --scope all --json. Keep any colon
+or slash inside the ID. For an ID beginning with -- use --id=VALUE.
+Use the row's kind as --adapter to narrow the lookup to one installed reader.
+The optional --host must identify this machine. Resolution only reads inventory.`;
 
 // node:sqlite is experimental and announces itself on every load. The warning
 // is noise here and would be noise in a bridge log, so it is filtered while
@@ -59,6 +69,10 @@ async function main() {
     return;
   }
   const args = process.argv.slice(2);
+  if (args.length === 2 && args[0] === "resolve" && ["-h", "--help"].includes(args[1])) {
+    console.log(resolveHelp);
+    return;
+  }
   if (args.length === 1 && ["help", "-h", "--help"].includes(args[0]) ||
       args.length === 2 && ["list","send","ping","doctor","watch","run"].includes(args[0]) &&
       ["-h","--help"].includes(args[1])) {
@@ -74,6 +88,17 @@ async function main() {
     return;
   }
 
+  if (options.command === "resolve") {
+    const result = await resolveLocalAddress(options.selector);
+    if (options.json) console.log(JSON.stringify(result, null, 2));
+    else if (result.ok) console.log(`Resolved local session ${JSON.stringify(result.target)}`);
+    else {
+      console.error(`${result.state}: ${result.detail}`);
+      if (result.adapters?.length) console.error(`Adapters: ${JSON.stringify(result.adapters)}`);
+    }
+    process.exitCode = result.ok ? 0 : 1;
+    return;
+  }
   if (options.command === "watch") {
     const { subscribeWatch } = await import("./watch-client.mjs");
     const result = await subscribeWatch(options.to, options.condition, resolveCallerIdentity());
@@ -126,7 +151,7 @@ async function main() {
     process.exitCode = result.complete ? 0 : 3;
     return;
   }
-  const result = await listLocalTargets({ scope: options.scope, cwd: options.cwd || process.cwd() });
+  const result = await listInstalledTargets({ scope: options.scope, cwd: options.cwd || process.cwd() });
 
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));

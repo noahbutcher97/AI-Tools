@@ -1,5 +1,125 @@
 [
   {
+    "id": "relay-exact-review-recheck",
+    "worker": "independent selection reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+    "scope": "Recheck the held PID-only finding and positive resolution against the corrected commit.",
+    "acceptance": "Verify real CLI and MCP refusals and recovery; confirm the change preserves legacy lists.",
+    "state": "accepted",
+    "result": {
+      "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+      "verdict": "Accept read-only exact local lookup.",
+      "evidence": "On the committed sources eight paired CLI and stdio MCP lookups and three paired listings agreed. PID-only remained listed, exact coverage was incomplete, restoring a native ID restored resolution, and the old PID and changed case were missing.",
+      "limitations": "Synthetic in-memory data; live provider delivery, enrollment and proof remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The blocking native-ID finding is resolved on the implementation revision.",
+      "next": "Carry the exact binding through local delivery and proof in a separate checkpoint."
+    }
+  },
+  {
+    "id": "relay-exact-replay",
+    "worker": "independent terminal replay",
+    "coordinator": "relay coordinator",
+    "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+    "scope": "Repeat the literal-address discovery task after clarification of kind and adapter.",
+    "acceptance": "Use the CLI alone; confirm the ambiguous result and recover the correct unique address using visible guidance.",
+    "state": "accepted",
+    "result": {
+      "revision": "30b5651f54544978170e905c3b03d29e5c59eb0d",
+      "verdict": "Accepted for the local operator task.",
+      "evidence": "Fresh operator started from help, recovered an empty workspace list using all local workspaces, saw the raw ID collide, and used the revised kind-to-adapter guidance to resolve the correct address in one retry.",
+      "limitations": "Agent-operated CLI with synthetic installation. No human participant, live provider or delivery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the read-only CLI workflow and preserve its automated tests.",
+      "next": "Qualify the user experience for send and proof when those operations adopt the binding."
+    }
+  },
+  {
+    "id": "relay-exact-review",
+    "worker": "independent selection reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+    "scope": "Review literal local addressing, enabled reader and host binding, completeness and both public entry points.",
+    "acceptance": "Check synthetic negative and positive cases, configuration scope, existing client behavior and that resolution remains read-only.",
+    "state": "accepted",
+    "result": {
+      "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+      "verdict": "Hold the original implementation.",
+      "evidence": "Six paired CLI and MCP tests found PID-only records falsely resolving numeric IDs and falsely excluding other native IDs. Separate fixture checks passed for eight reader selection cases.",
+      "limitations": "Clean committed source, synthetic local profiles. No live delivery or provider credentials."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Preserved the legacy PID listing and require native identity evidence for exact lookup. Added regressions on both public faces.",
+      "next": "Recheck the corrected commit before closure."
+    }
+  },
+  {
+    "id": "relay-exact-operator",
+    "worker": "independent terminal operator",
+    "coordinator": "relay coordinator",
+    "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+    "scope": "Use only the real local CLI with an isolated reader fixture to identify a named reader’s exact address.",
+    "acceptance": "From ordinary help, find the raw session, check whether the bare ID resolves uniquely and identify the requested adapter binding without waking it.",
+    "state": "accepted",
+    "result": {
+      "revision": "897196a8516a9159dffebedc13e2c8e9b6e32dde",
+      "verdict": "Resolved the requested binding and recognized the unqualified collision.",
+      "evidence": "The operator found both rows through list, obtained ambiguous with two adapters, then exactly resolved the requested adapter in four read-only commands including help. The operator noted the list field is called kind.",
+      "limitations": "Agent operating a real CLI on an isolated installation fixture. No live provider or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The ambiguity guidance now explicitly connects the listing field kind with the adapter selector.",
+      "next": "Replay the task against the revised guidance."
+    }
+  },
+  {
+    "id": "relay-exact-inventory",
+    "worker": "inventory implementer",
+    "coordinator": "relay coordinator",
+    "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+    "scope": "Implement exact local selection on a trusted reader composition and regression fixtures.",
+    "acceptance": "Preserve case and literal delimiters. Cover single reader, incomplete enumeration, duplicate rows, collisions and qualified lookup without provider effects.",
+    "state": "accepted",
+    "result": {
+      "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+      "verdict": "Implemented exact reader selection.",
+      "evidence": "Baseline lacked the resolver and ignored an invalid enabled set. After implementation 73 client tests passed, including a class reader, case-sensitive delimiters, duplicate and incomplete results, disabled readers and workspace independence.",
+      "limitations": "Synthetic fixtures; no provider processes launched."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for independent code review.",
+      "next": "Verify the same binding through both read-only entry points."
+    }
+  },
+  {
+    "id": "relay-exact-faces",
+    "worker": "interface implementer",
+    "coordinator": "relay coordinator",
+    "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+    "scope": "Expose read-only exact lookup through the local CLI and MCP and test the operator-facing contract.",
+    "acceptance": "Local selectors use a literal ID plus optional adapter and host; exercise both public faces and validate conflicting or unsafe input before effects.",
+    "state": "accepted",
+    "result": {
+      "revision": "89c57a3a84c09822b610dbaeb226cdb8c055b09a",
+      "verdict": "Implemented the CLI and MCP exact lookup.",
+      "evidence": "Original CLI refused resolve and MCP tools omitted it. The completed client and server suites passed 90 tests on Windows, including literal flags, reader restriction, ambiguity, damaged registry and configuration reload on an open server.",
+      "limitations": "Offline profiles and installed-setting fixtures. No live wake or grant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for independent code review and a constrained walkthrough.",
+      "next": "Exercise real CLI and MCP against an independently composed reader and review the committed bytes."
+    }
+  },
+  {
     "id": "relay-local-inventory-recheck",
     "worker": "independent inventory reviewer",
     "coordinator": "relay coordinator",

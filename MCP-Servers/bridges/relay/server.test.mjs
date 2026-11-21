@@ -5,7 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { parseArgs } from "./client.mjs";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -20,11 +21,18 @@ const bridgeDir = dirname(fileURLToPath(import.meta.url));
 // at ~/.cross-agent-relay/spool.log.
 const TEST_SPOOL = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-server-")), "spool.log");
 
+function profileNodeArgs(env) {
+  // Leave the real installed settings untouched on either platform.
+  if (!env.USERPROFILE) return [];
+  const loader = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-loader.mjs", import.meta.url);
+  return ["--no-warnings", "--experimental-loader", loader.href];
+}
+
 async function withClient(name, fn, env = {}) {
   const client = new Client({ name, version: "1.0.0" });
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: ["server.mjs"],
+    args: [...profileNodeArgs(env), "server.mjs"],
     cwd: bridgeDir,
     env: { ...process.env, RELAY_SPOOL: TEST_SPOOL, ...env },
     stderr: "pipe",
@@ -43,7 +51,7 @@ test("relay bridge registers discovery, send and receipt lookup", async () => {
     return tools.map((t) => t.name).sort();
   });
 
-  assert.deepEqual(names, ["relay_doctor", "relay_list", "relay_ping", "relay_send", "relay_watch"]);
+  assert.deepEqual(names, ["relay_doctor", "relay_list", "relay_ping", "relay_resolve", "relay_send", "relay_watch"]);
 });
 
 test("MCP refuses malformed host selectors and receipt handles before discovery", async () => {
@@ -91,6 +99,121 @@ test("relay_send does not claim to be read-only", async () => {
 
   assert.equal(tool.annotations?.readOnlyHint, false);
   assert.equal(tool.annotations?.destructiveHint, false);
+});
+
+test("resolve rejects extra options, repeated selectors and missing values", () => {
+  for (const args of [
+    [], ["--host", "fixture"], ["--id="], ["--id", "--adapter", "fixture"],
+    ["--id=a", "--id", "b"], ["--id=a", "--adapter=x", "--adapter=y"],
+    ["--id=a", "--host=x", "--host=y"], ["--id=a", "--json", "--json"],
+    ["--id=a", "--json=false"], ["--id=a", "--all-hosts"], ["--id=a", "b"],
+  ]) assert.throws(() => parseArgs(["resolve", ...args]), Error);
+  assert.deepEqual(parseArgs(["resolve", "--id=--id=x", "--adapter", "fixture", "--host=local", "--json"]), {
+    command: "resolve", selector: { id: "--id=x", adapter: "fixture", host: "local" }, json: true,
+  });
+});
+
+test("CLI and MCP discover and resolve the same literal local address and report refusals", async t => {
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), "relay-address-"));
+  t.after(() => fs.rmSync(profile, { recursive: true, force: true }));
+  const env = { HOME: profile, USERPROFILE: profile };
+  const registry = path.join(profile, ".claude", "sessions");
+  fs.mkdirSync(registry, { recursive: true });
+  fs.mkdirSync(path.join(profile, ".codex", "thread-writer-locks"), { recursive: true });
+  const id = '--Client:Group/Case="A"';
+  const record = JSON.stringify({ sessionId: id, name: "display-name", cwd: profile });
+  fs.writeFileSync(path.join(registry, "first.json"), record);
+  const cli = (...args) => {
+    const run = spawnSync(process.execPath, [...profileNodeArgs(env), "cli.mjs", ...args], {
+      cwd: bridgeDir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 15000,
+    });
+    if (run.error) throw run.error;
+    return run;
+  };
+  const help = cli("resolve", "--help");
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /--id=VALUE/);
+  assert.match(help.stdout, /list --scope all --json/);
+  assert.equal(cli("resolve", "--id", id).status, 2);
+
+  await withClient("relay-address", async client => {
+    const tool = (await client.listTools()).tools.find(entry => entry.name === "relay_resolve");
+    assert.equal(tool.annotations.readOnlyHint, true);
+    assert.deepEqual(tool.inputSchema.required, ["id"]);
+    assert.equal(tool.inputSchema.additionalProperties, false);
+    for (const args of [{ adapter: "claude" }, { id, all_hosts: true }, { id, adapter: 1 }]) {
+      const response = await client.callTool({ name: tool.name, arguments: args });
+      assert.equal(response.isError, true);
+    }
+    const listed = cli("list", "--scope", "all", "--json");
+    assert.equal(listed.status, 0, listed.stderr);
+    const row = JSON.parse(listed.stdout).targets[0];
+    assert.equal(row.id, id);
+    assert.equal(row.kind, "claude");
+    async function check(selector, state) {
+      const args = ["resolve", `--id=${selector.id}`, "--json"];
+      if (selector.adapter) args.push("--adapter", selector.adapter);
+      if (selector.host) args.push("--host", selector.host);
+      const run = cli(...args);
+      const resolved = state === "resolved";
+      assert.equal(run.status, resolved ? 0 : 1, run.stderr || run.stdout);
+      const result = JSON.parse(run.stdout);
+      assert.equal(result.state, state);
+      assert.equal(result.ok, resolved);
+      const response = await client.callTool({ name: tool.name, arguments: selector });
+      assert.equal(Boolean(response.isError), !resolved);
+      assert.deepEqual(JSON.parse(response.content[0].text), result);
+      if (resolved) {
+        assert.equal(result.target.id, row.id);
+        assert.equal(result.target.adapter, row.kind);
+        assert.ok(Object.hasOwn(result.target, "host"));
+        if (selector.host) assert.equal(result.target.host, selector.host);
+      } else {
+        assert.equal(result.target, undefined);
+        assert.ok(result.detail);
+      }
+    }
+    await check({ id: row.id }, "resolved");
+    await check({ id: row.id, adapter: row.kind }, "resolved");
+    const rendered = cli("resolve", `--id=${id}`);
+    assert.equal(rendered.status, 0, rendered.stderr);
+    assert.ok(rendered.stdout.includes(JSON.stringify(id)));
+    await check({ id: id.toLowerCase() }, "missing");
+    await check({ id: "display-name" }, "missing");
+    await check({ id, adapter: "uninstalled-reader" }, "unknown_adapter");
+    await check({ id, host: "../invalid" }, "invalid_selector");
+    await check({ id, host: "local-test" }, "host_unavailable");
+    const install = path.join(profile, "CrossAgentRelay");
+    fs.mkdirSync(install);
+    fs.writeFileSync(path.join(install, "machine.json"), JSON.stringify({ host: "local-test" }));
+    await check({ id, host: "local-test", adapter: row.kind }, "resolved");
+    await check({ id, host: "other-test" }, "nonlocal_host");
+
+    const second = path.join(registry, "second.json");
+    fs.writeFileSync(second, "{");
+    await check({ id }, "incomplete_inventory");
+    await check({ id, adapter: "codex" }, "missing");
+    fs.writeFileSync(second, JSON.stringify({ pid: 1234, name: "legacy" }));
+    assert.ok(JSON.parse(cli("list", "--scope", "all", "--json").stdout).targets.some(t => t.id === "1234"));
+    await check({ id: "1234", adapter: "claude" }, "incomplete_inventory");
+    await check({ id }, "incomplete_inventory");
+    await check({ id: "unknown", adapter: "claude" }, "incomplete_inventory");
+    fs.writeFileSync(second, record);
+    await check({ id }, "ambiguous");
+    await check({ id, adapter: row.kind }, "ambiguous");
+    fs.unlinkSync(second);
+    await check({ id }, "resolved");
+    fs.writeFileSync(path.join(install, "inventory-adapters.json"), JSON.stringify({ enabled: ["codex"] }));
+    const list = await client.callTool({ name: "relay_list", arguments: { scope: "all" } });
+    const cliList = cli("list", "--scope", "all", "--json");
+    assert.equal(cliList.status, 0, cliList.stderr);
+    for (const payload of [JSON.parse(cliList.stdout), JSON.parse(list.content[0].text)]) {
+      assert.deepEqual(payload.inventory, [{ kind: "codex", complete: true }]);
+      assert.deepEqual(payload.targets, []);
+    }
+    await check({ id }, "missing");
+    await check({ id, adapter: row.kind }, "unknown_adapter");
+  }, env);
 });
 
 test("relay bridge does not expose a read or spool-draining tool yet", async () => {
@@ -144,7 +267,7 @@ test("local CLI and MCP report incomplete enumeration and recovery in the same p
   await withClient("relay-inventory", async client => {
     for (const complete of [false, true]) {
       if (complete) fs.writeFileSync(record, JSON.stringify({ sessionId: "fixture", cwd: profile }));
-      const cli = JSON.parse(execFileSync(process.execPath, ["cli.mjs", "list", "--scope", "all", "--json"], {
+      const cli = JSON.parse(execFileSync(process.execPath, [...profileNodeArgs(env), "cli.mjs", "list", "--scope", "all", "--json"], {
         cwd: bridgeDir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 15000,
       }));
       const response = await client.callTool({ name: "relay_list", arguments: { scope: "all" } });
