@@ -1,5 +1,23 @@
 [
   {
+    "id": "native-lease-capacity-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck denied-capacity reclamation, tombstones, concurrent revocation and source attribution.",
+    "acceptance": "Report remaining blockers on the corrected native fixture.",
+    "revision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "native-lease-capacity-replay",
+    "worker": "independent operator",
+    "scope": "Repeat the documented Windows controls after the capacity fix.",
+    "acceptance": "Check twelve opens and closes and whether revocation preserves the other watch.",
+    "revision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "native-lease-denied-capacity-fix",
     "worker": "native fixture implementer",
     "scope": "Correct capacity accounting for slow first-check denials and prove concurrent revoke after open while a second guard is stalled.",
@@ -11,7 +29,8 @@
       "revision": "638fe70a1fa31da0b53ee93137eece45d3eed5ca",
       "verdict": "pass",
       "evidence": "Reproduced full capacity after 64 expired unauthorized attempts. Corrected source reclaimed them without opens. Explicit revocation retained its tombstone. A separate runspace revoked a pending post-open attachment and its peer stayed live. Twelve opens matched twelve closes across the controls.",
-      "limitations": "Native fixture using local synthetic grants only."
+      "limitations": "Native fixture using local synthetic grants only.",
+      "implementationRevision": "fd993dbca03f68a10ccef7b22ef372bbd36c488c"
     },
     "acknowledgment": {
       "by": "relay coordinator",
