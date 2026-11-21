@@ -1,5 +1,85 @@
 [
   {
+    "id": "process-end-operator-replay",
+    "worker": "constrained qualification operator",
+    "scope": "Repeat the command selection, exit code and interrupted-trial walkthrough from the updated handoff.",
+    "acceptance": "Identify both preconditions and independent dispositions including a failed first trial and a denied access-list check. Documentation only.",
+    "revision": "ffd0d6286dc93a517e1cd2520f5a757756375ec1",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "ffd0d6286dc93a517e1cd2520f5a757756375ec1",
+      "verdict": "Pass on the revised documentation.",
+      "evidence": "The operator found separate command blocks and immediate exit checks, discarded partial output after interruption, and retained unknown status on access denial.",
+      "limitations": "Documentation-only agent replay. No additional service, provider or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Both walkthrough findings resolved.",
+      "next": "Use the revised instructions for repeated qualification."
+    }
+  },
+  {
+    "id": "process-end-premise-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the Windows read-only process fixtures, enrolled-trustee access calculation and hosted service-account qualification. Inspect confinement and the strength of conclusions. Local ordinary tests only.",
+    "acceptance": "Check handle and token binding, exit 259, unknowns, task identity, deadlines and cleanup. Return blocking findings and limits.",
+    "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+      "verdict": "Pass for the premise qualification.",
+      "evidence": "Reviewed minimum handle rights, exact creation token, signaled exit handling, owned task cleanup, bounds and CI identity. Ordinary fixtures returned exits 7 and 259. The hosted service account opened its own process and received access denied on the runner.",
+      "limitations": "No installed broker logon or provider. No live PID reuse or forced interruption."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept the source checkpoint with direct installed observation still open.",
+      "next": "Qualify a matching handle or explicit denial under the installed broker logon."
+    }
+  },
+  {
+    "id": "process-end-premise-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Starting at repository guidance, use public documentation to walk through the external-process premise checks, recovery and interpretation. No account changes or service actions.",
+    "acceptance": "Locate exact commands, preconditions, expected outputs and the open installed gate. Distinguish an access-list check and a live cross-account open.",
+    "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "f377124186f09e8bc01ef90e6455c7bc40995f1c",
+      "verdict": "Disposable fixture passed. Two recovery instructions need revision.",
+      "evidence": "The operator identified both commands and their separate proof boundaries, and observed exits 7 and 259 on local fixture children. A pasted block could overwrite the first exit code and the interruption instructions were missing.",
+      "limitations": "Agent using the ordinary client. No enrolled broker or provider."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Separate the commands, check each exit immediately and explain that retry cannot recover an earlier exit.",
+      "next": "Repeat the documentation walkthrough."
+    }
+  },
+  {
+    "id": "process-end-kernel-fixture",
+    "worker": "Windows qualification worker",
+    "scope": "Implement a Windows-only self-contained qualification of a disposable process through limited query and synchronization rights. Keep it outside the installed package.",
+    "acceptance": "Demonstrate creation-token binding, reopening the live instance after dropping a handle, unknown on lost instance or wrong token, and signaled exits including 259. Use hidden bounded fixtures and synthetic output. No installed service, network or credentials.",
+    "revision": "f41a8b7556f263a196dd8d4d695c6592b9e98d5b",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "f41a8b7556f263a196dd8d4d695c6592b9e98d5b",
+      "verdict": "Disposable Windows process fixture delivered.",
+      "evidence": "Windows PowerShell and PowerShell 7 observed two signaled exit codes, rejected a mismatched creation token, and returned unknown after handle disposal. An unexpected PID option was rejected.",
+      "limitations": "Same desktop user. Reopened handles with the launcher still holding the child. No broker logon, actual PID reuse or provider calls."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept for independent source and operator review.",
+      "next": "Check the installed broker boundary separately."
+    }
+  },
+  {
     "id": "receipt-turn-review-recheck",
     "worker": "independent proof reviewer",
     "scope": "Recheck the concurrent history fixture and active-turn overlap proof against the revised implementation. Synthetic tests only.",
