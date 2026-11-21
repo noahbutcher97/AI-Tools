@@ -6,7 +6,18 @@
     "revision": "a4eb2df30ca52eaca9d11320bd1ca153a891e6b9",
     "scope": "Recheck partial exact lookup, retry conflict, capability granularity and review completion gates. Read only.",
     "acceptance": "Disposition for the corrected design with scope and remaining implementation work.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "a4eb2df30ca52eaca9d11320bd1ca153a891e6b9",
+      "verdict": "pass",
+      "evidence": "Verified host-local complete lookup and pinned eligibility, a single peer/request reservation, separately evidenced capabilities and final-revision review dispositions.",
+      "limitations": "Design only. Actual adapter conformance and live client qualification remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Closed the focused design review.",
+      "next": "Implement the adapter contract before adding the new watcher delivery path."
+    }
   },
   {
     "id": "provider-sequence-contract-review",
