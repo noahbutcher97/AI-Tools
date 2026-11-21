@@ -1,5 +1,23 @@
 [
   {
+    "id": "installed-process-account-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck limited installed observer admission, identity, cleanup and health after corrections.",
+    "acceptance": "Disposition for each prior finding and any remaining blocker.",
+    "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
+    "id": "installed-process-operator-recheck",
+    "worker": "independent operator",
+    "scope": "Follow the installed procedure from the handoff including interruption recovery.",
+    "acceptance": "Return navigation, outcome interpretation and recovery obstacles.",
+    "revision": "19d983a7aaa8e08ebb9be1b49d29c3f8d1fd45c4",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "installed-process-account-review",
     "worker": "independent qualification reviewer",
     "scope": "Review the fixed task actions, low-privilege controls, target pinning, rotation and cleanup. No installed actions or credentials.",
