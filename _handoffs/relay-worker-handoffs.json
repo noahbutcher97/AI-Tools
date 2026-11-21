@@ -6,7 +6,18 @@
     "revision": "d2d333ac3abc509f060a140172c68e58b96802d0",
     "scope": "Review the new design checkpoint and phase ordering independently against owner requirements, source contracts and the amended review workflow. Source only.",
     "acceptance": "Identify concrete design or sequencing blockers and any premature compatibility claims.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "d2d333ac3abc509f060a140172c68e58b96802d0",
+      "verdict": "changes required",
+      "evidence": "Independent review found partial exact lookup could be mistaken for uniqueness and a per-adapter deduplication key could allow a changed-target retry.",
+      "limitations": "Design and source only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Specified host-local lookup completeness, final binding check, and one existing peer/request reservation with an immutable target.",
+      "next": "Recheck both cases before closing the design pass."
+    }
   },
   {
     "id": "provider-sequence-cleanup-record",
