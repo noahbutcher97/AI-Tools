@@ -29,7 +29,7 @@ const help = `Usage: relay <command> [options]
 
   list                         List sessions in the current workspace
   list --scope all             List sessions in all local workspaces
-  list --json                  Include machine-readable local adapter coverage
+  list --json                  Show raw session IDs and coverage for each local reader
   list --all-hosts             List sessions on enrolled machines
   send <target> --message TEXT Send a notice; --dry-run previews the destination
   ping <target>                Wake the session once and check for delivery
