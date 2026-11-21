@@ -6,7 +6,18 @@
     "acceptance": "Bounded live attachments, exact canonical FILETIME, guarded open, nonblocking sample, revocation, monotonic lease expiry and deterministic disposal. Pin with focused positive and negative native fixture checks.",
     "revision": "e4beb8e6ac7191132f47bfbf5b005d434d07dbe8",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "e4beb8e6ac7191132f47bfbf5b005d434d07dbe8",
+      "verdict": "pass",
+      "evidence": "The shared fixture now uses one native table. Two authority checks surround each limited open. Adjacent creation ticks, capacity, revocation and expiry while a guard is stalled were exercised. The focused run counted eight opens and eight closes.",
+      "limitations": "Synthetic grants and owned processes. Timer scheduling depends on the OS. No installed transport, durable event or subscriber."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for source recheck and operator replay.",
+      "next": "Run the focused controls in hosted CI and review the exact implementation revision."
+    }
   },
   {
     "id": "shared-process-fixture-recheck",
