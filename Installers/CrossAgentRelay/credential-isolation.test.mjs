@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-test("the broker challenge rejects unsafe ACLs, malformed records and existing receipts", {
+test("the broker challenge rejects unsafe inputs and preserves recovery evidence when cleanup fails", {
   skip: process.platform !== "win32",
 }, t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "relay-credential-fixture-"));
