@@ -1,5 +1,85 @@
 [
   {
+    "id": "turn-metadata-source-recheck",
+    "worker": "independent source reviewer",
+    "scope": "Recheck comparison failure handling, private sentinels and session-scoped completion in the corrected candidate.",
+    "acceptance": "Pass the negative subprocess controls and confirm the thread filter covers completion.",
+    "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+      "verdict": "Pass on the corrected implementation.",
+      "evidence": "Nineteen synthetic tests passed. Both negative subprocesses reached the intended fixed errors and omitted all private sentinels. A synthetic listener replay rejected unrelated starts and completions in study mode and preserved ordinary handling.",
+      "limitations": "Synthetic source review. The coordinator repeated the live trial separately."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Both prior findings resolved.",
+      "next": "Maintain suppression pending independent evidence of turn origin."
+    }
+  },
+  {
+    "id": "turn-metadata-operator-replay",
+    "worker": "constrained qualification operator",
+    "scope": "Repeat the executable selection, output interpretation and interrupted archive walkthrough using the revised journal.",
+    "acceptance": "Identify the version guard, cost, partial evidence and safe recovery given an ambiguous disposable thread.",
+    "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "a32a054bc7cc9d605f6335e78183b523403bf0e7",
+      "verdict": "Unassisted documentation walkthrough passed.",
+      "evidence": "The operator identified the version guard, two-turn cost, missed sample and restart limits, and correct recovery for ambiguous archive matches.",
+      "limitations": "Documentation simulation only. Archive recovery and a real human operator were unexercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "The corrected guide resolved the prior operator findings.",
+      "next": "Use this guide when repeating the opt-in qualification."
+    }
+  },
+  {
+    "id": "turn-metadata-premise-review",
+    "worker": "independent source reviewer",
+    "scope": "Review the opt-in Codex metadata comparison, cold observation, synthetic test and design decision. Use synthetic tests and the supplied redacted live receipt only.",
+    "acceptance": "Check scoped reads, ground-truth independence, limits of attribution, replay acceptance and compatibility with the ordinary schedule probe.",
+    "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+      "verdict": "Fix comparison failure output before closure.",
+      "evidence": "Synthetic mismatches printed complete comparison operands. The reviewer also identified an unscoped completion listener. Eighteen synthetic checks passed.",
+      "limitations": "Source and synthetic checks only. The reviewer received redacted live results."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted both findings. Emit fixed errors and restrict the completion listener to the trial thread.",
+      "next": "Repeat source review on the corrected candidate."
+    }
+  },
+  {
+    "id": "turn-metadata-operator",
+    "worker": "constrained qualification operator",
+    "scope": "Use only the rollout instructions and design note to walk through the optional qualification decision. No live client or credential.",
+    "acceptance": "Identify how to run the study, its cost, how to interpret matching observations and how to handle unknown origin or restart.",
+    "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "result": {
+      "revision": "9dcdc688aef449028e577390c9907c6ad26db30c",
+      "verdict": "Operator could interpret the result and suppression decision. Executable discovery and interrupted-run cleanup were unclear.",
+      "evidence": "The operator found the journal from repository guidance and identified the two-turn cost, matching signals and restart limits. The example left executable selection and partial-result interpretation unresolved.",
+      "limitations": "Agent simulating an operator from documentation. No live provider or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Add a version-checked PowerShell example, partial report interpretation and interrupted archive recovery.",
+      "next": "Replay the documentation task on the corrected instructions."
+    }
+  },
+  {
     "id": "private-movement-edge-cases",
     "worker": "independent trial reviewer",
     "scope": "Inspect the final small automated-review fixes to the scripts, Windows fixtures and verifier.",
