@@ -90,6 +90,51 @@ Assert-NoInventory
         try { Assert-TrialDigest $fixtureReceipt $expectedDigest } catch { $failed=$true }
         if (!$failed) { throw 'Invalid trial digest accepted' }
     }
+    & {
+        # The ordinary fixture SID stands in for the installation's setup authority.
+        $authority = $authorities
+        $cleanupDir = Join-Path $dir 'cleanup'
+        $saved = $cleanupDir+'.cleanup.json'
+        $metadata = Join-Path $cleanupDir 'trial.json'
+        $text = '{"v":1,"task":"fixture"}'
+        $null = [IO.Directory]::CreateDirectory($cleanupDir)
+        [IO.File]::WriteAllText($metadata,$text)
+        $previous = [Environment]::CurrentDirectory
+        try {
+            [Environment]::CurrentDirectory = $cleanupDir
+            $failed = $false
+            try { Remove-CredentialTrialDirectory $cleanupDir $text } catch [IO.IOException] { $failed = $true }
+            if (!$failed -or ![IO.Directory]::Exists($cleanupDir) -or [IO.File]::ReadAllText($saved) -cne $text) {
+                throw 'Locked directory lost its recovery record'
+            }
+        } finally { [Environment]::CurrentDirectory = $previous }
+        [IO.Directory]::Delete($cleanupDir,$false)
+        [IO.File]::Delete($saved)
+
+        $null = [IO.Directory]::CreateDirectory($cleanupDir)
+        [IO.File]::WriteAllText($metadata,$text)
+        [IO.File]::WriteAllText($saved,'preserve')
+        $failed = $false
+        try { Remove-CredentialTrialDirectory $cleanupDir $text } catch [IO.IOException] { $failed = $true }
+        if (!$failed -or [IO.File]::ReadAllText($saved) -cne 'preserve' -or [IO.File]::ReadAllText($metadata) -cne $text) {
+            throw 'Existing recovery record was replaced'
+        }
+        [IO.File]::Delete($saved)
+        $failed = $false
+        try { Remove-CredentialTrialDirectory $cleanupDir ($text.Replace('fixture','another')) } catch { $failed = $true }
+        if (!$failed -or ![IO.File]::Exists($metadata) -or [IO.File]::Exists($saved)) { throw 'Unexpected trial record removed' }
+        $redirected = Join-Path $dir 'redirected-cleanup'
+        $null = New-Item -ItemType Junction -Path $redirected -Target $cleanupDir
+        try {
+            $failed = $false
+            try { Remove-CredentialTrialDirectory $redirected $text } catch { $failed = $true }
+            if (!$failed -or [IO.File]::ReadAllText($metadata) -cne $text -or [IO.File]::Exists($redirected+'.cleanup.json')) {
+                throw 'Redirected cleanup changed the target'
+            }
+        } finally { [IO.Directory]::Delete($redirected,$false) }
+        Remove-CredentialTrialDirectory $cleanupDir $text
+        if ([IO.Directory]::Exists($cleanupDir) -or [IO.File]::Exists($saved)) { throw 'Credential trial cleanup incomplete' }
+    }
 }
 & {
     $endpoint = 'https://'+(('fixture','invalid') -join '.')+'/fixture'

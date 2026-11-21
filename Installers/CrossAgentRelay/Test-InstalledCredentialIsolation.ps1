@@ -22,6 +22,36 @@ function Assert-TrialDigest($file,$expected) {
         if ([Text.Encoding]::ASCII.GetString($bytes) -cne $expected) { throw 'Unexpected trial digest' }
     } finally { $stream.Dispose() }
 }
+
+function Assert-CredentialTrialRecord($file,[string]$expected) {
+    Assert-Protected $file
+    $item = Get-Item -LiteralPath $file -Force
+    if ($item -isnot [IO.FileInfo] -or $item.Length -ne [Text.Encoding]::UTF8.GetByteCount($expected) -or
+        [IO.File]::ReadAllText($file) -cne $expected) { throw 'Unexpected credential trial record' }
+}
+
+function Remove-CredentialTrialDirectory($directory,[string]$expected) {
+    Assert-Protected $directory
+    $recordPath = Join-Path $directory 'trial.json'
+    $recovery = $directory+'.cleanup.json'
+    foreach ($item in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
+        if (!$expected -or $item -cne $recordPath) { throw 'Unexpected credential trial entry' }
+    }
+    if ($expected) {
+        Assert-CredentialTrialRecord $recordPath $expected
+        # The original record survives interruption and a failed nonrecursive removal.
+        # A move within the protected parent refuses to replace an existing recovery file.
+        [IO.File]::Move($recordPath,$recovery)
+        Assert-CredentialTrialRecord $recovery $expected
+    }
+    Assert-Protected $directory
+    [IO.Directory]::Delete($directory,$false)
+    if ($expected) {
+        Assert-CredentialTrialRecord $recovery $expected
+        [IO.File]::Delete($recovery)
+    }
+}
+
 if ($MyInvocation.InvocationName -eq '.') { return }
 $trialId = [guid]::NewGuid()
 . (Join-Path $PSScriptRoot 'Test-InstalledCodexWatcher.ps1') -Stage Run -TrialId $trialId -ExpectedPackage $ExpectedPackage
@@ -62,8 +92,10 @@ foreach ($file in @($policyFile,$flagFile,$lockFile)) { Assert-Protected $file }
 $name = 'RelayCredentialCheck-' + [guid]::NewGuid().ToString('N')
 $lock = [IO.File]::Open($lockFile,'Open','ReadWrite','None')
 $created = $false
+$trialText = $null
 $task = $null
 try {
+    if (Test-Path -LiteralPath ($directory+'.cleanup.json')) { throw 'Recover the preserved credential trial record before starting another trial.' }
     if ([IO.File]::ReadAllText($policyFile) -cne '{"v":1,"grants":[]}' -or
         [IO.File]::ReadAllText($flagFile) -cne '{"v":1,"enabled":false}' -or
         $folder.GetTask($workerTask).State -ne 3 -or (Test-Path -LiteralPath $receipt) -or
@@ -90,7 +122,8 @@ try {
         $bound = [Security.Cryptography.ProtectedData]::Protect($marker,$binding,'LocalMachine')
         $TrialMember = ([BitConverter]::ToString($binding).Replace('-','')+'-'+[BitConverter]::ToString($sha.ComputeHash($bound)).Replace('-','')).ToLowerInvariant()
         $boundFile = Join-Path $store ($TrialMember+'.bin')
-        [IO.File]::WriteAllText($trialRecord,(@{v=1;task=$name;member=$TrialMember;package=$ExpectedPackage} | ConvertTo-Json -Compress))
+        $trialText = @{v=1;task=$name;member=$TrialMember;package=$ExpectedPackage} | ConvertTo-Json -Compress
+        [IO.File]::WriteAllText($trialRecord,$trialText)
         [IO.File]::WriteAllBytes($boundFile,$bound)
     } finally { $sha.Dispose(); $rng.Dispose(); [Array]::Clear($marker,0,$marker.Length) }
     $def = $scheduler.NewTask(0)
@@ -129,6 +162,9 @@ try {
     } catch { $cleanupFailed=$true } finally {
         try {
             if ($created) {
+                Assert-Protected $directory
+                if ($trialText) { Assert-CredentialTrialRecord $trialRecord $trialText }
+                if ([IO.Directory]::Exists($store)) { Assert-Protected $store }
                 foreach ($file in @($challenge,$boundFile,$receipt,$readerReceipt)) {
                     if ($file) { try { [IO.File]::Delete($file) } catch { $cleanupFailed=$true } }
                 }
@@ -136,17 +172,11 @@ try {
                     try { [IO.Directory]::Delete($store,$false) } catch { $cleanupFailed=$true }
                 }
                 if (!$cleanupFailed) {
-                    foreach ($item in [IO.Directory]::EnumerateFileSystemEntries($directory)) {
-                        if ($item -cne $trialRecord) { $cleanupFailed=$true; break }
-                    }
-                }
-                if (!$cleanupFailed) {
-                    [IO.File]::Delete($trialRecord)
-                    [IO.Directory]::Delete($directory,$false)
+                    try { Remove-CredentialTrialDirectory $directory $trialText } catch { $cleanupFailed=$true }
                 }
             }
-        } finally { $lock.Dispose() }
+        } catch { $cleanupFailed=$true } finally { $lock.Dispose() }
     }
-    if ($cleanupFailed) { throw 'Trial cleanup incomplete. Inspect the protected trial record and remaining artifacts.' }
+    if ($cleanupFailed) { throw 'Trial cleanup incomplete. Inspect trial.json or branch-credential-trial.cleanup.json under the protected installation and preserve remaining artifacts.' }
 }
 'Installed broker matched both synthetic records. The ordinary desktop was denied read and write access to both.'

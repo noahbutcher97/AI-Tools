@@ -1,5 +1,65 @@
 [
   {
+    "id": "provider-sequence-cleanup-replay",
+    "worker": "independent operator",
+    "coordinator": "relay coordinator",
+    "revision": "023bdb9ceb8eaf3b4fa09c548f7f0e59af6bc6ac",
+    "scope": "Repeat the ordinary credential recovery walkthrough and local test after renaming the test output. No elevated or installed work.",
+    "acceptance": "Verify the cleanup assertion is discoverable and preserve the stop conditions.",
+    "state": "accepted",
+    "result": {
+      "revision": "023bdb9ceb8eaf3b4fa09c548f7f0e59af6bc6ac",
+      "verdict": "pass",
+      "evidence": "The ordinary fixture passed 1/1 with no skips. The TAP label now identifies recovery evidence on cleanup failure. The operator correctly retained both records or any ambiguous identity.",
+      "limitations": "Agent-operated disposable test and documentation walkthrough. No installed or live credential actions."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the corrected walkthrough.",
+      "next": "Wait for final applicable CI and reviews, then close the historical thread on main."
+    }
+  },
+  {
+    "id": "provider-sequence-cleanup-review",
+    "worker": "independent recovery reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "ebb467a2e6599b3db930e8fc111110208a7c7848",
+    "scope": "Review the PR15 correction, original metadata preservation, no-replace cleanup, old records and tests. Source and local fixtures only.",
+    "acceptance": "Evidence for the failed final delete and zero overwrite/traversal.",
+    "state": "accepted",
+    "result": {
+      "revision": "ebb467a2e6599b3db930e8fc111110208a7c7848",
+      "verdict": "pass",
+      "evidence": "Verified protected sibling parking before nonrecursive directory deletion, no overwrite on collision, and checks for unexpected metadata or paths. Reviewed the locked-directory regression and clean success.",
+      "limitations": "Source review only. No installed credential action."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the corrective source revision.",
+      "next": "Verify the operator replay and CI before resolving the original thread."
+    }
+  },
+  {
+    "id": "provider-sequence-cleanup-walkthrough",
+    "worker": "independent operator",
+    "coordinator": "relay coordinator",
+    "revision": "ebb467a2e6599b3db930e8fc111110208a7c7848",
+    "scope": "From the setup guide follow the interrupted credential-isolation cleanup and exercise the local regression in an ordinary Windows shell. No elevated, installed or real credential actions.",
+    "acceptance": "Report operator interpretation for a retained record, successful clearance and when to stop, with the local regression result.",
+    "state": "accepted",
+    "result": {
+      "revision": "ebb467a2e6599b3db930e8fc111110208a7c7848",
+      "verdict": "pass with minor friction",
+      "evidence": "Ordinary Windows synthetic regression passed without skips. Operator found interruption instructions and correctly preserved unexpected tasks, conflicting records and unverifiable ACL or identity.",
+      "limitations": "No installed recovery or human participant. Initial TAP output omitted the cleanup assertion."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Named the recovery case in test output and repeated the local command.",
+      "next": "Repeat the operator task with the updated test label."
+    }
+  },
+  {
     "id": "provider-sequence-contract-recheck",
     "worker": "independent contract reviewer",
     "coordinator": "relay coordinator",
@@ -46,7 +106,18 @@
     "revision": "26ce4ede2562fea94ea453860079be1624bae859",
     "scope": "Verify and fix the outstanding final-directory removal finding in credential isolation qualification. Local synthetic regression, no installed or provider effects.",
     "acceptance": "Demonstrate the failure and preserve recovery identity on a failed final removal.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "26ce4ede2562fea94ea453860079be1624bae859",
+      "verdict": "pass",
+      "evidence": "Original failed final directory delete reproduced under ordinary Windows. Implemented protected no-replace sibling recovery record in ebb467a. Regression covers deletion success, lock, existing record, changed metadata and redirected directory.",
+      "limitations": "Disposable synthetic fixtures. No enrolled broker or real credential."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted implementation for independent source review and operator replay.",
+      "next": "Resolve the original PR15 thread once the reviewed fix is on main."
+    }
   },
   {
     "id": "provider-sequence-pr-audit",
