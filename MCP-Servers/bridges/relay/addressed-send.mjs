@@ -1,10 +1,14 @@
 import { localReceiptStatus, pingLocal, sendLocal } from "./installed-delivery.mjs";
-import { loadDirectory, requestHost } from "./fleet.mjs";
+import { INVENTORY_SURVEY_MS, loadDirectory, requestHost } from "./fleet.mjs";
 import { digest, exactKeys, matches, newRequestId, parseAddress, UUID, validDeliveryFrame } from "./delivery-protocol.mjs";
 
 const states = new Set(["eligible", "queued", "unknown", "missing", "unresolved", "unaddressable", "restricted_route",
   "receive_denied", "provider_unavailable", "reference_unresolved", "request_conflict", "receipts_full",
   "message_too_large", "request_expired", "unavailable", "pending", "delivered", "proof_unavailable"]);
+
+// Resolve surveys the readers twice within one SSH exchange. Keep time for
+// connection and receiver startup in addition to both bounded surveys.
+const exchangeTimeoutMs = { resolve: 5000 + 2 * INVENTORY_SURVEY_MS, status: 5000, send: 45000, ping: 45000 };
 
 function failed(cause, extra = {}) {
   const detail = cause === "unresolved"
@@ -15,7 +19,7 @@ function failed(cause, extra = {}) {
 
 async function exchange(entry, local, frame, query) {
   try {
-    const { reply, error } = await query(entry, frame, ["send", "ping"].includes(frame.op) ? 45000 : 5000);
+    const { reply, error } = await query(entry, frame, exchangeTimeoutMs[frame.op]);
     if (error) return { error };
     if (!exactKeys(reply, ["ok", "v", "op", "requestId", "host", "peer", "state"]) || reply.ok !== true ||
         reply.v !== 2 || reply.op !== frame.op || reply.requestId !== frame.requestId || reply.host !== entry.host ||

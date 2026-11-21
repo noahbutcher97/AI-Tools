@@ -157,6 +157,20 @@ test("a protocol mismatch with an older receiver stops before transmitting the b
   assert.equal(seen[0].message, undefined);
 });
 
+test("a remote dry run allows two slow healthy surveys plus SSH startup", async () => {
+  const calls = [];
+  const startupMs = 800, surveyMs = 2200;
+  const result = await sendAddressed({ to: address, message: "fixture", dryRun: true }, {
+    directory, query: async (entry, frame, timeoutMs) => {
+      calls.push([frame.op, Object.hasOwn(frame, "message")]);
+      if (startupMs + 2 * surveyMs >= timeoutMs) return { error: "timeout" };
+      return { reply: { v: 2, ok: true, op: frame.op, host: entry.host, peer: "host-a", requestId: frame.requestId, state: "eligible" } };
+    },
+  });
+  assert.equal(result.state, "eligible");
+  assert.deepEqual(calls, [["resolve", false]]);
+});
+
 test("remote ping persists its pre-send cursor and status checks it without sending again", needsSqlite, async t => {
   const f = await fixture(t);
   const profile = f.root;

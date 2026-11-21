@@ -11,6 +11,7 @@ const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const SESSION = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
 const MAX_HOSTS = 32;
 const MAX_TARGETS = 256;
+export const INVENTORY_SURVEY_MS = 2300;
 const MAX_RESPONSE = 128 * 1024;
 const validLabel = (value) => typeof value === "string" && LABEL.test(value);
 
@@ -57,7 +58,7 @@ function inventoryWorker(data) {
       worker.unref();
       void worker.terminate();
       reject(new Error("inventory deadline"));
-    }, 2300);
+    }, INVENTORY_SURVEY_MS);
     worker.once("message", resolve);
     worker.once("error", reject);
     worker.once("exit", () => {
