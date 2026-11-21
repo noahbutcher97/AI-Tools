@@ -13,6 +13,27 @@ function Assert-Observation($Actual, $Expected) {
     return $Actual
 }
 
+function Get-LaterSample([int]$targetId,[long]$creation) {
+    $candidate = $handle = $null
+    try {
+        try { $candidate = [Diagnostics.Process]::GetProcessById($targetId) }
+        catch {
+            if ($_.Exception.GetBaseException() -is [ArgumentException]) { return 'absent' }
+            throw
+        }
+        try { $handle = [ProcessEndObservationFixture]::Open($candidate) }
+        catch {
+            $cause = $_.Exception.GetBaseException()
+            if ($cause -is [ComponentModel.Win32Exception] -and $cause.NativeErrorCode -in 5,87) { return 'unavailable' }
+            throw
+        }
+        return [ProcessEndObservationFixture]::Observe($handle,$creation,0)
+    } finally {
+        if ($handle) { $handle.Dispose() }
+        if ($candidate) { $candidate.Dispose() }
+    }
+}
+
 function Test-OwnedChild([int]$ExitCode, [switch]$LoseObserver) {
     $eventName = 'Local\relay-process-end-' + [Guid]::NewGuid().ToString('N')
     $gate = [Threading.EventWaitHandle]::new($false, 'ManualReset', $eventName)
@@ -39,7 +60,15 @@ function Test-OwnedChild([int]$ExitCode, [switch]$LoseObserver) {
 
         if ($LoseObserver) {
             $result = Assert-Observation ([ProcessEndObservationFixture]::Observe($observer, $expected, 0)) 'unknown'
-            return [pscustomobject]@{ initial = $first; reopened = $reopened; afterLoss = $result }
+            $targetId = $child.Id
+            $control = Assert-Observation $child.ExitCode $ExitCode
+            $child.Dispose()
+            $child = $null
+            # A later sample owns neither the observer handle nor the launcher's control handle.
+            $sample = Get-LaterSample $targetId $expected
+            if ($sample -notin @('absent','unavailable','unknown',"exit $ExitCode")) { throw 'Unexpected later sample' }
+            return [pscustomobject]@{ initial = $first; reopened = $reopened; afterLoss = $result
+                controlExit = $control; laterSample = $sample }
         }
         $mismatch = Assert-Observation ([ProcessEndObservationFixture]::Observe($observer, $expected + 1, 0)) 'unknown'
         $result = Assert-Observation ([ProcessEndObservationFixture]::Observe($observer, $expected, 0)) "exit $ExitCode"
