@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { buildHostMetadata, newHostKeys } from "./identity.mjs";
 import { runProvider } from "./provider-process.mjs";
-import { matches, UUID } from "./delivery-protocol.mjs";
+import { matches, HOST, UUID } from "./delivery-protocol.mjs";
 
 // Cross-agent relay — discovery layer (spec section 4.2).
 //
@@ -60,7 +60,7 @@ function defaultCodexHome() {
 // readFile is injectable so a test can assert on which paths were opened, not
 // merely that key contents stayed out of the output — an implementation that
 // read every .key file and discarded it would pass the weaker check.
-function readClaudeTargets(dir, now, readFile, warnings) {
+function readClaudeTargets(dir, now, readFile, warnings, allowIncompleteRows = false) {
   let entries;
   try {
     entries = fs.readdirSync(dir);
@@ -87,12 +87,24 @@ function readClaudeTargets(dir, now, readFile, warnings) {
     // address that stops existing seconds later, mid-turn. This is the Claude
     // analogue of filtering Codex subagent threads, and it is filtered for the
     // same reason: it is another agent's internals, not a peer.
-    if (session.entrypoint === "sdk-cli") continue;
+    if (session?.entrypoint === "sdk-cli") continue;
+    const pid = session?.pid;
+    let nativeId = session?.sessionId;
+    if (nativeId == null || nativeId === "") {
+      if (Number.isSafeInteger(pid) && pid > 0) nativeId = String(pid);
+      else if (typeof pid === "string" && /^[1-9][0-9]{0,9}$/.test(pid)) nativeId = pid;
+    }
+    if (!inventoryText(nativeId, 256)) {
+      const warning = `claude session file ${entry} has no usable session identity`;
+      if (!allowIncompleteRows) throw new Error(warning);
+      warnings.push(warning);
+      continue;
+    }
 
     const status = session.status === "busy" ? "busy" : "idle";
     const addressable = Boolean(session.messagingSocketPath);
     targets.push({
-      id: session.sessionId || String(session.pid),
+      id: nativeId,
       // For Claude the name is also the address SendMessage takes.
       name: session.name || null,
       kind: "claude",
@@ -118,8 +130,7 @@ function readClaudeTargets(dir, now, readFile, warnings) {
 // Assembled from three places because no single one carries enough:
 //   thread-writer-locks/  which threads are live
 //   thread_history_1.sqlite  how many turns, and what the last one is doing
-//   sessions/**/rollout-*.jsonl  cwd and thread_source, which live only in the
-//     first record and are what scope and subagent filtering need
+//   state_5.sqlite  indexed cwd, rollout path and session provenance
 //
 // The lock directory also holds `.coordination.lock`, which is not a thread, so
 // the filter is thread-id shaped rather than *.lock.
@@ -228,10 +239,11 @@ async function readTurnStats(codexHome, ids, openDb, warnings) {
   return stats;
 }
 
-async function readCodexTargets(codexHome, now, openDb, warnings) {
+async function readCodexTargets(codexHome, now, openDb) {
+  const warnings = [];
   const ids = readLockedThreadIds(codexHome, warnings);
   // Nothing live means the 400MB store is never opened.
-  if (!ids.length) return [];
+  if (!ids.length) return { targets: [], warnings, complete: warnings.length === 0 };
 
   const threadIndex = await readThreadIndex(codexHome, openDb, warnings);
   const stats = await readTurnStats(codexHome, ids, openDb, warnings);
@@ -303,7 +315,8 @@ async function readCodexTargets(codexHome, now, openDb, warnings) {
       startedAt: null,
     });
   }
-  return targets;
+  // All lock IDs were enumerated. Index and timing warnings describe those rows.
+  return { targets, warnings, complete: true };
 }
 
 // ── Outbound send (spec 4.3, Codex targets) ──
@@ -1430,10 +1443,12 @@ function formatDuration(ms) {
     .join(" ");
 }
 
-export function formatTargets({ targets = [], warnings = [] } = {}) {
+export function formatTargets({ targets = [], warnings = [], inventory = [] } = {}) {
   const lines = [];
+  const incomplete = inventory.filter(entry => !entry.complete).map(entry => entry.kind);
+  if (incomplete.length) lines.push(`incomplete local inventory: ${incomplete.join(", ")}`);
   if (!targets.length) {
-    lines.push("no agent sessions in scope");
+    lines.push(incomplete.length ? "no sessions found in the available inventory" : "no agent sessions in scope");
   }
   for (const t of targets) {
     const state = t.status === "idle" && t.idleFor !== null ? `idle ${formatDuration(t.idleFor)}` : t.status;
@@ -1451,29 +1466,97 @@ export function formatTargets({ targets = [], warnings = [] } = {}) {
   return lines.join("\n");
 }
 
-export async function discoverTargets(options = {}) {
-  const {
-    claudeSessionsDir = defaultClaudeSessionsDir(),
-    codexHome = defaultCodexHome(),
-    now = Date.now(),
-    openDb = defaultOpenDb,
-    readFile = fs.readFileSync,
-    scope = "cwd",
-    cwd = process.cwd(),
-  } = options;
+const builtinInventory = [
+  {
+    kind: "claude",
+    enumerate({ claudeSessionsDir = defaultClaudeSessionsDir(), now, readFile = fs.readFileSync }, allowIncompleteRows) {
+      const warnings = [];
+      const targets = readClaudeTargets(claudeSessionsDir, now, readFile, warnings, allowIncompleteRows);
+      return { targets, warnings, complete: warnings.length === 0 };
+    },
+  },
+  {
+    kind: "codex",
+    enumerate({ codexHome = defaultCodexHome(), now, openDb = defaultOpenDb }) {
+      return readCodexTargets(codexHome, now, openDb);
+    },
+  },
+];
 
-  const warnings = [];
-  let targets = [
-    ...readClaudeTargets(claudeSessionsDir, now, readFile, warnings),
-    ...(await readCodexTargets(codexHome, now, openDb, warnings)),
-  ];
+function inventoryText(value, maxLength) {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength &&
+    !/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(value);
+}
 
-  // Workspace is a default filter, never a boundary — --scope all reaches
-  // everything. A target whose cwd is unknown never matches a scoped list,
-  // because assuming it belongs to the caller's workspace would be a guess.
-  if (scope !== "all") {
-    targets = targets.filter((t) => t.cwd && sharesWorkspace(t.cwd, cwd));
+// Installed adapters enumerate native IDs. Project only the fields used by
+// local listings. Delivery capability requires its own qualified integration.
+function projectLocalInventory(kind, result) {
+  if (!Array.isArray(result?.targets) || typeof result.complete !== "boolean" ||
+      (result.warnings !== undefined && (!Array.isArray(result.warnings) ||
+        !result.warnings.every(warning => inventoryText(warning, 1024))))) {
+    throw new Error("invalid inventory result");
+  }
+  const warnings = (result.warnings ?? []).map(warning => `${kind}: ${warning}`);
+  const targets = [];
+  let complete = result.complete;
+  for (const row of result.targets) {
+    if (!inventoryText(row?.id, 256)) {
+      complete = false;
+      continue;
+    }
+    targets.push({
+      kind, id: row.id, name: null, cwd: inventoryText(row.cwd, 32767) ? row.cwd : null,
+      status: ["idle", "busy"].includes(row.status) ? row.status : "unknown",
+      idleFor: null, turns: null, pid: null, startedAt: null,
+      addressable: false, reason: "local inventory only",
+    });
+  }
+  if (targets.length !== result.targets.length) warnings.push(`${kind}: omitted an invalid session ID`);
+  return { targets, warnings, complete };
+}
+
+// Each trusted enumerator bounds its own I/O and reports complete: false on
+// timeout or truncation. A thrown error marks only that adapter incomplete.
+export function createLocalInventory(additionalAdapters = []) {
+  const adapters = [...builtinInventory];
+  for (const adapter of additionalAdapters) {
+    const kind = adapter?.kind;
+    if (!matches(HOST, kind) || typeof adapter.enumerate !== "function" || adapters.some(a => a.kind === kind)) {
+      throw new Error("invalid or duplicate inventory adapter");
+    }
+    const enumerate = adapter.enumerate.bind(adapter);
+    adapters.push({ kind, enumerate: async () => projectLocalInventory(kind, await enumerate()) });
   }
 
+  return options => collectInventory(adapters, options, true);
+}
+
+async function collectInventory(adapters, options = {}, allowPartialFailure) {
+  const { scope = "cwd", cwd = process.cwd(), now = Date.now() } = options;
+  const targets = [];
+  const warnings = [];
+  const inventory = [];
+  for (const adapter of adapters) {
+    try {
+      const result = await adapter.enumerate({ ...options, now }, allowPartialFailure);
+      for (const row of result.targets) {
+        if (scope === "all" || sharesWorkspace(row.cwd, cwd)) targets.push(row);
+      }
+      warnings.push(...result.warnings);
+      inventory.push({ kind: adapter.kind, complete: result.complete });
+    } catch (err) {
+      if (!allowPartialFailure) throw err;
+      warnings.push(`${adapter.kind} inventory could not be read`);
+      inventory.push({ kind: adapter.kind, complete: false });
+    }
+  }
+  return { targets, warnings, inventory, complete: inventory.every(adapter => adapter.complete) };
+}
+
+// Only the local CLI and MCP list use this installation binding. Send, proof
+// and fleet discovery retain the built-in provider set and existing protocols.
+export const listLocalTargets = createLocalInventory();
+export async function discoverTargets(options) {
+  const { targets, warnings } = await collectInventory(builtinInventory, options, false);
   return { targets, warnings };
 }

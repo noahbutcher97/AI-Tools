@@ -5,7 +5,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { discoverTargets, formatTargets, normalizeCwd, parseArgs } from "./client.mjs";
+import {
+  createLocalInventory, discoverTargets, formatTargets, listLocalTargets,
+  normalizeCwd, parseArgs, resolveReference, sendMessage,
+} from "./client.mjs";
+import { inventory as fleetInventory } from "./fleet.mjs";
 
 // node:sqlite arrived in Node 22.5 and the bridge treats it as an optional
 // capability, so the tests that build a real thread store skip rather than fail
@@ -237,6 +241,125 @@ test("an empty codex lock directory yields no codex targets and no warning", asy
 
   assert.deepEqual(targets.map((t) => t.kind), ["claude"]);
   assert.deepEqual(warnings, []);
+});
+
+test("installed local inventory keeps opaque IDs, colliding rows and workspace scope", async () => {
+  const id = "Chat:A/B";
+  const discover = createLocalInventory([{
+    kind: "example",
+    enumerate: async () => ({
+      complete: true,
+      targets: [
+        { id, kind: "codex", cwd: "D:/Work/Alpha/sub", addressable: true, privateField: "omitted" },
+        { id: "Outside", cwd: "D:/Work/AlphaBeta" },
+        { id: "Unknown" },
+      ],
+    }),
+  }]);
+  const options = {
+    claudeSessionsDir: claudeRegistry([claudeSession({ sessionId: id })]), codexHome: emptyCodexHome(),
+    cwd: "D:/Work/Alpha",
+  };
+  const scoped = await discover(options);
+  assert.equal(scoped.complete, true);
+  assert.deepEqual(scoped.inventory, ["claude", "codex", "example"].map(kind => ({ kind, complete: true })));
+  assert.deepEqual(scoped.targets.map(row => [row.kind, row.id]), [["claude", id], ["example", id]]);
+  assert.equal(scoped.targets[1].addressable, false);
+  assert.equal(Object.hasOwn(scoped.targets[1], "privateField"), false);
+  assert.match(formatTargets(scoped), /Chat:A\/B\s+\[example\][\s\S]*local inventory only/);
+  const all = await discover({ ...options, scope: "all" });
+  assert.deepEqual(all.targets.filter(row => row.kind === "example").map(row => row.id), [id, "Outside", "Unknown"]);
+});
+
+test("partial enumeration retains available rows and healthy adapters", async () => {
+  const discover = createLocalInventory([
+    { kind: "timed-out", enumerate() { throw new Error("diagnostic detail"); } },
+    { kind: "truncated", enumerate: () => ({ complete: false, targets: [{ id: "Partial" }] }) },
+    { kind: "healthy", enumerate: () => ({ complete: true, targets: [{ id: "Found" }], warnings: ["timing unknown"] }) },
+  ]);
+  const options = { claudeSessionsDir: tmpdir(), codexHome: emptyCodexHome() };
+  const all = await discover({ ...options, scope: "all" });
+  assert.equal(all.complete, false);
+  assert.deepEqual(all.targets.map(row => row.id), ["Partial", "Found"]);
+  assert.deepEqual(all.inventory.filter(row => !row.complete).map(row => row.kind), ["timed-out", "truncated"]);
+  assert.match(formatTargets(all), /incomplete local inventory: timed-out, truncated/);
+  assert.match(formatTargets(all), /healthy: timing unknown/);
+  assert.doesNotMatch(formatTargets(all), /diagnostic detail/);
+  const empty = await discover(options);
+  assert.match(formatTargets(empty), /no sessions found in the available inventory/);
+});
+
+test("missing coverage, unsafe IDs and failed native registry reads cannot report complete inventory", async () => {
+  const dir = tmpdir();
+  fs.writeFileSync(path.join(dir, "1000.json"), "null");
+  const discover = createLocalInventory([
+    { kind: "invalid", enumerate: () => ({ targets: [] }) },
+    { kind: "mixed", enumerate: () => ({ complete: true, targets: [{ id: "Line\nBreak" }, { id: "Good" }] }) },
+  ]);
+  const partial = await discover({ claudeSessionsDir: dir, codexHome: tmpdir(), scope: "all" });
+  assert.equal(partial.complete, false);
+  assert.deepEqual(partial.inventory.filter(row => !row.complete).map(row => row.kind), ["claude", "codex", "invalid", "mixed"]);
+  assert.deepEqual(partial.targets.map(row => row.id), ["Good"]);
+  assert.match(formatTargets(partial), /omitted an invalid session ID/);
+});
+
+test("list can recover available rows while legacy send and reference selection propagate unexpected registry failures", async () => {
+  const dir = claudeRegistry([claudeSession()]);
+  fs.writeFileSync(path.join(dir, "2000.json"), "null");
+  const options = { claudeSessionsDir: dir, codexHome: emptyCodexHome(), scope: "all", to: "sess-1000" };
+  const listed = await listLocalTargets(options);
+  assert.equal(listed.complete, false);
+  assert.deepEqual(listed.targets.map(row => row.id), [options.to]);
+  await assert.rejects(sendMessage({ ...options, dryRun: true, allowDelegate: true, message: "fixture" }), /no usable session identity/);
+  await assert.rejects(resolveReference({ ...options, re: "turn" }), /no usable session identity/);
+});
+
+test("Claude inventory refuses malformed native IDs and preserves valid legacy PID addresses", async () => {
+  const registry = tmpdir();
+  const records = [
+    { sessionId: "broken\nrecord", pid: 42 }, { sessionId: "x".repeat(257) },
+    { pid: {} }, { pid: "invalid" }, { name: "incomplete", messagingSocketPath: "fixture" },
+    { pid: 1234 }, { pid: "1235" },
+  ];
+  for (const [index, record] of records.entries()) {
+    fs.writeFileSync(path.join(registry, index + ".json"), JSON.stringify(record));
+  }
+  const options = { claudeSessionsDir: registry, codexHome: emptyCodexHome(), scope: "all" };
+  const listed = await listLocalTargets(options);
+  assert.equal(listed.complete, false);
+  assert.deepEqual(listed.targets.map(row => row.id).sort(), ["1234", "1235"]);
+  assert.equal(listed.warnings.length, 5);
+  await assert.rejects(sendMessage({ ...options, to: "undefined", dryRun: true, message: "fixture" }), /no usable session identity/);
+  await assert.rejects(resolveReference({ ...options, to: "undefined", re: "turn" }), /no usable session identity/);
+  await assert.rejects(fleetInventory(options), /no usable session identity/);
+});
+
+test("Codex's lock inventory is complete when index and timing metadata are unavailable", async () => {
+  const home = codexHome();
+  addLock(home, USER_THREAD);
+  const listed = await listLocalTargets({ claudeSessionsDir: tmpdir(), codexHome: home, scope: "all" });
+  assert.deepEqual(listed.targets.map(row => row.id), [USER_THREAD]);
+  assert.equal(listed.complete, true);
+  assert.match(formatTargets(listed), /turn counts unavailable/);
+  assert.match(formatTargets(listed), /unknown index provenance/);
+  assert.doesNotMatch(formatTargets(listed), /incomplete local inventory/);
+});
+
+test("local inventory refuses duplicate adapter registrations and keeps request options out of registration", async () => {
+  const to = "ExtraSession";
+  let calls = 0;
+  const adapter = { kind: "example", enumerate() { calls++; return { complete: true, targets: [{ id: to }] }; } };
+  assert.throws(() => createLocalInventory([adapter, adapter]), /duplicate/);
+  assert.throws(() => createLocalInventory([{ ...adapter, kind: "codex" }]), /duplicate/);
+  const options = { scope: "all", claudeSessionsDir: tmpdir(), codexHome: emptyCodexHome() };
+  assert.deepEqual((await createLocalInventory([adapter])(options)).targets.map(row => row.id), [to]);
+  const request = { ...options, additionalAdapters: [adapter], to };
+  assert.deepEqual((await discoverTargets(request)).targets, []);
+  assert.equal((await sendMessage({ ...request, message: "fixture", dryRun: true })).cause, "target_not_found");
+  assert.match((await resolveReference({ ...request, re: "turn" })).detail, /no live agent session/);
+  const fleet = await fleetInventory({ ...options, additionalAdapters: [{ kind: "example", targets: [{ id: to }] }] });
+  assert.deepEqual(fleet.targets, []);
+  assert.equal(calls, 1);
 });
 
 // ── Codex discovery ──

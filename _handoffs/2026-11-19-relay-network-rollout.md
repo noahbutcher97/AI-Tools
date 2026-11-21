@@ -8,6 +8,14 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 Provider coverage is open-ended. Claude Code and Codex are the first clients to qualify. Apply the shared adapter and capability requirements to each watcher and routing checkpoint, including a synthetic client unknown to the core. Keep live support claims specific to the client and operation actually tested. [Provider compatibility](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#provider-compatibility)
 
+### Local inventory and exact addressing
+
+The first implementation checkpoint covers local discovery. The CLI and MCP list share an installation-defined set of inventory readers. `list --json` and `relay_list` report which readers finished enumerating native IDs. A reader can enumerate its IDs even when workspace or activity data is unavailable. Workspace-scoped lists include only rows with a known matching workspace. An additional inventory reader can make a session visible before its client has a qualified delivery path.
+
+The independent reviewer held the first revision after reproducing a reader method losing its receiver, malformed native IDs and an invented legacy address. The recheck accepted the fixes at `3e6fc3b` through both local interfaces and the legacy refusal paths. The full Windows relay suite passed 384 tests with one opt-in skip. A fresh terminal operator used help and one JSON listing to identify the raw ID and the incomplete reader after the help text was clarified. The additional client in this checkpoint was synthetic. No model turns or hosted repository credentials were needed. [Worker returns](relay-worker-handoffs.json)
+
+The next checkpoint is exact local selection. Establish which readers the installation enables, including on a machine with one client. Test a literal ID containing a selector delimiter, the same raw ID reported by two adapters, and a unique-looking raw ID while another enabled reader is unavailable. Require an unresolved result before any effect for the latter two unqualified cases. Then qualify the same binding through send, receipt lookup, receive and watcher grants before connecting external process-end delivery. The first compatibility claim for an additional client still requires a real session.
+
 ### External process-end observation
 
 Before wiring process exit to grants or delivery, qualify the shared adapter contract in Phase I. Keep the prior A/B evidence as a regression baseline. The native observation work can continue independently. The product rollout remains A/B, I/C, F/E, G/H, then D. [Contract and acceptance cases](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work)
