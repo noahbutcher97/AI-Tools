@@ -6,7 +6,18 @@
     "revision": "023bdb9ceb8eaf3b4fa09c548f7f0e59af6bc6ac",
     "scope": "Repeat the ordinary credential recovery walkthrough and local test after renaming the test output. No elevated or installed work.",
     "acceptance": "Verify the cleanup assertion is discoverable and preserve the stop conditions.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "023bdb9ceb8eaf3b4fa09c548f7f0e59af6bc6ac",
+      "verdict": "pass",
+      "evidence": "The ordinary fixture passed 1/1 with no skips. The TAP label now identifies recovery evidence on cleanup failure. The operator correctly retained both records or any ambiguous identity.",
+      "limitations": "Agent-operated disposable test and documentation walkthrough. No installed or live credential actions."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the corrected walkthrough.",
+      "next": "Wait for final applicable CI and reviews, then close the historical thread on main."
+    }
   },
   {
     "id": "provider-sequence-cleanup-review",
