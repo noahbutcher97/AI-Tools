@@ -1,12 +1,43 @@
 [
   {
+    "id": "relay-bound-final-review",
+    "worker": "independent delivery reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "11b002195831b7ddc3816cacc6fd5119e975cd06",
+    "scope": "Recheck the combined legacy-name survey and native eligibility loss against the final implementation.",
+    "acceptance": "Require zero submissions on late alias collision or loss of rollout, one for unchanged settings, and assess whether the remaining provider race is inherent.",
+    "state": "accepted",
+    "result": {
+      "revision": "11b002195831b7ddc3816cacc6fd5119e975cd06",
+      "verdict": "Accept local exact delivery and proof at the reviewed implementation revision.",
+      "evidence": "An unchanged alias and a live native thread each submitted once. Collisions during each legacy binding survey, lost rollout or turns, reader withdrawal and machine relabel produced zero submissions. Fresh CLI processes kept both positional and literal sends in the checked Codex profile. All 110 focused tests passed.",
+      "limitations": "Synthetic stores, recording adapters and real CLI processes. Final provider observation and OS submission are separate operations. No remote, installed watcher or live provider calls by this reviewer."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept local source. Coordinator live trials on both desktops independently proved exactly one consumed probe in a disposable session per trial.",
+      "next": "Proceed to the existing remote Codex selection and policy checkpoint."
+    }
+  },
+  {
     "id": "relay-bound-native-eligibility",
     "worker": "native delivery implementer",
     "coordinator": "relay coordinator",
     "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
     "scope": "Keep native Codex addressability in the final send survey after queue-store preparation.",
     "acceptance": "Regress a still-discoverable thread losing rollout eligibility during the last asynchronous queue open. Zero provider calls after loss, one for stable state. Preserve read-only resolution behavior.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "439548efb3cb1ac34ecd77c39860727a631196aa",
+      "verdict": "Final installed survey now enforces native queue eligibility.",
+      "evidence": "The original thread remained discoverable after loss of its rollout and received one submission. The final implementation submitted once for a stable thread and zero after loss during queue opening or peer enumeration. Read-only lookup still found its raw ID. All 163 focused tests passed.",
+      "limitations": "Synthetic Windows SQLite stores and recording queue. A provider can still change state after the last observation."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accept for independent review on the combined candidate.",
+      "next": "Repeat live proof and check all open review threads."
+    }
   },
   {
     "id": "relay-remote-binding-premise",
