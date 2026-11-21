@@ -1,5 +1,14 @@
 [
   {
+    "id": "shared-native-process-lease",
+    "worker": "native fixture implementer",
+    "scope": "Implement the shared native process handle table for the disabled qualification path. Wire the existing ordinary interactive fixture through it. No installed entry point or scheduling changes.",
+    "acceptance": "Bounded live attachments, exact canonical FILETIME, guarded open, nonblocking sample, revocation, monotonic lease expiry and deterministic disposal. Pin with focused positive and negative native fixture checks.",
+    "revision": "e4beb8e6ac7191132f47bfbf5b005d434d07dbe8",
+    "coordinator": "relay coordinator",
+    "state": "assigned"
+  },
+  {
     "id": "shared-process-fixture-recheck",
     "worker": "independent source reviewer",
     "scope": "Recheck the independent cleanup control, desktop guard and implementation attribution.",
