@@ -216,7 +216,7 @@ async function runTrial() {
       startsAt: new Date(Date.now() + 8000).toISOString(), expiresAt: new Date(Date.now() + 180000).toISOString() };
     let submissions = 0, proofs = 0;
     let queueId;
-    let ordinaryTurn, receipt, ordinaryActiveAtLaunch = false;
+    let ordinaryTurn, receipt, ordinaryConfirmedAfterQueue = false;
     const receiptFile = path.join(root, "turn-receipt.json");
     const open = () => openCompletionJobs(file, { schedules: { root, policy: () => [grant] },
       send: (to, text, options) => {
@@ -226,7 +226,7 @@ async function runTrial() {
           queueId = result.queuedId;
           return result;
         };
-        return sendProvedNotice(to, text, { ...options, send: turnStudy ? observeSend : sendMessage, runQueue: async (dest, envelope) => {
+        return sendProvedNotice(to, text, { ...options, send: metadataOnly ? observeSend : sendMessage, runQueue: async (dest, envelope) => {
           assert.ok(dest === id, "Unexpected schedule destination");
           if (proofStudy) {
             const direct = await provider.call("turn/start", { threadId: id, input: [
@@ -234,7 +234,6 @@ async function runTrial() {
             ] });
             ordinaryTurn = direct.turn.id;
             await until(() => startedSignals.has(ordinaryTurn), 5000, "Ordinary turn start was unobserved");
-            ordinaryActiveAtLaunch = !provider.turns.has(ordinaryTurn);
           }
           submissions++;
           return runProvider(image, ["queue", "--thread", dest, "--message", envelope], { cwd: root });
@@ -278,6 +277,15 @@ async function runTrial() {
         return submissions === 1;
       }, 15000, "No notice submission for the overlap trial");
       assert.equal(proofs, 0, "Expected restart before proof");
+      if (queueId) {
+        // Codex enforces expectedTurnId on the active writer. A late
+        // notification alone cannot establish overlap with queue acceptance.
+        try {
+          const steered = await provider.call("turn/steer", { threadId: id, expectedTurnId: ordinaryTurn,
+            input: [{ type: "text", text: "Finish with a period.", text_elements: [] }] });
+          ordinaryConfirmedAfterQueue = steered.turnId === ordinaryTurn;
+        } catch { /* Still recover the one submission and archive the trial. */ }
+      }
       store.close(); store = await open();
     }
     await until(async () => {
@@ -287,7 +295,6 @@ async function runTrial() {
     assert.equal(submissions, 1);
     assert.equal(store.watches.subscriptions([grant])[0].state, "waiting");
     if (proofStudy) {
-      assert.ok(ordinaryActiveAtLaunch, "Ordinary turn had already ended at queue launch");
       assert.ok(receipt && receipt.turn !== seed.turn.id, "Missing post-cursor turn binding");
       await until(() => [ordinaryTurn, receipt.turn].every(turn =>
         startedSignals.has(turn) && provider.turns.get(turn) === "completed"), 90000, "Trial turns did not finish");
@@ -298,8 +305,9 @@ async function runTrial() {
         const cold = spawnSync(process.execPath, [helper], { stdio: [fd, "ignore", "ignore"], windowsHide: true, timeout: 10000 });
         assert.equal(cold.status, 0, "Fresh process could not confirm the retained turn binding");
       } finally { fs.closeSync(fd); }
-      console.log(JSON.stringify({ ordinaryActiveAtQueueLaunch: true, consumedNotices: proofs,
+      console.log(JSON.stringify({ ordinaryTurnConfirmedAfterQueue: ordinaryConfirmedAfterQueue, consumedNotices: proofs,
         consumedInOrdinaryTurn: receipt.turn === ordinaryTurn, observedCompleted: true, coldReceiptMatched: true }));
+      assert.ok(ordinaryConfirmedAfterQueue, "Overlap inconclusive: original active turn could not be confirmed after queue acceptance");
     }
     if (turnStudy) {
       // Completion of delivery can precede completion of the recipient's turn.

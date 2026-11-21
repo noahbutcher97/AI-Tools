@@ -26,6 +26,9 @@ async function readCodex(root, id, cursor, expected, onCodexTurn) {
       if (!anchor || !Number.isSafeInteger(anchor.n)) throw new Error("no cursor");
       return { kind: "codex", id, instance: file.instance, ...anchor };
     }
+    // Anchor validation and the bounded scan must see one history snapshot.
+    // Closing this read-only connection ends the transaction on every exit.
+    db.exec("BEGIN");
     if (cursor.instance !== file.instance || !db.prepare("SELECT 1 FROM thread_items WHERE thread_id=? AND turn_id=? AND item_id=? AND rollout_ordinal=?")
       .get(id, cursor.turn_id, cursor.item_id, cursor.n)) return "proof_unavailable";
     const rows = db.prepare(`SELECT CASE WHEN ? AND length(CAST(turn_id AS BLOB))=36 THEN turn_id END AS turn_id,

@@ -6,7 +6,18 @@
     "acceptance": "Check scope and ambiguity, negative cases, ordinary proof compatibility and limits of live inference.",
     "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+      "verdict": "Two findings require correction.",
+      "evidence": "The two SQLite statements could observe different history snapshots. A two-connection WAL fixture demonstrated the race. Event arrival order established only client-observed overlap. Seven focused tests passed.",
+      "limitations": "Synthetic review and supplied redacted trial results. No live provider."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Use one read transaction and a provider-confirmed active-turn precondition after queue acceptance.",
+      "next": "Independently recheck the corrected candidate."
+    }
   },
   {
     "id": "receipt-turn-operator",
@@ -15,7 +26,18 @@
     "acceptance": "Recover the correct flag, cost, version and cleanup steps without coaching. No provider or credential use.",
     "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
     "coordinator": "relay coordinator",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "b6039c9cda5ed9760e6c12647653a1bb21a1f42e",
+      "verdict": "Recovery and command selection need clarification.",
+      "evidence": "The operator identified the success fields and mixed-input interpretation but found the linked older command, two-turn retry budget and unclear temporary receipt cleanup.",
+      "limitations": "Agent using documentation only. No human participant or live run."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Supply a complete current command and dedicated recovery instructions.",
+      "next": "Replay the operator task against the corrected guide."
+    }
   },
   {
     "id": "turn-metadata-source-recheck",

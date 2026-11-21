@@ -8,11 +8,21 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ### Delivery proof and turn identity
 
-The first live overlap trial on the previously qualified Codex build found one consumed scheduled notice in a different turn from the ordinary input. The ordinary turn was still active when the runner launched the queue command. The isolated watcher store was reopened between submission and proof. A fresh process authenticated the retained handle and independently recovered the same thread, history-file instance and turn after the watcher retired its handle. Automatic session-state notices remain disabled. Independent review, operator replay and a final candidate run are the closure gates.
+Two initial live trials each found one consumed scheduled notice in a different turn from the ordinary input. The client had seen the ordinary turn start when it launched the queue command and received its completion later. A fresh process recovered the same thread, history-file instance and turn after the isolated watcher store retired its handle. The revised trial additionally asks the provider to accept another ordinary input on the exact active turn after queue confirmation. Automatic session-state notices remain disabled.
 
-To repeat, use the Windows version and native executable checks below. Replace the final flag `--turn-metadata` with `--turn-receipt`. Run from the checkout root with the signed-in default profile and a Node release with `node:sqlite`. Budget one disposable thread with a seed turn, an ordinary turn and at most one additional turn for the scheduled notice. The runner archives its thread. It uses a private temporary receipt and removes it on normal completion.
+From the checkout root on an enrolled Windows x64 desktop, use the signed-in default profile and a Node release with `node:sqlite`. Budget two to three low-effort model turns in one disposable thread per attempt. A further brief input targets the ordinary turn while it is active. The trial archives its thread and removes its temporary receipt on normal completion.
 
-Require exit zero and the archive confirmation. A passing report has `ordinaryActiveAtQueueLaunch: true`, `consumedNotices: 1`, `observedCompleted: true` and `coldReceiptMatched: true`. The boolean `consumedInOrdinaryTurn` records whether the ordinary input and the notice shared a turn. Either result excludes the notice-bearing turn from automatic dispatch. The queue launch measurement does not establish the provider's exact acceptance time. If proof is missing or ambiguous, mark the trial inconclusive. Follow the interrupted-run guidance below before a repeat.
+```powershell
+$release = Join-Path $env:USERPROFILE '.codex/packages/app-server-daemon/releases/0.170.0-x86_64-pc-windows-msvc'
+$image = Join-Path $release 'bin/codex.exe'
+if (!(Test-Path -LiteralPath $image -PathType Leaf)) { throw 'Tested Codex release is unavailable' }
+if ((& $image --version) -ne 'codex-cli 0.170.0') { throw 'Codex version differs from the tested release' }
+node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs "$image" --turn-receipt
+```
+
+Require exit zero and the archive confirmation. A passing report has `ordinaryTurnConfirmedAfterQueue: true`, `consumedNotices: 1`, `observedCompleted: true` and `coldReceiptMatched: true`. The watcher store reopens before proof. Later a fresh process rechecks the saved receipt. The boolean `consumedInOrdinaryTurn` records whether the notice and the ordinary input shared a turn. Either result excludes the notice-bearing turn from automatic dispatch. A refused active-turn check leaves overlap inconclusive even when receipt recovery succeeds.
+
+After interruption, mark the run inconclusive. Check the local session history for the disposable `relay-check-` thread created at the run's start time. Archive only a uniquely identified trial thread. A hard stop can leave `turn-receipt.json` in the trial's `relay-resume-*` directory under the current user's temporary directory. Keep the receipt private. Once the trial has stopped, remove that receipt only if you can identify the directory from this run. Leave ambiguous matches untouched and record cleanup as pending. Each fresh attempt costs another two to three turns.
 
 ### Earlier turn metadata trial
 
