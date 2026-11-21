@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-local-inventory-recheck",
+    "worker": "independent inventory reviewer",
+    "coordinator": "relay coordinator",
+    "revision": "3e6fc3bff4f60c35f26ab86ebcb5de46eed3bb91",
+    "scope": "Recheck the held class reader, malformed registry records and CLI/MCP behavior on committed bytes.",
+    "acceptance": "Verify each initial finding has a regression and confirm the read-only slice and its limits.",
+    "state": "accepted",
+    "result": {
+      "revision": "3e6fc3bff4f60c35f26ab86ebcb5de46eed3bb91",
+      "verdict": "Accept the corrected local inventory implementation.",
+      "evidence": "Verified the implementation revision, eight focused tests, a class reader with a delimiter-bearing native ID, and four malformed identity fixtures. Both real local faces reported incomplete coverage and recovered. Send dry-run, reference and fleet refused malformed identities.",
+      "limitations": "Synthetic local profiles. No live additional client or delivery, installed setup or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for local inventory. The terminal replay and entry-point regression cover the operator task.",
+      "next": "Implement exact host-local resolution separately."
+    }
+  },
+  {
     "id": "relay-local-inventory-replay",
     "worker": "independent terminal replay",
     "coordinator": "relay coordinator",
