@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash, randomUUID } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { sampleInstalledBranch } from "./branch-observation.mjs";
 import { parseArgs } from "./client.mjs";
 import { listenForJobReports, reportJob, startCompletionBroker } from "./completion-broker.mjs";
@@ -58,6 +59,48 @@ async function fixture(t, fileWatch = false, credential = null) {
   await f.restart();
   return f;
 }
+
+test("a restored watch with an unreadable witness pauses while an independent grant continues", async t => {
+  const f = await fixture(t, true);
+  const healthy = { ...f.g, condition: randomUUID(), file: "other" };
+  f.policy.push(healthy);
+  f.store.watches.provision();
+  for (const g of f.policy) assert.equal((await f.subscribe(g.condition)).ok, true);
+  const db = new DatabaseSync(f.file);
+  try { db.prepare("UPDATE broker_seals SET mac='' WHERE kind='file_samples' AND id=?").run(f.g.condition); }
+  finally { db.close(); }
+  await f.restart();
+  assert.deepEqual(f.rows(), [
+    { id: f.g.condition, target: f.to, condition: "file", state: "paused", reason: "stored_state_unverified" },
+    { id: healthy.condition, target: f.to, condition: "file", state: "waiting" },
+  ]);
+  const opened = [];
+  f.sample = g => { opened.push(g.condition); return "absent"; };
+  assert.equal((await f.subscribe(f.g.condition)).ok, false);
+  await f.observe();
+  assert.deepEqual(opened, [healthy.condition]);
+  assert.equal(f.sends, 0);
+  assert.equal(f.proofs, 0);
+  f.policy = [healthy];
+  assert.deepEqual(f.rows().map(r => r.id), [healthy.condition]);
+});
+
+test("restoring an older watch cursor cannot replace the original pending proof", async t => {
+  const f = await fixture(t);
+  await f.subscribe();
+  f.now += 60000;
+  await f.observe();
+  assert.equal(f.sends, 1);
+  const db = new DatabaseSync(f.file);
+  try { db.prepare("UPDATE schedule_watches SET cursor=0 WHERE condition=?").run(f.g.condition); }
+  finally { db.close(); }
+  await f.restart();
+  f.now += 60000;
+  assert.equal(await f.observe(), false);
+  assert.equal(f.sends, 1);
+  assert.equal(f.proofs, 0);
+  assert.equal(f.rows()[0].reason, "stored_state_unverified");
+});
 
 test("separately granted file changes coalesce and exhaust one fixed notice across writer resumes", async t => {
   const f = await fixture(t, true);
@@ -308,8 +351,8 @@ test("fixed clock grants reject redirection, job operations and reused condition
   assert.deepEqual(f.rows(), []);
   await f.subscribe();
   f.policy = [{ ...g, intervalSeconds: 120 }];
-  assert.throws(() => f.store.watches.provision());
-  assert.deepEqual(f.rows(), []);
+  f.store.watches.provision();
+  assert.deepEqual(f.rows(), [{ id: g.condition, target: g.target, condition: "schedule", state: "paused", reason: "grant_changed" }]);
   await assert.rejects(f.report(grant, "activate_schedule", { session: f.to }));
   f.now += 120000;
   assert.equal(await f.observe(), false);
@@ -357,7 +400,11 @@ test("a protected v6 branch grant activates by condition ID and keeps its creden
   await service.close();
   policy.branches[0] = { ...f.g, credential: randomUUID() };
   fs.writeFileSync(file, JSON.stringify(policy));
-  await assert.rejects(launch(), /changed schedule requires a new condition ID/);
+  service = await launch();
+  assert.deepEqual(readWatcher(f.root).record.subscriptions, [
+    { id: f.g.condition, target: f.to, condition: "branch", state: "paused", reason: "grant_changed" },
+  ]);
+  await service.close();
   policy.branches[0].credential = "../record";
   fs.writeFileSync(file, JSON.stringify(policy));
   await assert.rejects(launch(), /invalid branch authority/);

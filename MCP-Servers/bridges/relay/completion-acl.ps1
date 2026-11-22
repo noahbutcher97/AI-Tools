@@ -151,7 +151,7 @@ function Get-CompletionRoot {
     Assert-BrokerAcl $state $trusted -PrivateState
     Assert-BrokerAcl (Join-Path $state 'jobs.sqlite') $trusted -PrivateState
     foreach ($file in Get-ChildItem -LiteralPath $state -Force) {
-        if ($file.PSIsContainer -or $file.Name -notin @('jobs.sqlite','jobs.sqlite-journal','jobs.sqlite-wal','jobs.sqlite-shm')) {
+        if ($file.PSIsContainer -or $file.Name -notin @('jobs.sqlite','jobs.sqlite.key','jobs.sqlite-journal','jobs.sqlite-wal','jobs.sqlite-shm')) {
             throw 'Unexpected broker state file'
         }
         Assert-BrokerAcl $file.FullName $trusted -PrivateState

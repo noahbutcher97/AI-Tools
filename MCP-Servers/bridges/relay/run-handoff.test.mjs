@@ -175,18 +175,32 @@ test("empty stdin launches two literal commands with two grants and refuses a th
   } finally { await listener.close(); }
 });
 
-test("v2 stores keep outstanding grants through the handoff migration", async t => {
+test("v2 stores preserve an unsigned outstanding grant for inspection and refuse its claim", async t => {
   const f = await fixture(t);
   const existing = f.store.issue(target, f.until);
   const db = new DatabaseSync(f.db);
-  try { db.exec("DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only; PRAGMA user_version=2"); }
+  try { db.exec("DROP TABLE broker_seals; DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only; PRAGMA user_version=2"); }
   finally { db.close(); }
   const upgraded = await openCompletionJobs(f.db, { permits: loadJobPolicy(f.root) });
   try {
-    upgraded.acceptFrame(prepareJobRequest(existing, "claim", null).frame);
-    assert.equal(await upgraded.dispatch(existing.id), "claimed");
+    assert.throws(() => upgraded.acceptFrame(prepareJobRequest(existing, "claim", null).frame), /denied/);
+    assert.equal(await upgraded.dispatch(existing.id), "unavailable");
+    assert.deepEqual(upgraded.subscriptions(), { partial: true, subscriptions: [] });
     await f.issue();
   } finally { upgraded.close(); }
+});
+
+test("an unverifiable handoff does not publish or allocate another set of jobs", async t => {
+  const f = await fixture(t);
+  await f.issue();
+  const contents = fs.readFileSync(f.file);
+  const db = new DatabaseSync(f.db);
+  try { db.prepare("UPDATE broker_seals SET mac='' WHERE kind='grant_handoffs' AND id=?").run(binding); }
+  finally { db.close(); }
+  assert.deepEqual(await f.issue(), { state: "paused", reason: "stored_state_unverified" });
+  assert.equal(f.store.subscriptions().partial, true);
+  assert.equal(f.store.subscriptions().subscriptions.length, 2);
+  assert.deepEqual(fs.readFileSync(f.file), contents);
 });
 
 // The real CLI uses the installed broker port. Run explicitly on an otherwise
