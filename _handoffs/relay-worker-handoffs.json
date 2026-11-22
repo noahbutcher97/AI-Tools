@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-rollout-checkpoint-map",
+    "revision": "2649f38b84940281b662062875b8ba85aa48bdea",
+    "worker": "independent plan reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of the proposed checkpoint map against the rollout design, phase evidence and handoff protocol.",
+    "acceptance": "Check counts, dependencies, accepted scope, current assignment and missing closure requirements. Identify any material planning gap.",
+    "state": "accepted",
+    "result": {
+      "revision": "2649f38b84940281b662062875b8ba85aa48bdea",
+      "verdict": "Hold for two planning corrections.",
+      "evidence": "The reviewer reconciled 39 unique IDs, ten accepted scopes, stage totals and the next assignment. The proposed watcher dependencies omitted the cross-face adapter gate. The namespace race criterion exceeded snapshot uniqueness.",
+      "limitations": "Documentation review against existing sources. No code changes, provider sessions or new deployment trials."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted both findings. Add the cross-face prerequisite before recipient-facing watcher work and distinguish visible duplicates from a rival claim after selection. Show per-letter counts.",
+      "next": "Independently recheck the revised map before merging."
+    }
+  },
+  {
     "id": "relay-remote-v2-final-review",
     "worker": "independent receiver reviewer",
     "coordinator": "relay coordinator",
