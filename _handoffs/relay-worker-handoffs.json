@@ -1,5 +1,25 @@
 [
   {
+    "revision": "dfe3a53dff9bbc8e6077752b972dd3646f9ca595",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-a4-i5-integration-review",
+    "worker": "independent integration reviewer",
+    "scope": "Review combined CLI, MCP, receiver and CI after integrating two separately reviewed checkpoints.",
+    "acceptance": "Check the merged public interfaces preserve both branches, run focused replays and review changed shared callers.",
+    "result": {
+      "revision": "dfe3a53dff9bbc8e6077752b972dd3646f9ca595",
+      "verdict": "Passed combined implementation review.",
+      "evidence": "Compared the shared CLI, MCP server, relay client and CI against the two reviewed parents. All 26 selected Windows tests passed. One MCP process handled a remote collision, a failed local send with unavailable storage, then a qualified lookup. Two body-free reads and zero submissions were recorded. There was no receipt database or recovery file.",
+      "limitations": "Disposable Windows installation and process pipes on Node 22.20.0. External SSH, installed provider delivery and Linux were outside the combined recheck."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Retain both source acceptances. I6 is next, with B3 required for sustained use."
+    }
+  },
+  {
     "revision": "73c18e6c4cb7be686c8ccde63e922ef53b37f5bf",
     "coordinator": "relay coordinator",
     "state": "accepted",
