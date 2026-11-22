@@ -72,11 +72,16 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
     return grants.filter(g => Date.parse(g.expiresAt) > now());
   }
   const revision = g => digest(JSON.stringify((branchScope(g) ? branchFields : fileScope(g) ? fileFields : fields).map(key => g[key])));
-  function authorized(g) {
+  function boundWatch(g) {
     const row = lookup.get(g.condition);
-    if (row?.revision !== revision(g)) return;
-    if (isChange(g) && row.state !== "issued" && !sampleRow.get(g.condition)) return;
-    return row;
+    if (row?.revision === revision(g)) return row;
+  }
+  function hasRequiredSample(g, row) {
+    return !isChange(g) || row.state === "issued" || Boolean(sampleRow.get(g.condition));
+  }
+  function authorized(g) {
+    const row = boundWatch(g);
+    if (row && hasRequiredSample(g, row)) return row;
   }
   function provision() {
     for (const g of current()) {
@@ -128,11 +133,11 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
   }
   function reserve() {
     const stamp = now();
-    const candidates = current().map(g => ({ g, row: authorized(g) })).filter(({ row }) => row && row.state !== "issued");
-    // Only one unresolved notice per destination. A later activation or new
-    // tick cannot trigger another wake while the first outcome is unknown.
+    const candidates = current().map(g => ({ g, row: boundWatch(g) })).filter(({ row }) => row && row.state !== "issued");
+    // A verified reservation still occupies its destination when an unreadable
+    // sample pauses observation and proof for that watch.
     const outstanding = new Set(candidates.filter(x => ["dispatching", "observing"].includes(x.row.state)).map(x => x.g.target));
-    const due = candidates.filter(({ g, row }) => row.retry_at <= stamp && (row.state === "observing" ||
+    const due = candidates.filter(({ g, row }) => row.retry_at <= stamp && hasRequiredSample(g, row) && (row.state === "observing" ||
       (!outstanding.has(g.target) && (isChange(g) ? row.state === "ready" :
         row.state === "waiting" && slot(g, stamp) > row.cursor))));
     if (!due.length) return null;

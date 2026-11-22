@@ -58,7 +58,7 @@ async function fixture(t, fileWatch = false, credential = null) {
     listener = await listenForJobReports(f.store.acceptFrame, { port: 0 });
   };
   t.after(async () => { await f.stop(); fs.rmSync(root, { recursive: true, force: true }); });
-  f.subscribe = (id = g.condition) => subscribeWatch(target, id, { id: target, provider: "codex" }, { root, port: listener.port });
+  f.subscribe = (id = g.condition, to = target) => subscribeWatch(to, id, { id: to, provider: "codex" }, { root, port: listener.port });
   f.observe = async () => { await f.store.watches.pollChanges(); return f.store.watches.dispatchDue(); };
   f.rows = () => f.store.watches.subscriptions(f.policy);
   f.report = (grant, op, event) => reportJob(grant, op, event, { port: listener.port });
@@ -90,6 +90,47 @@ test("a restored watch with an unreadable witness pauses while an independent gr
   f.policy = [healthy];
   assert.deepEqual(f.rows().map(r => r.id), [healthy.condition]);
 });
+
+for (const state of ["unknown", "observing"]) {
+  test("a paused change watch keeps its " + state + " notice reserved for its destination", async t => {
+    const f = await fixture(t, true);
+    assert.equal((await f.subscribe()).ok, true);
+    f.sample = () => "absent";
+    await f.observe();
+    f.now += 10000;
+    f.sample = () => "a".repeat(48) + ":" + "0".repeat(16) + ":" + "1".repeat(16);
+    if (state === "unknown") f.send = async () => ({ state: "unknown" });
+    assert.equal(await f.observe(), true);
+    assert.equal(f.rows()[0].state, state);
+
+    await f.stop();
+    const db = new DatabaseSync(f.file);
+    try { db.prepare("UPDATE broker_seals SET mac='' WHERE kind='file_samples' AND id=?").run(f.g.condition); }
+    finally { db.close(); }
+    const same = { condition: randomUUID(), target: f.to, provider: "codex", scope: "thread-schedule",
+      startsAt: new Date(f.now).toISOString(), intervalSeconds: 60, expiresAt: f.g.expiresAt };
+    const other = { ...same, condition: randomUUID(), target: randomUUID() };
+    f.policy.push(same, other);
+    await f.restart();
+    for (const grant of [same, other]) assert.equal((await f.subscribe(grant.condition, grant.target)).ok, true);
+    const observations = [], sent = [];
+    f.sample = grant => { observations.push(grant.condition); return "absent"; };
+    f.send = async (target, body, options) => {
+      assert.equal(body, scheduleNotice);
+      await options.onHandle(f.handle, { ...f.session, id: target });
+      sent.push(target);
+      return { state: "pending" };
+    };
+    f.now += 60000;
+    assert.equal(await f.observe(), true);
+    assert.equal(await f.observe(), false);
+    assert.deepEqual(sent, [other.target]);
+    assert.deepEqual(observations, []);
+    assert.equal(f.proofs, 0);
+    assert.deepEqual(f.rows().map(row => row.state), ["paused", "waiting", "observing"]);
+    assert.equal(f.rows()[0].reason, "stored_state_unverified");
+  });
+}
 
 test("restoring an older watch cursor cannot replace the original pending proof", async t => {
   const f = await fixture(t);
