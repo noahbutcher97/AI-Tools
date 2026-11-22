@@ -19,7 +19,7 @@ import { formatTargets, parseArgs } from "./client.mjs";
 import { listInstalledTargets } from "./local-address.mjs";
 import { resolveAddress } from "./resolve-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
-import { pingBound, sendBound } from "./installed-delivery.mjs";
+import { addressedEffect } from "./addressed-effect.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { checkReadiness, fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
@@ -35,16 +35,16 @@ const help = `Usage: relay <command> [options]
   resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
                                Look up an exact session ID locally or on one enrolled host
   send <target> --message TEXT Send a notice; --dry-run previews the destination
-  send --id LITERAL            Send to an exact local session (see send --help)
+  send --id LITERAL            Send to an exact local or remote session (see send --help)
   ping <target>                Wake the session once and check for delivery
-  ping --id LITERAL            Probe an exact local session (see ping --help)
+  ping --id LITERAL            Probe an exact local or remote session (see ping --help)
   ping --status <receipt>      Check the existing receipt without waking it again
   doctor                       Check readiness; --all-hosts includes peers
   watch --notify <id> <condition-id>  Activate an approved watch
   run -- <command> [args...]   Run an approved job with completion notification
 
 For a remote lookup, pass --host LABEL and --id LITERAL separately.
-For a remote send or ping, use the host-qualified ID shown by list --all-hosts.
+For a remote send or ping, use --host LABEL with --id LITERAL or the legacy host:id address.
 A queue receipt confirms acceptance. A delivered probe confirms arrival.`;
 
 const resolveHelp = `Usage: relay resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
@@ -60,8 +60,9 @@ host owner's read grant for this ID. Resolution only reads inventory.`;
 
 const literalTargetHelp = `Copy the case-sensitive id from relay list --scope all --json. For a leading
 double dash use --id=VALUE. If multiple adapters match, pass the row's kind as
---adapter KEY. The optional --host LABEL must name this machine. Exact local
-delivery requires an adapter that can submit to that ID. The legacy Claude
+--adapter KEY. With a remote --host LABEL, select the adapter explicitly or
+allow a read-only lookup to resolve the ID. Remote effects require version 4
+and permission for the exact operation and recipient. The legacy Claude
 target form uses --via-delegate.`;
 
 const sendHelp = `Usage: relay send <target> | --id LITERAL [--adapter KEY] [--host LABEL]
@@ -69,7 +70,7 @@ const sendHelp = `Usage: relay send <target> | --id LITERAL [--adapter KEY] [--h
   eligibility first. --kind, --from, --re, --conversation and --in-reply-to
   carry message metadata. --json prints the full result.
   For a saved recovery copy, open the file named by RELAY_SPOOL or the reported default.
-  For remote delivery use a host:id target. --request-id applies to remote sends.
+  --request-id UUID reuses a remote request. Keep the original receipt for status.
 
 ${literalTargetHelp}`;
 
@@ -77,6 +78,7 @@ const pingHelp = `Usage: relay ping <target> | --id LITERAL [--adapter KEY] [--h
   ping wakes one session. --json writes one result to stdout. An early
   receipt on stderr lets you check status if the command is interrupted.
   relay ping --status RECEIPT checks an existing probe without another wake.
+  --request-id UUID reuses an exact remote probe with --id and --host.
   relay ping --all-hosts checks fleet reachability.
 
 ${literalTargetHelp}`;
@@ -165,9 +167,10 @@ async function main() {
     const hooks = { allowDelegate: options.viaDelegate, onHandle: printReceipt };
     let result;
     if (options.statusHandle) result = await sendStatus(options.statusHandle);
-    else if (options.selector) result = await pingBound(options.selector, hooks);
+    else if (options.selector) result = await addressedEffect("ping", options.selector, { ...hooks, requestId: options.requestId });
     else result = await pingTarget(options.to, hooks);
     console.log(options.json ? JSON.stringify(result) : result.detail ?? result.state ?? result.cause);
+    if (!options.json && result.adapters?.length) console.error("Adapters: " + JSON.stringify(result.adapters));
     if (!options.json && !result.ok && result.handle && !result.detail?.includes("ping --status")) {
       console.error("Check the receipt without another wake: relay ping --status " + result.handle);
     }
@@ -243,7 +246,7 @@ async function runSend(options) {
     inReplyTo: options.inReplyTo,
   };
   const result = options.selector
-    ? await sendBound(options.selector, sendOptions)
+    ? await addressedEffect("send", options.selector, { ...sendOptions, requestId: options.requestId, onHandle: printReceipt })
     : await sendAddressed({ ...sendOptions, to: options.to, requestId: options.requestId }, { onHandle: printReceipt });
 
   if (options.json) {
@@ -254,6 +257,7 @@ async function runSend(options) {
     console.error(`relay: ${result.cause ?? result.state}`);
     if (result.detail) console.error(`  ${result.detail}`);
     if (result.adapters?.length) console.error(`  Adapters: ${JSON.stringify(result.adapters)}`);
+    if (result.handle && !result.detail?.includes("ping --status")) console.error("  Check the receipt: relay ping --status " + result.handle);
     // Only report a location when something was actually written. Printing a
     // path that holds nothing sends an operator looking for a message that is
     // not there.

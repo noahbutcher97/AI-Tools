@@ -1,4 +1,5 @@
 import { localReceiptStatus, pingLocal, sendLocal } from "./installed-delivery.mjs";
+import { boundRemoteStatus } from "./addressed-effect.mjs";
 import { INVENTORY_SURVEY_MS, loadDirectory, requestHost } from "./fleet.mjs";
 import { digest, exactKeys, matches, newRequestId, parseAddress, UUID, validDeliveryFrame } from "./delivery-protocol.mjs";
 
@@ -63,6 +64,7 @@ export async function sendAddressed(options, { directory = loadDirectory, query 
 
 export async function sendStatus(handle, { directory = loadDirectory, query = requestHost } = {}) {
   if (typeof handle === "string" && handle.startsWith("local-proof.")) return localReceiptStatus(handle);
+  if (typeof handle === "string" && handle.startsWith("remote-proof.")) return boundRemoteStatus(handle);
   let address;
   try { address = parseAddress(handle); } catch { return failed("invalid_handle"); }
   if (!address.host || !matches(UUID, address.id) || address.id[14] !== "7") return failed("invalid_handle");
