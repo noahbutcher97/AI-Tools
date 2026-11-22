@@ -10,6 +10,7 @@ import { createLocalAddresses } from "./local-address.mjs";
 import { digest, UUID, matches, remoteEnvelope, requestDigest } from "./delivery-protocol.mjs";
 import { readEnabledReceivePolicy } from "./receive-policy.mjs";
 import { openReceipts } from "./receipts.mjs";
+import { dispatchBoundRemote } from "./remote-effect.mjs";
 
 const resolveRemoteRecipient = createLocalAddresses({ survey: surveyRemoteSelection }).resolve;
 
@@ -40,11 +41,14 @@ async function queue(id, text) {
   return output.code === 0 && receipt && matches(UUID, receipt[1]) && receipt[2] === id ? "queued" : "unknown";
 }
 
-export async function dispatchRemote(request, peer, {
-  allowed = policyAllows, resolve = resolveRemoteRecipient, check = codexQueueBlock, reference = resolveCodexReference,
-  available = providerPath, run = queue, receipts = () => openReceipts(path.join(installationRoot(), "receipts.sqlite")),
-  now = Date.now, capture = captureCursor, verify = prove,
-} = {}) {
+const defaults = { allowed: policyAllows, resolve: resolveRemoteRecipient, check: codexQueueBlock, reference: resolveCodexReference,
+  available: providerPath, run: queue, receipts: () => openReceipts(path.join(installationRoot(), "receipts.sqlite")),
+  now: Date.now, capture: captureCursor, verify: prove };
+
+export async function dispatchRemote(request, peer, overrides = {}) {
+  const options = { ...defaults, ...overrides };
+  if (request.v === 4) return await dispatchBoundRemote(request, peer, options);
+  const { allowed, resolve, check, reference, available, run, receipts, now, capture, verify } = options;
   const id = request.to ?? null;
   if (allowed(peer, id) !== true) return "receive_denied";
   let store;
@@ -60,7 +64,8 @@ export async function dispatchRemote(request, peer, {
     }
     if (request.op === "status") {
       store = await receipts();
-      return await current(store.status(peer, request.requestId));
+      const record = store.record(peer, request.requestId);
+      return record && record.binding === null ? await current(record.state) : "missing";
     }
     if (request.op === "send" || request.op === "ping") {
       store = await receipts();

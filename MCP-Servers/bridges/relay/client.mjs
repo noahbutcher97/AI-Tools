@@ -1536,7 +1536,7 @@ export function parseArgs(argv = []) {
       options.statusHandle = args.shift();
       continue;
     }
-    if (flag === "--request-id" && command === "send" && !options.requestId && args[0] && !args[0].startsWith("--")) {
+    if (flag === "--request-id" && delivery && !options.requestId && args[0] && !args[0].startsWith("--")) {
       options.requestId = args.shift();
       continue;
     }
@@ -1585,8 +1585,8 @@ export function parseArgs(argv = []) {
   }
   if (Object.keys(selector).length) {
     if (!selector.id) throw new Error("--adapter and --host require --id LITERAL");
-    if (options.to || options.allHosts || options.statusHandle || options.requestId || options.explicitScope || options.cwd !== undefined) {
-      throw new Error("Use --id for one exact local target. It cannot be combined with another target, mode, scope or request ID.");
+    if (options.to || options.allHosts || options.statusHandle || (options.requestId && !selector.host) || options.explicitScope || options.cwd !== undefined) {
+      throw new Error("Use --id for one exact target. A request ID with --id requires an enrolled remote --host.");
     }
     if (!inventoryText(selector.id, 256) || (selector.host !== undefined && !matches(HOST, selector.host)) ||
         (selector.adapter !== undefined && !matches(HOST, selector.adapter))) throw new Error("invalid local selector");
@@ -1595,6 +1595,7 @@ export function parseArgs(argv = []) {
   }
   if (command === "send" && !options.to && !options.selector) throw new Error("send needs a target. See relay send --help.");
   if (command === "ping" && ([options.allHosts, options.statusHandle, options.to, options.selector].filter(Boolean).length !== 1 ||
+      options.requestId && !options.selector ||
       options.viaDelegate && !options.to && !options.selector)) {
     throw new Error("ping requires one target, --id LITERAL, --all-hosts or --status <handle>");
   }

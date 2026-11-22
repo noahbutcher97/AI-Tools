@@ -7,7 +7,7 @@ import { formatTargets } from "./client.mjs";
 import { listInstalledTargets } from "./local-address.mjs";
 import { resolveAddress } from "./resolve-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
-import { pingBound, sendBound } from "./installed-delivery.mjs";
+import { addressedEffect } from "./addressed-effect.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 import { fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
@@ -104,7 +104,7 @@ server.tool(
 const selectorFields = {
   id: z.string().min(1).describe("Case-sensitive, literal native session ID. Colons, slashes and leading dashes are part of the ID."),
   adapter: z.string().min(1).optional().describe("With id, select the installed adapter shown as kind in relay_list."),
-  host: z.string().min(1).optional().describe("With id, check the canonical label of this local machine."),
+  host: z.string().min(1).optional().describe("With id, name the local machine or one enrolled remote machine."),
 };
 
 server.registerTool("relay_resolve", {
@@ -119,7 +119,7 @@ server.registerTool("relay_resolve", {
 });
 
 server.registerTool("relay_send", {
-  description: "Send a message using either to or an exact local id. Use dry_run to check eligibility. A queue acknowledgment confirms submission.",
+  description: "Send a message using either to or an exact id. Use host and adapter to bind a remote notice to one reader and session. Use dry_run to check eligibility. A queue acknowledgment confirms submission.",
   inputSchema: z.object({
     ...selectorFields,
     id: selectorFields.id.optional(),
@@ -158,8 +158,8 @@ server.registerTool("relay_send", {
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
 }, async ({ to, id, adapter, host, message, dry_run = false, from, conversation, kind, in_reply_to, request_id, re }, extra) => {
   if ((id === undefined) === (to === undefined) || (id === undefined && (adapter !== undefined || host !== undefined)) ||
-      (id !== undefined && request_id !== undefined)) {
-    return { ...toolJsonResult({ ok: false, cause: "invalid_send_mode", detail: "Use either to or id. Only id accepts adapter and host. A request_id requires a remote to address." }), isError: true };
+      (id !== undefined && request_id !== undefined && host === undefined)) {
+    return { ...toolJsonResult({ ok: false, cause: "invalid_send_mode", detail: "Use either to or id. Only id accepts adapter and host. A request_id requires a remote address." }), isError: true };
   }
   const options = {
     message,
@@ -178,29 +178,31 @@ server.registerTool("relay_send", {
     re,
   };
   if (id !== undefined) {
-    const result = await sendBound({ id, adapter, host }, options);
+    const result = await addressedEffect("send", { id, adapter, host }, { ...options, requestId: request_id });
     return { ...toolJsonResult(result), isError: !result.ok };
   }
   return toolJsonResult(await sendAddressed({ ...options, to, requestId: request_id }));
 });
 
 server.registerTool("relay_ping", {
-  description: "Wake one target with a delivery probe using target or an exact local id. Check a returned receipt with status without waking the session again. Use all_hosts for fleet reachability.",
+  description: "Wake one target with a delivery probe using target or an exact id. Use host and adapter for an exact remote probe. Check a returned receipt with status without waking the session again. Use all_hosts for fleet reachability.",
   inputSchema: z.object({
     ...selectorFields,
     id: selectorFields.id.optional(),
     all_hosts: z.literal(true).optional(),
     status: z.string().min(1).optional(),
+    request_id: z.string().optional().describe("A UUIDv7 for a retryable exact remote probe with id and host."),
     target: z.string().min(1).optional(),
   }).strict(),
   annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-}, async ({ all_hosts, status, target, id, adapter, host }) => {
+}, async ({ all_hosts, status, target, id, adapter, host, request_id }) => {
   if ([all_hosts, status, target, id].filter(value => value !== undefined).length !== 1 ||
-      (id === undefined && (adapter !== undefined || host !== undefined))) {
+      (id === undefined && (adapter !== undefined || host !== undefined)) ||
+      (request_id !== undefined && (id === undefined || host === undefined))) {
     return { ...toolJsonResult({ ok: false, cause: "invalid_ping_mode", detail: "Use one of target, id, status or all_hosts. Only id accepts adapter and host." }), isError: true };
   }
   if (id !== undefined) {
-    const result = await pingBound({ id, adapter, host }, { allowDelegate: true });
+    const result = await addressedEffect("ping", { id, adapter, host }, { allowDelegate: true, requestId: request_id });
     return { ...toolJsonResult(result), isError: !result.ok };
   }
   try {

@@ -32,8 +32,13 @@ export function validDeliveryFrame(r) {
   if (r.op === "status") return exactKeys(r, common);
   if (!matches(ID, r.to)) return false;
   if (r.op === "resolve" || r.op === "ping") return exactKeys(r, [...common, "to"]);
-  return r.op === "send" && exactKeys(r, [...common, "to", "message", "from", "kind", "conversation", "inReplyTo", "re"]) &&
-    typeof r.message === "string" && r.message.trim().length > 0 && Buffer.byteLength(r.message) <= 8192 &&
+  return r.op === "send" && exactKeys(r, [...common, "to", ...sendFields]) && validSendFields(r);
+}
+
+export const sendFields = ["message", "from", "kind", "conversation", "inReplyTo", "re"];
+
+export function validSendFields(r) {
+  return typeof r.message === "string" && r.message.trim().length > 0 && Buffer.byteLength(r.message) <= 8192 &&
     (r.from === null || matches(ID, r.from)) && ["reply", "request", "notice"].includes(r.kind) &&
     (r.conversation === null || matches(CONVERSATION, r.conversation)) &&
     (r.inReplyTo === null || matches(MESSAGE, r.inReplyTo)) && (r.re === null || matches(ID, r.re));
@@ -48,7 +53,9 @@ export function newRequestId(now = Date.now()) {
 }
 
 export function requestDigest(r) {
-  return digest(JSON.stringify([r.v, r.op, r.host, r.to, r.message, r.from, r.kind, r.conversation, r.inReplyTo, r.re]));
+  const fields = [r.v, r.op, r.host, r.to, r.message, r.from, r.kind, r.conversation, r.inReplyTo, r.re];
+  if (r.v === 4) fields.push(r.adapter);
+  return digest(JSON.stringify(fields));
 }
 
 export function remoteEnvelope(r, peer, reference) {
