@@ -123,6 +123,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
     changedMember === "branches" ? [...fileUpdates, ...branchChanges] :
     changedMember === "branch-update" ? branchUpdate : [changedMember]);
   let priorEntries;
+  const checkedStateHashes = new Map();
   if (base !== undefined) {
     if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","relay/completion-acl.ps1","schedules","files","branches","branch-update"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
@@ -133,7 +134,9 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
     if (stateMembers.some(member => changed.has(member))) {
       const different = [];
       for (const member of stateMembers) {
-        if (priorEntries.get(member) !== await fileHash(inputs.get(member))) different.push(member);
+        const hash = await fileHash(inputs.get(member));
+        if (changed.has(member)) checkedStateHashes.set(member, hash);
+        if (priorEntries.get(member) !== hash) different.push(member);
       }
       if (different.some(member => changed.has(member)) && different.some(member => !changed.has(member))) {
         throw Error("Incompatible watcher state modules. Build the complete watcher package.");
@@ -177,6 +180,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       } else {
         const hash = await fileHash(inputs.get(member), file);
         created.push(file);
+        if (checkedStateHashes.has(member) && checkedStateHashes.get(member) !== hash) throw Error("State module changed during staging");
         if (priorEntries && !changed.has(member) && priorEntries.get(member) !== hash) throw Error("Base member changed");
         entries.push([member, hash]);
       }

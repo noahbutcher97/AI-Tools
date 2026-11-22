@@ -9,6 +9,42 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildWatcherPackage, verifyWatcherPackage, packageFiles } from "./watcher-package.mjs";
 
+test("partial staging refuses state module bytes that changed after the compatibility check", async t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "relay-stage-"));
+  t.after(() => fs.rmSync(temp, { recursive: true }));
+  const image = path.join(temp, "image");
+  fs.writeFileSync(image, "fixture image");
+  const base = path.join(temp, "base");
+  const compile = (dir, member) => fs.copyFileSync(image, path.join(dir, member));
+  await buildWatcherPackage(base, { node: image, codex: image, claude: image, compile });
+  const metadata = path.join(base, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(metadata));
+  const jobs = "relay/completion-jobs.mjs";
+  const oldJobs = "fixture prior store";
+  fs.writeFileSync(path.join(base, jobs), oldJobs);
+  manifest.files.find(([member]) => member === jobs)[1] = createHash("sha256").update(oldJobs).digest("hex");
+  const body = JSON.stringify(manifest);
+  fs.writeFileSync(metadata, body);
+  const baseDigest = createHash("sha256").update(body).digest("hex");
+
+  // stage-branch-update preserves the base jobs module. Only the first
+  // source read sees a schedule compatible with this partial update.
+  const schedule = fileURLToPath(new URL("../../MCP-Servers/bridges/relay/schedule-watch.mjs", import.meta.url));
+  const replacement = path.join(temp, "next-schedule.mjs");
+  fs.writeFileSync(replacement, "fixture next schedule");
+  const open = fs.promises.open;
+  let reads = 0;
+  fs.promises.open = function (file, ...args) {
+    return open.call(this, file === schedule && ++reads === 2 ? replacement : file, ...args);
+  };
+  const out = path.join(temp, "staged");
+  try {
+    await assert.rejects(buildWatcherPackage(out, { base, baseDigest, changedMember: "branch-update" }), /State module changed/);
+  } finally { fs.promises.open = open; }
+  assert.equal(reads, 2);
+  assert.equal(fs.existsSync(out), false);
+});
+
 test("watcher package contains a complete protected import closure and an empty job database", async t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "relay-package-"));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
