@@ -38,6 +38,9 @@ jobs:
           npm test -- spool.test.mjs test-profile-runner.test.mjs
           npm test -- client.test.mjs local-address.test.mjs bound-delivery.test.mjs bound-proof.test.mjs installed-delivery.test.mjs server.test.mjs
           npm test -- receive.test.mjs remote-delivery.test.mjs lookup-receiver.test.mjs resolve-address.test.mjs
+          npm test -- remote-effect.test.mjs addressed-effect.test.mjs
+      - name: Verify receipt migration
+        run: node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test Installers/CrossAgentRelay/receipt-migration.test.mjs
       - run: node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs Installers/CrossAgentRelay/turn-metadata.test.mjs MCP-Servers/bridges/relay/proof.test.mjs
 
   relay-handoffs:

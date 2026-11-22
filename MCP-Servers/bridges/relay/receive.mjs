@@ -2,6 +2,7 @@ import { TextDecoder } from "node:util";
 import { MAX_FRAME, validDeliveryFrame } from "./delivery-protocol.mjs";
 import { validLookupFrame, validLookupReply } from "./lookup-protocol.mjs";
 import { lookupInstalled } from "./remote-lookup-receiver.mjs";
+import { validBoundEffectFrame, validBoundEffectState } from "./effect-protocol.mjs";
 
 const MAX_PROBE_BYTES = 512;
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
@@ -11,10 +12,11 @@ export function decodeRequest(bytes) {
   if (!bytes.length || bytes.length > MAX_FRAME) throw new Error("invalid_frame");
   const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
   const request = JSON.parse(text);
-  if (request?.v === 2 || request?.v === 3) {
+  if (request?.v === 2 || request?.v === 3 || request?.v === 4) {
     // Compact JSON from the protocol encoder round-trips exactly. Duplicate
     // members, escaped keys and extra frames cannot disappear during parsing.
-    if (text !== JSON.stringify(request) || !(request.v === 3 ? validLookupFrame(request) : validDeliveryFrame(request))) {
+    const validate = { 2: validDeliveryFrame, 3: validLookupFrame, 4: validBoundEffectFrame }[request.v];
+    if (text !== JSON.stringify(request) || !validate(request)) {
       throw new Error("invalid_frame");
     }
     return request;
@@ -59,9 +61,12 @@ export async function receive(args, originalCommand, input, timeoutMs = 3000, in
       if (result?.state === "ambiguous" && Object.hasOwn(result, "adapters")) response.adapters = result.adapters;
       return validLookupReply(response, request, reply.peer) ? response : { ...reply, state: "unavailable" };
     }
-    if (request.v === 2) {
+    if (request.v === 2 || request.v === 4) {
       if (!dispatch || request.host !== args[3] || args[1] === args[3]) return { ok: false, error: "receive_denied" };
-      return { ...reply, state: await dispatch(request, args[1]) };
+      const state = await dispatch(request, args[1]);
+      if (request.v === 4) return { ...reply, to: request.to, adapter: request.adapter,
+        state: validBoundEffectState(state) ? state : "unavailable" };
+      return { ...reply, state };
     }
     if (request.op === "readiness") {
       if (!readiness) return { ok: false, error: "unsupported_operation" };

@@ -19,10 +19,14 @@ export function loadDirectory() {
   return parseDirectory(read("machine.json"), read("hosts.json"));
 }
 
-export function requestHost(entry, request, timeoutMs) {
+export async function requestHost(entry, request, timeoutMs) {
   fs.appendFileSync(path.join(root(), "lookup-frames.jsonl"), JSON.stringify(request) + "\n");
-  return requestOverPipes(entry, request, timeoutMs, (_command, _args, options) =>
-    spawn(process.execPath, [thisFile, entry.host], options));
+  const effectFixture = fs.existsSync(path.join(root(), "fixture-effects.json"));
+  const script = effectFixture && entry.host === "host-b" ? fileURLToPath(new URL("./effect-peer.mjs", import.meta.url)) : thisFile;
+  const result = await requestOverPipes(entry, request, timeoutMs, (_command, _args, options) =>
+    spawn(process.execPath, [script, entry.host], options));
+  if (effectFixture && request.op === read("fixture-effects.json").dropReply) return { error: "timeout" };
+  return result;
 }
 
 async function runPeer(host) {

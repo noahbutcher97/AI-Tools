@@ -131,10 +131,11 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     }
   }
 
-  return { list, resolve, resolveAlias, permitsProof };
+  return { list, resolve, resolveAlias, permitsProof, hostLabel: () => readHost(root()) };
 }
 
 const local = createLocalAddresses();
+export const localHostLabel = local.hostLabel;
 export const listInstalledTargets = local.list;
 export const resolveLocalAddress = local.resolve;
 export const resolveLocalAlias = local.resolveAlias;

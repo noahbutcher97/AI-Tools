@@ -147,17 +147,19 @@ export function requestHost(entry, request, timeoutMs = 3000, spawnProcess = spa
         if (/permission denied/i.test(diagnostics)) return resolve({ error: "authentication_failed" });
         if (/timed out|no route to host|unreachable|connection refused|resolve hostname/i.test(diagnostics)) return resolve({ error: "offline" });
         // The previous receiver exits 1 for a version it cannot decode.
-        if (lookup && code === 1 && /^\{"ok":false,"error":"invalid_frame"\}\r?\n$/.test(output.toString("utf8"))) {
-          return resolve({ error: "lookup_refused" });
+        if ((lookup || (request.v === 4 && request.op === "resolve")) && code === 1 &&
+            /^\{"ok":false,"error":"invalid_frame"\}\r?\n$/.test(output.toString("utf8"))) {
+          return resolve({ error: lookup ? "lookup_refused" : "effect_refused" });
         }
         return resolve({ error: "receive_failed" });
       }
       try {
-        const text = lookup ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(output) : output.toString("utf8");
+        const strict = lookup || request.v === 4;
+        const text = strict ? new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(output) : output.toString("utf8");
         const reply = JSON.parse(text);
         // The lookup receiver prints one compact JSON reply. Reject duplicate
         // members before the caller checks the request ID and selected target.
-        if (lookup && text.replace(/\r?\n$/, "") !== JSON.stringify(reply)) return resolve({ error: "invalid_response" });
+        if (strict && text.replace(/\r?\n$/, "") !== JSON.stringify(reply)) return resolve({ error: "invalid_response" });
         resolve({ reply });
       }
       catch { resolve({ error: "invalid_response" }); }
