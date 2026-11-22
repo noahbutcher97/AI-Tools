@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-test-profile-review",
+    "revision": "cc86bc1e90c52691263c806401da32deaf1c6e3c",
+    "coordinator": "relay coordinator",
+    "worker": "independent fixture reviewer",
+    "state": "accepted",
+    "scope": "Start with the repository instructions, exercise a synthetic suite and a failed child, then review cleanup confinement and CI wiring.",
+    "acceptance": "Verify the reported run directory disappears, the status is preserved, and an unrelated directory survives. Check replacement and interruption behavior and record limitations.",
+    "result": {
+      "revision": "cc86bc1e90c52691263c806401da32deaf1c6e3c",
+      "verdict": "Passed independent walkthrough and cleanup confinement review.",
+      "evidence": "Using the repository instructions in a Windows terminal, the reviewer ran eleven spool tests and a child returning exit 17. Both reported paths were gone after exit. Three runner regressions passed, including preservation of an external sentinel and refusal after profile replacement. A missing executable also left no profile. The full relay suite passed 467 tests with three existing skips. Linux CI exercised the same focused suite entry point.",
+      "limitations": "Agent-operated walkthrough on Windows Node 22.20.0. Abrupt termination was inspected in code. Live provider trials, production deletion and macOS were outside scope."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for trusted synthetic runs. The shared instructions clarify that application-specific location overrides still apply.",
+      "next": "Use the normal test command for relay suites and the documented runner for new disposable processes. Inspect retained paths independently after interruption."
+    }
+  },
+  {
     "revision": "dfe3a53dff9bbc8e6077752b972dd3646f9ca595",
     "coordinator": "relay coordinator",
     "state": "accepted",
