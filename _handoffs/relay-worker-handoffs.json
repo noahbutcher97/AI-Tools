@@ -1,5 +1,14 @@
 [
   {
+    "id": "relay-i7-recovery",
+    "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+    "coordinator": "relay coordinator",
+    "worker": "watcher qualification implementer",
+    "state": "assigned",
+    "scope": "Check watcher package closure, revocation before observation and dispatch, restored state, singleton and doctor projection.",
+    "acceptance": "Exercise the normal broker, watcher and doctor with disposable configuration; prove unauthorized observations and deliveries stay at zero and report deployment limits."
+  },
+  {
     "id": "relay-test-profile-interrupt-review",
     "revision": "86f599a081dd10801c7f699662af290181b799e7",
     "coordinator": "relay coordinator",
