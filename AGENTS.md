@@ -19,6 +19,16 @@ Use Node 18+ ESM (`.mjs`) for bridge and installer JavaScript. Keep JavaScript i
 
 ## Testing Guidelines
 
+Use `npm test` from the relay bridge for synthetic relay suites. For a focused run, use `npm test -- spool.test.mjs`. Both commands create a disposable profile and remove it when the child exits.
+
+For future test runs, operator fixtures and other disposable processes that need a scratch profile, use the same runner from the repository root:
+
+```sh
+node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test path/to/suite.test.mjs
+```
+
+Pass an executable followed by its arguments. The child keeps the current working directory and receives private home, application-data and temporary directories. Use trusted fixture commands and place run-owned artifacts in those locations. The child retains its usual filesystem permissions, and tool-specific path overrides still apply. The runner prints its newly allocated directory at startup. It forwards handled interrupt and termination signals and waits for the child to exit before cleanup. If a forced termination or cleanup failure leaves a profile behind, retain that path for separate inspection. Existing paths and files outside the allocated profile stay under their owning workflow. Use the ordinary environment for live trials that require an enrolled profile.
+
 For cross-agent relay work, start with the [rollout journal and worker protocol](_handoffs/2026-11-19-relay-network-rollout.md). Record the assignment before dispatch and the returned evidence and disposition before stage closure. A stage or new trust boundary needs an independent review tied to the implementation revision. Keep the checkpoint open while findings that block its acceptance remain unresolved.
 
 When a relay change affects what an operator sees, types, approves or must infer, include a [constrained operator walkthrough](_handoffs/2026-11-19-relay-network-rollout.md#human-usability-checkpoints) in that checkpoint's acceptance criteria. Record the result and repeat the affected task after fixing friction.

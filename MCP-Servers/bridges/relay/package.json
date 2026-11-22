@@ -6,7 +6,7 @@
   "main": "server.mjs",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node fixtures/run-with-test-profile.mjs -- node --test"
   },
   "engines": {
     "node": ">=18.0.0"
