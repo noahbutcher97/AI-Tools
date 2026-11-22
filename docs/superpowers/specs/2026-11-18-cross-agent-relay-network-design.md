@@ -298,6 +298,8 @@ Use synthetic hosts, fixture provider stores, a fake clock, and recording or fai
 
 ## 11. Rollout
 
+The [rollout checkpoint map](../../../_handoffs/2026-11-19-relay-network-rollout.md#rollout-checkpoints) tracks the ordered work, accepted scope and outstanding qualification in each stage below.
+
 **SSH probe qualification, 2026-11-19.** Each desktop accepted a correlated reachability probe from its peer using a temporary, source-restricted key. In both directions the server refused an alternate command, an interactive shell, SFTP, PTY allocation and both TCP forwarding directions. Removing each public key entry made a fresh login with that key fail.
 
 One listener originally used a common key file for administrator accounts. An account-specific rule now adds a dedicated relay key file for the owner and preserves the existing administrator login. After a guarded service restart, the reverse probe returned the expected request ID, destination and peer. A wrong host pin failed host verification, a missing relay credential failed authentication, and a fresh ordinary administrator login succeeded after the temporary key was revoked. The dedicated file is empty. These checks qualify the probe on the tested listeners. Production keys, installation-time child-process auditing and delivery through the installed receiver still require separate evidence.
