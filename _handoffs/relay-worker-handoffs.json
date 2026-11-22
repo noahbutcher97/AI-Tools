@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-visible-local-worker",
+    "revision": "201c366f309aef7ee0b0c79cb571b429c9671953",
+    "worker": "disposable local terminal worker",
+    "coordinator": "relay coordinator",
+    "scope": "In an isolated workspace, read the assigned synthetic value, record the result and return one harmless notice to the assigned local coordinator.",
+    "acceptance": "Observe a separate visible terminal, exact session discovery, durable result, confirmed arrival in the original coordinator and closure of the trial process. Report any first-use interaction separately.",
+    "state": "accepted",
+    "result": {
+      "revision": "201c366f309aef7ee0b0c79cb571b429c9671953",
+      "verdict": "The visible local Codex worker returned its result to the original coordinator and exited.",
+      "evidence": "A separate terminal exposed the hook prompt through Windows accessibility. After the coordinator selected Continue without trusting, the low-effort worker was uniquely addressable in its trial workspace. The result file matched the synthetic assignment, and the single observed tool call had a matching queue item for the busy original coordinator. The terminal wrapper exited, the worker disappeared from live discovery and the provider acknowledged archival.",
+      "limitations": "A screenshot from the owner called attention to startup friction. The coordinator independently read the prompt, verified the selected option and confirmed it. The peer desktop and other providers were outside this attempt."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after the notice appeared in the original chat. The private result matched the assignment. On that same recipient, the proof reader matched a consumed input after the saved cursor to the digest of the queued envelope.",
+      "next": "Keep visible handoff qualification specific to this desktop and client. Verify the peer desktop separately when using that route."
+    }
+  },
+  {
     "id": "relay-worker-sequence-recheck",
     "revision": "38944023980b7016f0fcaa38e8484cca50956b6b",
     "worker": "independent sequence reviewer",

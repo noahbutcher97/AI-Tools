@@ -298,6 +298,8 @@ The private trial at `db10a95` holds the updater lock across package and task ch
 
 ### Worker protocol
 
+One visible local Codex worker completed the round trip at `201c366`. Windows Terminal exposed a startup hook prompt through accessibility. The coordinator read the options, selected Continue without trusting and verified the selection before confirming. The worker wrote the expected private result, submitted one return notice and exited. After the busy coordinator's turn ended, the original chat received the notice and the proof reader matched the consumed envelope. The provider confirmed archival. The [worker register](relay-worker-handoffs.json) records the scope and the owner's screenshot during startup. Visible worker handoffs on the peer desktop and with other clients remain unqualified.
+
 The owner can stay in the coordinating chat. The coordinator starts a fresh subagent for bounded independent work. A separate provider session is appropriate when the result depends on the actual provider, desktop or session lifetime.
 
 Either enrolled desktop may host a separate visible CLI chat. Prefer the local desktop unless the assignment requires the other environment. Start the provider in the intended signed-in user's interactive desktop with a private test workspace and the permissions specified in the assignment. On a peer, SSH can initiate a separately approved interactive logon task. Keep session launching outside the restricted relay receiver. Record launch, discovery of the intended session, and confirmed return of its result separately. If either desktop lacks a qualified launcher or needs user sign-in, report that limitation before assigning work there.
