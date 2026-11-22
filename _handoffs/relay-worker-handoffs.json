@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-test-profile-interrupt-review",
+    "revision": "86f599a081dd10801c7f699662af290181b799e7",
+    "coordinator": "relay coordinator",
+    "worker": "independent fixture reviewer",
+    "state": "accepted",
+    "scope": "Start with the repository instructions, exercise a synthetic suite and a failed child, then review cleanup confinement and CI wiring.",
+    "acceptance": "Verify the reported run directory disappears, the status is preserved, and an unrelated directory survives. Check replacement and interruption behavior and record limitations.",
+    "result": {
+      "revision": "86f599a081dd10801c7f699662af290181b799e7",
+      "verdict": "Passed the final signal-handling review.",
+      "evidence": "A reviewer sent SIGINT and SIGTERM to the wrapper on Linux. In both cases the child received the signal and wrote after a delayed shutdown while the profile still existed. Both child processes exited, both directories were gone, and the wrapper returned 130 and 143. Windows reran the three applicable runner tests. Its full suite passed 467 with four skips including the POSIX signal case.",
+      "limitations": "Ubuntu under WSL and Windows tested. Forced termination, detached descendants, macOS and an actual Windows console interrupt were outside the exercised scope."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. The pull request thread records the reproduced original failure and corrected termination behavior.",
+      "next": "Use the documented runner for future disposable profile work."
+    }
+  },
+  {
     "id": "relay-test-profile-review",
     "revision": "cc86bc1e90c52691263c806401da32deaf1c6e3c",
     "coordinator": "relay coordinator",
