@@ -4,7 +4,8 @@ import { z } from "zod/v3";
 
 import { toolJsonResult } from "../../lib/tool-result.mjs";
 import { formatTargets } from "./client.mjs";
-import { listInstalledTargets, resolveLocalAddress } from "./local-address.mjs";
+import { listInstalledTargets } from "./local-address.mjs";
+import { resolveAddress } from "./resolve-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { pingBound, sendBound } from "./installed-delivery.mjs";
 import { resolveCallerIdentity } from "./identity.mjs";
@@ -107,11 +108,13 @@ const selectorFields = {
 };
 
 server.registerTool("relay_resolve", {
-  description: "Resolve an exact local session ID across installed inventory adapters without waking the session. Use relay_list with scope all to discover IDs and adapter keys.",
-  inputSchema: z.object(selectorFields).strict(),
-  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  description: "Look up an exact session ID without waking it. Omit host for local lookup or supply one enrolled host with lookup permission for the ID. Use the reader's kind as adapter to narrow an ambiguous or incomplete lookup.",
+  inputSchema: z.object({ ...selectorFields,
+    host: z.string().min(1).optional().describe("Canonical host label, supplied separately from the literal ID. Omit to search locally."),
+  }).strict(),
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 }, async selector => {
-  const result = await resolveLocalAddress(selector);
+  const result = await resolveAddress(selector);
   return { ...toolJsonResult(result), isError: !result.ok };
 });
 
