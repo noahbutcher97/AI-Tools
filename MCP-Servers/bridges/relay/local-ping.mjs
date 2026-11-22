@@ -2,7 +2,6 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { sendBound } from "./bound-delivery.mjs";
 import { sendMessage } from "./client.mjs";
 import { digest, exactKeys, HOST, matches, UUID } from "./delivery-protocol.mjs";
 import { captureCursor, prove } from "./proof.mjs";
@@ -105,7 +104,9 @@ async function pollStatus(handle, options, waitMs) {
   }
 }
 
-export async function pingBound(selector, { sendBound: send = sendBound, proofAdapters, expectedBinding,
+// The installation supplies the same bound sender and proof readers used by
+// its public send path. The broker package needs only the native proof path.
+export async function pingBound(selector, { sendBound: send, proofAdapters, expectedBinding,
   checkProofBinding, profile = os.homedir(), waitMs = 2000, onHandle = () => {} } = {}) {
   let handle, captureFailed = false, result;
   try {

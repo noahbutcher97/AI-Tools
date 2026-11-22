@@ -6,7 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildWatcherPackage, verifyWatcherPackage, packageFiles } from "./watcher-package.mjs";
 
 test("watcher package contains a complete protected import closure and an empty job database", async t => {
@@ -18,6 +18,11 @@ test("watcher package contains a complete protected import closure and an empty 
   const compile = (dir, member) => fs.copyFileSync(image, path.join(dir, member));
   const digest = await buildWatcherPackage(out, { node: image, claude: image, codex: image, compile });
   assert.equal(await verifyWatcherPackage(out, digest), digest);
+  // Import the actual staged entry points. Neither probe should launch the
+  // native helper or require modules that exist only in the source checkout.
+  for (const module of ["completion-broker", "completion-worker"]) {
+    await import(pathToFileURL(path.join(out, "relay", module + ".mjs")).href);
+  }
   for (const member of packageFiles.filter(p => p.endsWith(".mjs"))) {
     const file = fs.readFileSync(path.join(out, member), "utf8");
     for (const [, name] of file.matchAll(/(?:from\s+|import\()["'](\.\/[^"']+\.mjs)["']/g)) {
