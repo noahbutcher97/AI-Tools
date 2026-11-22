@@ -151,7 +151,7 @@ function Get-CompletionRoot {
     Assert-BrokerAcl $state $trusted -PrivateState
     Assert-BrokerAcl (Join-Path $state 'jobs.sqlite') $trusted -PrivateState
     foreach ($file in Get-ChildItem -LiteralPath $state -Force) {
-        $named = $file.Name -in @('jobs.sqlite','jobs.sqlite.key','jobs.sqlite.witness','jobs.sqlite.witness-journal',
+        $named = $file.Name -in @('jobs.sqlite','jobs.sqlite.key','jobs.sqlite.key.pending','jobs.sqlite.witness','jobs.sqlite.witness-journal',
             'jobs.sqlite-journal','jobs.sqlite-wal','jobs.sqlite-shm')
         $superJournal = $file.Name -cmatch '^jobs\.sqlite-mj[0-9A-F]{6}9[0-9A-F]{2}$'
         if ($file.PSIsContainer -or (!$named -and !$superJournal)) {

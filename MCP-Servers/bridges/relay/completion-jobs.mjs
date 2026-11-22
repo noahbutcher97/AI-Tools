@@ -68,12 +68,39 @@ const stateColumns = {
 // here on first use, never in the distributable package or the session profile.
 function readStateKey(file, initializing) {
   const keyFile = file + ".key";
-  if (initializing && !fs.existsSync(keyFile)) {
-    const fd = fs.openSync(keyFile, "wx", 0o600);
-    try { fs.writeFileSync(fd, randomBytes(32)); fs.fsyncSync(fd); }
-    finally { fs.closeSync(fd); }
+  const staging = keyFile + ".pending";
+  function inspect(name) {
+    const stat = fs.lstatSync(name, { bigint: true, throwIfNoEntry: false });
+    if (!stat) return;
+    if (!stat.isFile() || stat.size > 32n ||
+        path.relative(name, fs.realpathSync.native(name)) !== "") throw new Error("invalid broker state key");
+    return stat;
   }
-  if (path.relative(keyFile, fs.realpathSync.native(keyFile)) !== "") throw new Error("invalid broker state key");
+  const final = inspect(keyFile);
+  const temp = inspect(staging);
+  if (final?.nlink === 2n && temp?.nlink === 2n && final.ino > 0n && final.ino === temp.ino &&
+      final.dev === temp.dev && final.size === 32n && initializing) {
+    // A stop between the exclusive publication and removal of its staging
+    // name leaves two links to the same complete file. Preserve the key.
+    fs.unlinkSync(staging);
+  } else if (final && final.nlink !== 1n || temp && temp.nlink !== 1n) throw new Error("invalid broker state key");
+  if (final?.size !== 32n) {
+    // Only first initialization can recover an interrupted pre-schema-4 key.
+    // BEGIN IMMEDIATE serializes this publication with other broker writers.
+    // An existing witness may belong to a newer store and must be preserved.
+    if (!initializing || fs.existsSync(file + ".witness")) throw new Error("invalid broker state key");
+    if (final) fs.unlinkSync(keyFile); // Short remnant from the old first-install writer.
+    const fd = fs.openSync(staging, temp ? "r+" : "wx", 0o600);
+    const secret = randomBytes(32);
+    try { fs.writeFileSync(fd, secret); fs.fsyncSync(fd); }
+    finally { secret.fill(0); fs.closeSync(fd); }
+    fs.linkSync(staging, keyFile);
+    fs.unlinkSync(staging);
+    if (process.platform !== "win32") {
+      const directory = fs.openSync(path.dirname(file), "r");
+      try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    }
+  }
   const fd = fs.openSync(keyFile, "r");
   try {
     const stat = fs.fstatSync(fd);
@@ -352,9 +379,25 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         return { pending, hash };
       });
       if (!batch) return { state: "paused", reason: "stored_state_unverified" };
-      publish(binding, batch.hash, batch.pending);
-      db.prepare("UPDATE grant_handoffs SET pending=NULL WHERE instance=? AND hash=?").run(binding, batch.hash);
-      return { count, validUntil };
+      return transaction(() => {
+        // After publication only the digest is retained. Check the exact jobs
+        // named by those authenticated bytes; a consumed job still belongs
+        // to the original allocation and cannot be replaced by an unused one.
+        function checkBatch(contents) {
+          return contents.session === session && contents.instance === binding && contents.validUntil === validUntil &&
+            contents.grants.length === count && contents.grants.every(({ id, capability }) => {
+              const job = row.get(id);
+              return job?.run_only === 1 && job.recipient === session && job.instance === binding && job.provider === provider &&
+                job.valid_until === validUntil && timingSafeEqual(job.token_hash, Buffer.from(digest(capability), "hex"));
+            });
+        }
+        const current = db.prepare("SELECT hash,pending FROM verified_grant_handoffs WHERE instance=?").get(binding);
+        if (current?.hash !== batch.hash || publish(binding, current.hash, current.pending, checkBatch) !== true) {
+          return { state: "paused", reason: "stored_state_unverified" };
+        }
+        if (current.pending !== null) db.prepare("UPDATE grant_handoffs SET pending=NULL WHERE instance=? AND hash=?").run(binding, batch.hash);
+        return { count, validUntil };
+      });
     },
     revoke(id) { db.prepare("UPDATE jobs SET state='revoked', handle=NULL WHERE id=?").run(id); },
     // The wrapper can report a termination once. It cannot select a recipient,

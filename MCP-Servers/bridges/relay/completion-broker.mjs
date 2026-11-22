@@ -185,10 +185,10 @@ function authorizedRun(root, session, count, expiry, requireStartup) {
 
 function publishApprovedRun(root, store, session, count, expiry, requireStartup) {
   const grant = authorizedRun(root, session, count, expiry, requireStartup);
-  return store.provision(session, grant.instance, Number(count), Date.parse(expiry), (binding, hash, pending) => {
+  return store.provision(session, grant.instance, Number(count), Date.parse(expiry), (binding, hash, pending, checkBatch) => {
     const current = authorizedRun(root, session, count, expiry, requireStartup);
     if (current.instance !== binding || current.provider !== grant.provider) throw new Error("grant binding changed");
-    publishRunHandoff(root, binding, hash, pending);
+    return publishRunHandoff(root, binding, hash, pending, checkBatch);
   }, grant.provider);
 }
 

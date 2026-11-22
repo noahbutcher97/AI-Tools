@@ -188,8 +188,76 @@ test("v2 stores preserve an unsigned outstanding grant for inspection and refuse
     assert.throws(() => upgraded.acceptFrame(prepareJobRequest(existing, "claim", null).frame), /denied/);
     assert.equal(await upgraded.dispatch(existing.id), "unavailable");
     assert.deepEqual(upgraded.subscriptions(), { partial: true, subscriptions: [] });
-    await f.issue();
+    const fresh = upgraded.issue(target, f.until);
+    upgraded.acceptFrame(prepareJobRequest(fresh, "claim", null).frame);
+    assert.equal(await upgraded.dispatch(fresh.id), "claimed");
   } finally { upgraded.close(); }
+});
+
+test("published run grants include consumed jobs and a missing member cannot be reissued", async t => {
+  const f = await fixture(t);
+  await f.issue();
+  const bytes = fs.readFileSync(f.file);
+  const [claimed, remaining] = JSON.parse(bytes).grants;
+  f.store.acceptFrame(prepareJobRequest(claimed, "claim_run", { session }).frame);
+  assert.deepEqual(await f.issue(), { count: 2, validUntil: f.until });
+  const db = new DatabaseSync(f.db);
+  try {
+    db.prepare("DELETE FROM jobs WHERE id=?").run(remaining.id);
+    assert.deepEqual(await f.issue(), { state: "paused", reason: "stored_state_unverified" });
+    assert.deepEqual(db.prepare("SELECT id FROM jobs").all().map(r => r.id), [claimed.id]);
+    assert.deepEqual(fs.readFileSync(f.file), bytes);
+  } finally { db.close(); }
+});
+
+test("a retained handoff cannot publish a job whose state has lost its witness", async t => {
+  const f = await fixture(t);
+  assert.throws(() => f.store.provision(session, binding, 2, f.until, () => { throw Error("interrupted"); }));
+  const jobs = f.store.subscriptions().subscriptions;
+  const db = new DatabaseSync(f.db);
+  try {
+    db.prepare("DELETE FROM broker_seals WHERE kind='jobs' AND id=?").run(jobs[0].id);
+    assert.deepEqual(await f.issue(), { state: "paused", reason: "stored_state_unverified" });
+    assert.equal(fs.existsSync(f.file), false);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM jobs").get().n, 2);
+  } finally { db.close(); }
+});
+
+test("only an initial job store recovers interrupted key publication", async t => {
+  const f = await fixture(t);
+  for (const phase of ["empty", "partial", "staged", "linked"]) {
+    const file = path.join(f.base, phase + ".sqlite");
+    await initializeCompletionJobs(file);
+    const key = file + ".key", staging = key + ".pending";
+    if (phase === "empty") fs.writeFileSync(key, Buffer.alloc(0));
+    if (phase === "partial") fs.writeFileSync(staging, Buffer.alloc(4));
+    if (phase === "staged" || phase === "linked") fs.writeFileSync(staging, Buffer.alloc(32, 7));
+    if (phase === "linked") fs.linkSync(staging, key);
+    const initialized = await openCompletionJobs(file);
+    initialized.close();
+    assert.equal(fs.existsSync(staging), false);
+    const bytes = fs.readFileSync(key);
+    assert.equal(bytes.length, 32);
+    if (phase === "linked") assert.deepEqual(bytes, Buffer.alloc(32, 7));
+    const reopened = await openCompletionJobs(file);
+    reopened.close();
+    assert.deepEqual(fs.readFileSync(key), bytes);
+    fs.writeFileSync(key, Buffer.alloc(4));
+    await assert.rejects(openCompletionJobs(file), /invalid broker state key/);
+    assert.equal(fs.statSync(key).size, 4);
+  }
+});
+
+test("an unrelated hard link cannot become the staging area for a broker key", async t => {
+  const f = await fixture(t);
+  const file = path.join(f.base, "uninitialized.sqlite");
+  await initializeCompletionJobs(file);
+  const separate = path.join(f.base, "marker");
+  fs.writeFileSync(separate, "fixture");
+  fs.linkSync(separate, file + ".key.pending");
+  await assert.rejects(openCompletionJobs(file), /invalid broker state key/);
+  assert.equal(fs.readFileSync(separate, "utf8"), "fixture");
+  assert.equal(fs.existsSync(file + ".key"), false);
 });
 
 test("an unverifiable handoff does not publish or allocate another set of jobs", async t => {

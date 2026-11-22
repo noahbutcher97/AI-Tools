@@ -46,16 +46,18 @@ function parseBatch(bytes, binding) {
 
 // Only the separate broker writes this directory. Link a complete new file
 // without replacing an existing publication, including after a broker crash.
-export function publishRunHandoff(root, binding, hash, pending) {
+export function publishRunHandoff(root, binding, hash, pending, checkBatch = () => true) {
   const file = handoffPath(root, binding);
   function verify() {
-    if (digest(readBatch(file)) !== hash) throw new Error("grant handoff changed");
+    const bytes = readBatch(file);
+    if (digest(bytes) !== hash) throw new Error("grant handoff changed");
+    return checkBatch(parseBatch(bytes, binding));
   }
-  try { verify(); return; } catch (error) { if (error.code !== "ENOENT") throw error; }
+  try { return verify(); } catch (error) { if (error.code !== "ENOENT") throw error; }
   if (typeof pending !== "string" || Buffer.byteLength(pending) > MAX_BYTES || digest(pending) !== hash) {
     throw new Error("grant handoff unavailable");
   }
-  parseBatch(Buffer.from(pending), binding);
+  if (!checkBatch(parseBatch(Buffer.from(pending), binding))) return false;
   const temp = path.join(path.dirname(file), randomUUID() + ".tmp");
   const fd = fs.openSync(temp, "wx", 0o600);
   try {
@@ -65,7 +67,7 @@ export function publishRunHandoff(root, binding, hash, pending) {
     } finally { fs.closeSync(fd); }
     try { fs.linkSync(temp, file); }
     catch (error) { if (error.code !== "EEXIST") throw error; }
-    verify();
+    return verify();
   } finally { fs.unlinkSync(temp); }
 }
 
