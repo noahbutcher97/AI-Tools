@@ -36,7 +36,7 @@ jobs:
         run: |
           npm ci --ignore-scripts
           node --test client.test.mjs local-address.test.mjs bound-delivery.test.mjs bound-proof.test.mjs installed-delivery.test.mjs server.test.mjs
-          node --test receive.test.mjs remote-delivery.test.mjs
+          node --test receive.test.mjs remote-delivery.test.mjs lookup-receiver.test.mjs resolve-address.test.mjs
       - run: node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs Installers/CrossAgentRelay/turn-metadata.test.mjs MCP-Servers/bridges/relay/proof.test.mjs
 
   relay-handoffs:
