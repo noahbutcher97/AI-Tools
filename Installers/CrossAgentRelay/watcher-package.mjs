@@ -21,6 +21,10 @@ const fileAdditions = [observationImage, "relay/FileObservation.cs", "relay/file
 const branchModule = "relay/branch-observation.mjs";
 const branchChanges = [branchModule, "relay/completion-acl.ps1"];
 const branchUpdate = [branchModule, "relay/schedule-watch.mjs", "relay/completion-broker.mjs"];
+// These members respectively own the store, its ACL, its watch queries and
+// its readiness projection. A staged change to their shared state format
+// requires the matching implementations from the same reviewed source tree.
+const stateMembers = ["relay/completion-jobs.mjs", "relay/completion-acl.ps1", "relay/schedule-watch.mjs", "relay/watcher-health.mjs"];
 export const packageFiles = Object.freeze([
   ...sources.map(name => "relay/" + name),
   "CompletionChannel.exe", observationImage, "runtime/node.exe", "provider/codex.exe", "provider/claude.exe", "initial/jobs.sqlite",
@@ -126,6 +130,15 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
     if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
     priorEntries = new Map(JSON.parse(bytes).files);
+    if (stateMembers.some(member => changed.has(member))) {
+      const different = [];
+      for (const member of stateMembers) {
+        if (priorEntries.get(member) !== await fileHash(inputs.get(member))) different.push(member);
+      }
+      if (different.some(member => changed.has(member)) && different.some(member => !changed.has(member))) {
+        throw Error("Incompatible watcher state modules. Build the complete watcher package.");
+      }
+    }
     if (changedMember === "files" && (!priorEntries.has(addedMember) || priorEntries.has(observationImage))) {
       throw Error("Expected a schedule-only base package");
     }

@@ -20,9 +20,9 @@ test("watcher package contains a complete protected import closure and an empty 
   assert.equal(await verifyWatcherPackage(out, digest), digest);
   // Import the actual staged entry points. Neither probe should launch the
   // native helper or require modules that exist only in the source checkout.
-  for (const module of ["completion-broker", "completion-worker"]) {
-    await import(pathToFileURL(path.join(out, "relay", module + ".mjs")).href);
-  }
+  const stagedModule = name => import(pathToFileURL(path.join(out, "relay", name + ".mjs")).href);
+  const { startCompletionBroker } = await stagedModule("completion-broker");
+  await stagedModule("completion-worker");
   for (const member of packageFiles.filter(p => p.endsWith(".mjs"))) {
     const file = fs.readFileSync(path.join(out, member), "utf8");
     for (const [, name] of file.matchAll(/(?:from\s+|import\()["'](\.\/[^"']+\.mjs)["']/g)) {
@@ -31,6 +31,18 @@ test("watcher package contains a complete protected import closure and an empty 
   }
   const db = new DatabaseSync(path.join(out,"initial","jobs.sqlite"), { readOnly: true });
   try { assert.equal(db.prepare("SELECT count(*) AS n FROM jobs").get().n, 0); } finally { db.close(); }
+  const installed = path.join(temp, "profile");
+  for (const dir of ["completion-state", "completion-health"]) fs.mkdirSync(path.join(installed, dir), { recursive: true });
+  fs.copyFileSync(path.join(out,"initial","jobs.sqlite"), path.join(installed,"completion-state","jobs.sqlite"));
+  fs.writeFileSync(path.join(installed, "completion-policy.json"), JSON.stringify({ v: 1, grants: [] }));
+  for (let boot = 0; boot < 2; boot++) {
+    const broker = await startCompletionBroker(installed, { port: 0, publishHealth: true });
+    try {
+      await assert.rejects(startCompletionBroker(installed, { port: broker.port }), { code: "EADDRINUSE" });
+      const { readWatcher } = await stagedModule("watcher-health");
+      assert.equal(readWatcher(installed).state, "reports_only");
+    } finally { await broker.close(); }
+  }
   await assert.rejects(buildWatcherPackage(out, { node: image, claude: image, codex: image }));
   await assert.rejects(verifyWatcherPackage(out, "a".repeat(64)));
   const updated = path.join(temp, "updated");
@@ -53,7 +65,7 @@ test("watcher package contains a complete protected import closure and an empty 
   fs.cpSync(out, prior, { recursive: true });
   const metadata = JSON.parse(fs.readFileSync(path.join(prior, "package.json")));
   const updatedModules = ["relay/schedule-watch.mjs", "relay/branch-observation.mjs", "relay/completion-broker.mjs"];
-  const preserved = "relay/completion-jobs.mjs";
+  const preserved = "relay/run-handoff.mjs";
   for (const entry of metadata.files) {
     if (![...updatedModules, preserved].includes(entry[0])) continue;
     const bytes = "fixture prior version of " + entry[0];
@@ -76,6 +88,16 @@ test("watcher package contains a complete protected import closure and an empty 
     const expectedRoot = updatedModules.includes(member) ? out : prior;
     assert.deepEqual(fs.readFileSync(path.join(staged, member)), fs.readFileSync(path.join(expectedRoot, member)), member);
   }
+  const incompatible = path.join(temp, "partial");
+  const oldJobs = "fixture prior job store";
+  fs.writeFileSync(path.join(prior, "relay/completion-jobs.mjs"), oldJobs);
+  metadata.files.find(([member]) => member === "relay/completion-jobs.mjs")[1] = createHash("sha256").update(oldJobs).digest("hex");
+  const oldStoreMetadata = JSON.stringify(metadata);
+  fs.writeFileSync(path.join(prior, "package.json"), oldStoreMetadata);
+  await assert.rejects(buildWatcherPackage(incompatible, {
+    base: prior, baseDigest: createHash("sha256").update(oldStoreMetadata).digest("hex"), changedMember: "branch-update",
+  }), /complete watcher package/);
+  assert.equal(fs.existsSync(incompatible), false);
   fs.cpSync(out, legacy, { recursive: true });
   fs.unlinkSync(path.join(legacy, "relay/branch-observation.mjs"));
   const old = JSON.parse(fs.readFileSync(path.join(legacy, "package.json"), "utf8"));
