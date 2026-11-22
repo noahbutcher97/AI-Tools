@@ -1,5 +1,65 @@
 [
   {
+    "id": "i6-last-reader-review",
+    "revision": "c35cdf9666682c9579f0e0e59bedda5184d3d668",
+    "coordinator": "relay coordinator",
+    "worker": "independent reviewer",
+    "state": "accepted",
+    "scope": "Review exact source changes for lost proof authority.",
+    "acceptance": "Reproduce the old result and confirm zero submissions after reader removal through the public receiver.",
+    "result": {
+      "revision": "c35cdf9666682c9579f0e0e59bedda5184d3d668",
+      "verdict": "passed",
+      "evidence": "An independent old/new comparison reproduced false eligibility and single unwanted submissions at earlier callback boundaries. Current preflight, capture and final readiness all refused withdrawn proof with zero submissions. Healthy control delivered and recovered once. All 18 focused tests passed.",
+      "limitations": "Inert recording provider and disposable configuration. Installed SSH and B3 remain separate."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Merge after public checks and synchronize both source trees."
+    }
+  },
+  {
+    "id": "i6-last-reader-operator",
+    "revision": "c35cdf9666682c9579f0e0e59bedda5184d3d668",
+    "coordinator": "relay coordinator",
+    "worker": "constrained operator",
+    "state": "accepted",
+    "scope": "Recover a dropped receipt through the public CLI on final source.",
+    "acceptance": "Identify cold status and count the provider calls.",
+    "result": {
+      "revision": "c35cdf9666682c9579f0e0e59bedda5184d3d668",
+      "verdict": "passed",
+      "evidence": "Low-effort Haiku using the normal CLI checked the receipt after an unknown result. The fixture recorded resolve, ping and status, exactly one provider call, and a delivered receipt after writer exit.",
+      "limitations": "Agent-operated normal CLI and real dispatcher with synthetic transport, recording provider and proof backend."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Retain the dated receipt and public-face regression."
+    }
+  },
+  {
+    "id": "i6-proof-before-wake",
+    "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
+    "coordinator": "relay coordinator",
+    "worker": "receiver worker",
+    "state": "accepted",
+    "scope": "Check if proof permission is lost during capture or final readiness.",
+    "acceptance": "Exercise the public receive frame and count provider wakes on withdrawal.",
+    "result": {
+      "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
+      "verdict": "corrected",
+      "evidence": "The protected synthetic configuration reproduced one unwanted wake when its reader was withdrawn during capture or readiness. The source fix at c35cdf9666682c9579f0e0e59bedda5184d3d668 rechecks before observation, persistence, eligibility and submit. The negative cases recorded zero sends.",
+      "limitations": "Disposable receiver and private synthetic configuration only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Independent final verification and public-face operator repeat."
+    }
+  },
+  {
     "id": "relay-i6-binding-recheck",
     "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
     "coordinator": "relay coordinator",
