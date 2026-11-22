@@ -72,6 +72,16 @@ function manifest(entries) {
   return { body, digest: createHash("sha256").update(body).digest("hex") };
 }
 
+// Read the reviewed code as data. Starting either broker here would open and
+// potentially migrate the store we need to preserve for rollback.
+function rollbackFormat(file, expectedHash) {
+  const bytes = fs.readFileSync(file);
+  if (createHash("sha256").update(bytes).digest("hex") !== expectedHash) throw Error("Store module changed");
+  const versions = [...bytes.toString("utf8").matchAll(/^const BROKER_STORE_VERSION = ([1-9][0-9]*);\r?$/gm)];
+  if (versions.length !== 1) throw Error("Unknown rollback store format. Build the complete watcher package.");
+  return versions[0][1];
+}
+
 // An expected digest comes from the reviewed plan, never from the bundle.
 // Recheck each file again in the protected destination before executing it.
 export async function verifyWatcherPackage(root, expected, { allowLegacy = false } = {}) {
@@ -140,6 +150,12 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       }
       if (different.some(member => changed.has(member)) && different.some(member => !changed.has(member))) {
         throw Error("Incompatible watcher state modules. Build the complete watcher package.");
+      }
+      const jobs = "relay/completion-jobs.mjs";
+      if (changed.has(jobs) && different.includes(jobs)) {
+        const previous = rollbackFormat(canonicalFile(base, jobs), priorEntries.get(jobs));
+        const next = rollbackFormat(inputs.get(jobs), checkedStateHashes.get(jobs));
+        if (previous !== next) throw Error("Incompatible rollback store format. Build the complete watcher package.");
       }
     }
     if (changedMember === "files" && (!priorEntries.has(addedMember) || priorEntries.has(observationImage))) {

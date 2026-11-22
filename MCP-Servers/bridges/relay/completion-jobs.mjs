@@ -7,6 +7,9 @@ import { isWatchActivation, jobMac, sameMac, validExit, validJobFrame } from "./
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
 import { scheduleTable, scheduleWatches } from "./schedule-watch.mjs";
 
+// The partial updater checks this declaration in each reviewed store module.
+// Increment it for on-disk changes that the previous broker cannot reopen.
+const BROKER_STORE_VERSION = 5;
 const COOLDOWN_MS = 10000;
 const HANDOFF_TABLE = `CREATE TABLE grant_handoffs (
   instance TEXT PRIMARY KEY, count INTEGER NOT NULL, valid_until INTEGER NOT NULL,
@@ -195,7 +198,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         CREATE INDEX jobs_due ON jobs(state,next_check,id);
         CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
         PRAGMA user_version=2`);
-    } else if (![2,3,4,5].includes(version)) throw new Error("invalid job store");
+    } else if (version < 2 || version > BROKER_STORE_VERSION) throw new Error("invalid job store");
     if (version < 3) db.exec(HANDOFF_TABLE + "; ALTER TABLE jobs ADD COLUMN run_only INTEGER NOT NULL DEFAULT 0; PRAGMA user_version=3");
     if (schedules) db.exec(scheduleTable);
     key = readStateKey(file, version < 4);

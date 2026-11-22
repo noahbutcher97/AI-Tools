@@ -66,7 +66,7 @@ After acquiring its exclusive listener the broker issues one capability through 
 
 Stage the current broker module against the previously reviewed package in a new private directory. Staging checks the previous digest and copies the other members byte for byte. Keep both packages until the update and its recovery window are complete.
 
-For an independently compatible job store change, `stage-jobs` and `-Component Jobs` update one reviewed file. The schema 5 change requires the store, schedule reader and ACL checks from the same build. Stage the complete watcher package for that transition. Keep the current installation in reports-only mode until its whole-package upgrade and recovery have been qualified. The single-file updater rejects this transition.
+For an independently compatible job store change, `stage-jobs` and `-Component Jobs` update one reviewed file. Every partial staging mode and both updater operations check the rollback format whenever the store module changes. Both reviewed modules must declare the same format. A legacy module without a declaration can be carried forward byte for byte. A schema change needs a complete watcher package and a separately qualified whole-package upgrade and recovery procedure. This includes the schema 5 transition, because its first broker start changes the live database even in reports-only mode. Keep the current installation in reports-only mode until that procedure is qualified.
 
 ```text
 node watcher-package.mjs stage-broker <new-directory> <previous-directory> <previous-digest>

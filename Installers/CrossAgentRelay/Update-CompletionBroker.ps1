@@ -19,6 +19,19 @@ function Get-ReviewedHashes($dir,$PackageDigest,[switch]$AllowLegacy) {
     return Read-Package $dir -AllowLegacy:$AllowLegacy
 }
 
+function Get-RollbackStoreFormat($dir,$expectedHash) {
+    $file = Join-Path $dir 'relay/completion-jobs.mjs'
+    Assert-PlainPath $file
+    $bytes = [IO.File]::ReadAllBytes($file)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $hash = [BitConverter]::ToString($sha.ComputeHash($bytes)).Replace('-','') }
+    finally { $sha.Dispose() }
+    if ($hash -ne $expectedHash) { throw 'Store module changed' }
+    $versions = [regex]::Matches([Text.Encoding]::UTF8.GetString($bytes), '(?m)^const BROKER_STORE_VERSION = ([1-9][0-9]*);\r?$')
+    if ($versions.Count -ne 1) { throw 'Unknown rollback store format. Use a qualified whole-package upgrade.' }
+    return $versions[0].Groups[1].Value
+}
+
 function Assert-BrokerDelta($previous,$next) {
     if ($Component -eq 'BranchUpdate') {
         $allowed = @($branchModule,'relay/schedule-watch.mjs','relay/completion-broker.mjs')
@@ -228,6 +241,13 @@ if ($PSVersionTable.PSEdition -ne 'Desktop' -or ![Environment]::Is64BitProcess) 
 $previous = Get-ReviewedHashes $PreviousPackage $PreviousDigest -AllowLegacy:($Component -in @('Branches','Files','Schedules'))
 $next = Get-ReviewedHashes $NextPackage $NextDigest
 Assert-BrokerDelta $previous $next
+$jobs = 'relay/completion-jobs.mjs'
+if ($previous[$jobs] -ne $next[$jobs]) {
+    $priorFormat = Get-RollbackStoreFormat $PreviousPackage $previous[$jobs]
+    if ($priorFormat -cne (Get-RollbackStoreFormat $NextPackage $next[$jobs])) {
+        throw 'Incompatible rollback store format. Use a qualified whole-package upgrade.'
+    }
+}
 $scheduler = New-Object -ComObject Schedule.Service
 $scheduler.Connect()
 $folder = $scheduler.GetFolder('\')
