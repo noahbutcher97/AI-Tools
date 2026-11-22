@@ -23,6 +23,38 @@ Within the paired stages, A owns 5 checkpoints and B owns 3, I owns 16 and C own
 
 Work in stage order subject to the dependencies below. Keep the qualified A/B baseline available while I/C proceeds. Gates for a restricted provider route apply whenever a later row would enable that route. For a new slice or changed scope, update this map, the totals and the next assignment together. Preserve existing IDs, record the reason for a split or deferral, and link the test, independent review and applicable [operator walkthrough](#human-usability-checkpoints) before marking a row accepted. Report installed coverage and any unexercised routes explicitly.
 
+### Order of work and parallel assignments
+
+**Dispatch I5 protocol work and the A4 spool regression first.** I5 is the next feature checkpoint. A4 closes an outstanding privacy finding and can use a separate worktree without changing the remote protocol. These are ready assignments. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
+
+#### First assignments
+
+| Assignment | Start when | Deliverable and independent check |
+| --- | --- | --- |
+| I5 · receiver contract | Now, from the reviewed I4 receiver | Trace a literal selector from the existing CLI and MCP local resolver to the remote boundary. Pin the versioned, body-free request and response, authorized read scope and old-peer behavior. Exercise the real receive entry point with a synthetic adapter, a delimiter-bearing ID, a collision and incomplete inventory. Record frames, zero submissions and zero effect reservations. |
+| A4 · private failure storage | Now, independently of I5 | Reproduce the temporary fallback with synthetic data when primary private storage is unavailable. Fix local failure storage and sanitized diagnostics. Test successful private recovery, failure with no private storage, failed dry-run and destination receive refusal. Record writes through CLI and MCP failure paths. On the integrated revision, give a fresh constrained operator a disposable failed send with private storage unavailable. Ask them to determine whether the message can be recovered. Check the answer and submission count independently, then repeat after any diagnostic fix. Run this alongside A4 review. |
+| I5 · caller integration | Once both workers agree on wire examples. Use those fixtures while the receiver implementation proceeds. | Route CLI `resolve` and MCP `relay_resolve` through the same local or remote selection. On the combined revision compare both public results for the same cases, including an older peer and an unavailable host. Capture the request count and confirm no body or wake. |
+| I5 · compatibility and operator check | Compatibility fixtures can start against the agreed wire examples. Run the operator check on the integrated revision. | A worker independent of the caller implementation supplies the older-peer and ambiguous-ID cases. A fresh operator finds an exact remote ID and recovers from a refused lookup using help. Run the independent implementation review alongside the walkthrough on the same bytes. |
+
+Give receiver and caller work different file owners once the wire examples agree. If A4 and I5 both need a CLI, MCP or receive entry point, integrate one candidate first and rerun the affected public-interface cases on the combined bytes. The coordinator schedules changes to a shared desktop installation and records source results separately from live qualification.
+
+#### Remaining I/C assignments
+
+Two prerequisites can progress while I5 is underway. Pick up **I7** as soon as a worker is free for watcher qualification. Begin with grant revocation and tampered restore fixtures, then exercise the singleton and doctor projection. Check a paused state using a fixture here. F3 owns the later live name-pause check. In the A/B backlog, **A3** supplies the policy cases for **B3** and **A5**. A3's receiver changes share a boundary with I5/I6, so agree on the wire examples before integrating those edits. **A2** fleet deadline tests can proceed independently and unblock **B2** readiness checks.
+
+| Assignment order | First worker return | Follow-up and release condition |
+| --- | --- | --- |
+| I5 → I6 | Bind the selected adapter and recipient to a single durable request. Reproduce a changed-adapter retry with a recording provider. | A second worker checks cold status, legacy receipts and unknown outcomes through the public faces. B3 must pass for sustained use. A source-only change can retain the disabled deployment boundary. |
+| I7 → I11 and I13 | For I11, exercise authenticated attachment, revocation and reconnect using one shared desktop worker. For I13, independently test whether an ordinary completion and busy-to-idle transition have positive eligibility evidence. | Each worker returns its own evidence. Keep ambiguous transitions suppressed. The existing native observation fixture can be exercised before I7 closes. Installed grant use needs I7. |
+| I6 and I7 → I15 | Assemble the existing client regressions and an independently registered synthetic client against the same CLI, MCP, receive and watch contract. | Have an independent reviewer verify one proved permitted notice and zero unauthorized effects across the compatibility cases. This gates every new recipient-facing watch below. |
+| I15 → C2, I12, I14 and I16 | C2 also needs C1 and I7 for original-instance log tails. I12 needs I11 for authenticated process exit. I14 needs I13 for a positively attributable session transition. I16 needs I6, I7 and applicable A gates for a staged cross-host watch. | Assign separately as each prerequisite clears. C2 checks disclosure after writer replacement. I12 checks lost observation. I14 tests self and reciprocal loops with a fake clock before live qualification. I16 checks consumed delivery in each qualified direction. Serialize trials that change the same desktop setup. |
+
+#### Next stage and later integration
+
+At the I/C to F/E stage review, refresh the [registry checkpoints](#fe--registry-and-names) against the actual adapter and grant formats. **E1** comes first once I2 is available. First return the lease schema and ownership rules with a local competing-claim fixture. Then test register, renew, expire and raw-ID operation through the public interfaces. **F1** and **F2** can then have separate workers. F1 also needs A2 and returns a fleet `who` projection with attributed fields and an offline peer. F2 also needs I5 and returns a pinned name resolution tested against a late rival claim. **F3** integrates F1, F2, I7 and I16. Exercise pause, a single raw-ID notice, authorized resume and retention expiry in that order on disposable grants.
+
+Within G/H, run **G1 → G2** and **H1 → H2** independently once their earlier prerequisites clear. H3 brings capability evidence and permanent machine setup together. In D, use **D1 → D2 → D3 → D4**, bringing I6 into signature binding, B3 into replay qualification and H3 into installed pair rollout. At each stage review, expand the next stage into worker briefs using the observed interfaces and update this sequence when a dependency changes.
+
 ### A/B · Addressing, proof and health
 
 | ID | State | Depends on | Evidence required for closure |

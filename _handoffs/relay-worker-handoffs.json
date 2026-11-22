@@ -1,5 +1,45 @@
 [
   {
+    "id": "relay-worker-sequence-recheck",
+    "revision": "38944023980b7016f0fcaa38e8484cca50956b6b",
+    "worker": "independent sequence reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of assignment ordering, parallel work and integration gates in the rollout journal.",
+    "acceptance": "Verify that the A4 operator task and I5 parallel fixture work satisfy the prior review.",
+    "state": "accepted",
+    "result": {
+      "revision": "38944023980b7016f0fcaa38e8484cca50956b6b",
+      "verdict": "Accept the worker assignment sequence.",
+      "evidence": "Compared the amended A4 and I5 briefs with the first revision. A4 now measures operator recovery and independent submission count. I5 permits caller work on agreed examples and checks both public faces on the combined candidate.",
+      "limitations": "Read-only planning review. Operator runs, implementation and installed qualification remain future work."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted on the reviewed document revision. No change to checkpoint acceptance or deployment scope.",
+      "next": "Dispatch I5 protocol work and the independent A4 privacy regression when implementation resumes."
+    }
+  },
+  {
+    "id": "relay-worker-sequence-review",
+    "revision": "17cf7141957738d6dfae1e5c3b2b3d0c4bc2c3a4",
+    "worker": "independent sequence reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only review of assignment ordering, parallel work and integration gates in the rollout journal.",
+    "acceptance": "Check ready work, dependency order, compatibility and live gates against the existing design and checkpoint map. Identify any material omission or inconsistent assignment.",
+    "state": "accepted",
+    "result": {
+      "revision": "17cf7141957738d6dfae1e5c3b2b3d0c4bc2c3a4",
+      "verdict": "Hold for the A4 operator acceptance task.",
+      "evidence": "Checked the dependency graph against the stage rows and design. A4 changes a visible failure diagnostic and its original assignment omitted the constrained operator task. Clarify when the I5 caller can use agreed fixtures in parallel.",
+      "limitations": "Read-only documentation review. No provider tests or installed checks."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted both findings. Add the disposable failed-send recovery task and clarify the I5 parallel start and integrated acceptance.",
+      "next": "Recheck the corrected assignment briefs."
+    }
+  },
+  {
     "id": "relay-rollout-checkpoint-recheck",
     "revision": "8e19df9e7b1f37713ac7f884a19eb72f9a7e2571",
     "worker": "independent plan reviewer",
