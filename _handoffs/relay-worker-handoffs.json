@@ -1,21 +1,123 @@
 [
   {
+    "id": "relay-i6-binding-recheck",
+    "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
+    "coordinator": "relay coordinator",
+    "worker": "independent effect reviewer",
+    "state": "accepted",
+    "scope": "Verify corrected proof authority on duplicate ping and reader withdrawal during verification.",
+    "acceptance": "Reproduce original cases and confirm no additional proof read or submission after retry; rerun public recovery.",
+    "result": {
+      "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
+      "verdict": "Passed final independent source review.",
+      "evidence": "Original ping-only retry returned stored pending without a new proof read. Withdrawing reader enrollment during an authorized status check withheld proof. Re-enrollment and a valid status grant produced delivered. The reviewer counted exactly one submission and checked legacy cursor scope; focused tests passed 36 with two existing Windows skips.",
+      "limitations": "Disposable SQLite stores, public CLI/MCP processes and recording adapters. No installation upgrade, live SSH or sustained-use claim."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Accept I6 source. Qualify B3 before sustained use."
+    }
+  },
+  {
+    "id": "relay-i6-status-repeat",
+    "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
+    "coordinator": "relay coordinator",
+    "worker": "fresh constrained terminal operator",
+    "state": "accepted",
+    "scope": "Repeat the uncertain remote probe recovery on the amended candidate.",
+    "acceptance": "Verify one submission and exactly one fresh read of the original receipt.",
+    "result": {
+      "revision": "dcbad65a3bf69ad9d88f1d1d95bd03135fdc77d1",
+      "verdict": "Confirmed delivery without a second wake.",
+      "evidence": "A fresh Haiku terminal operator saw the dropped reply, used the supplied status handle, and correctly explained the delivered result. Three recorded frames were eligibility, ping and status. Removing the writer after the first attempt still yielded exactly one submission.",
+      "limitations": "Agent-operated real CLI with synthetic transport and writer. No paid recipient session or enrolled peer was used."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Keep the public recovery replay in CI."
+    }
+  },
+  {
+    "id": "relay-i6-binding-review",
+    "revision": "bbb55038a100fcc01727f854b2b8d0779f6c3e63",
+    "coordinator": "relay coordinator",
+    "worker": "independent effect reviewer",
+    "state": "accepted",
+    "scope": "Review I6 receiver, caller and receipt migration against the baseline, including cross-version scope and both public callers.",
+    "acceptance": "Check identity and grant binding, no second submission on retries or recovery, code paths for native and additional readers and safe setup migration.",
+    "result": {
+      "revision": "bbb55038a100fcc01727f854b2b8d0779f6c3e63",
+      "verdict": "Held source qualification for two proof authorization findings.",
+      "evidence": "A ping-only grant could refresh proof on a duplicate ping even though status was denied. A reader disabled during verification could return delivered. Paired CLI and MCP cases and two setup migration cases passed.",
+      "limitations": "Synthetic Windows fixtures and local pipes. No live provider or SSH delivery."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Recheck the status grant on fresh proof reads and reader enrollment after verification."
+    }
+  },
+  {
+    "id": "relay-i6-status-walk",
+    "revision": "bbb55038a100fcc01727f854b2b8d0779f6c3e63",
+    "coordinator": "relay coordinator",
+    "worker": "fresh constrained terminal operator",
+    "state": "accepted",
+    "scope": "Recover from an uncertain remote probe in the normal CLI using only the task and terminal history.",
+    "acceptance": "Inspect fresh CLI output, independently compare receipt evidence and count submissions after recovery.",
+    "result": {
+      "revision": "bbb55038a100fcc01727f854b2b8d0779f6c3e63",
+      "verdict": "Passed interrupted probe recovery in a fresh terminal process.",
+      "evidence": "A low-effort Claude Code Haiku operator saw an uncertain CLI probe and used its receipt in a fresh CLI. The recorder observed resolve, ping and status, exactly one adapter submission, and delivered proof. The fixture removed the writer before status.",
+      "limitations": "Agent-operated Windows CLI, synthetic recipient and transport. No real session was woken."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Repeat after any change to the affected recovery path."
+    }
+  },
+  {
     "id": "relay-i6-receiver",
     "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
     "coordinator": "relay coordinator",
     "worker": "receiver and receipts implementer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Bind remote effects, status and stored reservations across versions to one exact adapter and native ID.",
-    "acceptance": "Record one submission across identical retries, changed adapter and version conflicts, authorized cold status, and zero effects for denied or uncertain recovery."
+    "acceptance": "Record one submission across identical retries, changed adapter and version conflicts, authorized cold status, and zero effects for denied or uncertain recovery.",
+    "result": {
+      "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+      "verdict": "Returned bound effect and receipt implementation.",
+      "evidence": "Commit 5926617 qualified two readers with one literal ID, grant checks, shared request reservations, cold status, legacy receipt interpretation and the native Codex eligibility barrier. The focused backend suite passed 34 tests with two Windows open-file skips.",
+      "limitations": "Recording adapters and synthetic configuration. Sustained-use and live deployment remain separate."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Resolve integrated review findings before acceptance."
+    }
   },
   {
     "id": "relay-i6-caller",
     "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
     "coordinator": "relay coordinator",
     "worker": "CLI and MCP implementer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Route explicit remote selectors through versioned body-free negotiation and the bound effect contract.",
-    "acceptance": "Exercise both public faces with two registered readers, receipt recovery from a fresh caller, older receivers and transport uncertainty."
+    "acceptance": "Exercise both public faces with two registered readers, receipt recovery from a fresh caller, older receivers and transport uncertainty.",
+    "result": {
+      "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+      "verdict": "Returned equivalent CLI and MCP routing.",
+      "evidence": "Commit bbb5503 exercised granted readers, ambiguous and qualified IDs, legacy refusal before sending a body, changed-adapter and body conflicts, and recovery from a fresh caller. Both integrated public fixtures passed on Windows and Ubuntu under WSL.",
+      "limitations": "Real CLI/MCP processes and a synthetic transport. External SSH and additional live provider delivery were unexercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Close on the reviewed integrated candidate and operator evidence."
+    }
   },
   {
     "id": "relay-test-profile-interrupt-review",
