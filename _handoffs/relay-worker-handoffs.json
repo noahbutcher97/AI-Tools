@@ -1,5 +1,23 @@
 [
   {
+    "id": "relay-i5-lookup-implementation",
+    "worker": "receiver implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+    "scope": "Implement a body-free remote literal lookup under explicit installed read authority with receiver tests.",
+    "acceptance": "Pin compatible frames and refuse ambiguous, incomplete and unauthorized reads. Exercise the actual receiver and record zero submissions or effect reservations.",
+    "state": "assigned"
+  },
+  {
+    "id": "relay-i5-lookup-caller",
+    "worker": "caller implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+    "scope": "Integrate versioned read-only remote selector lookup through CLI and MCP after receiver examples are agreed.",
+    "acceptance": "Preserve local addressing and cover remote exact lookup, collision, incomplete reads and old or unavailable peers with zero submissions.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-visible-local-worker",
     "revision": "201c366f309aef7ee0b0c79cb571b429c9671953",
     "worker": "disposable local terminal worker",
