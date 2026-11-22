@@ -4,6 +4,93 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 [Approved design and qualification gates](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md)
 
+## Rollout checkpoints
+
+Start here to find the next assignment. The [design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) sets the requirements and stage order. This map owns checkpoint IDs, dependencies and status. The dated entries below and the [worker register](relay-worker-handoffs.json) hold the evidence. The active stage is **I/C**. **I5, versioned read-only remote resolution, is next.** A/B retains open hardening and live gates.
+
+| Stage | Checkpoints | Accepted in stated scope | Remaining |
+| --- | ---: | ---: | ---: |
+| A/B · addressing, proof and health | 8 | 2 | 6 |
+| I/C · watcher and command completion | 18 | 8 | 10 |
+| F/E · registry and names | 4 | 0 | 4 |
+| G/H · capabilities, discovery and setup | 5 | 0 | 5 |
+| D · machine signatures | 4 | 0 | 4 |
+| **Total** | **39** | **10** | **29** |
+
+Within the paired stages, A owns 5 checkpoints and B owns 3, I owns 16 and C owns 2, F owns 3 and E owns 1, and G owns 2 and H owns 3. D owns all 4 in its stage.
+
+**How to read the map.** Accepted means the cited record meets the check in that row for the stated client, interface and environment. Partial means relevant evidence exists and a named closure check remains. Next identifies the current source assignment. Open means closure evidence is outstanding. Count each ID once, including shared work. Counts measure checkpoints of unequal size. A stage closes under the [review, merge and sync protocol](#commit-push-and-merge) when its rows have passed in the required scope and its blocking findings have dispositions. A source checkpoint may pass while the installed route stays disabled.
+
+Work in stage order subject to the dependencies below. Keep the qualified A/B baseline available while I/C proceeds. Gates for a restricted provider route apply whenever a later row would enable that route. For a new slice or changed scope, update this map, the totals and the next assignment together. Preserve existing IDs, record the reason for a split or deferral, and link the test, independent review and applicable [operator walkthrough](#human-usability-checkpoints) before marking a row accepted. Report installed coverage and any unexercised routes explicitly.
+
+### A/B · Addressing, proof and health
+
+| ID | State | Depends on | Evidence required for closure |
+| --- | --- | --- | --- |
+| A1 | Accepted | — | Temporary source-restricted keys on both desktops permitted the fixed probe, refused alternate channels and stopped working after revocation. The two logon contexts reached both baseline clients. [Staged trials](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) |
+| A2 | Partial | A1 | File-directory inventory and host-prefixed CLI/MCP send worked on the staged Codex route. Exercise all-host list, ping and doctor in parallel (F1 adds who) with a slow and an offline peer, bound inbound work and verify partial results within the deadline. |
+| A3 | Partial | A1 | Qualify receive enable/disable, peer, operation, recipient and unknown-origin policy for each supported protocol version. Exercise audit and sanitized refusals through receive, including zero provider calls on denial. Verify a fixed relay header, escaped metadata, host-qualified remote reply address, unverified session provenance and a bounded explicitly requested reference. Required before permanent enrollment. |
+| A4 | Open | — | Close the local spool finding. Failures retain bodies only in verified private storage. Record zero destination writes, zero failed dry-run writes and sanitized diagnostics through both public faces. |
+| A5 | Partial | A3 | Qualify protected provider startup, deadline cancellation and the delegate's effective settings. For restricted Claude delivery prove one exact recipient and payload at the actual tool boundary. Keep unsupported grants disabled and visible. |
+| B1 | Accepted | A1 | The tested local probes distinguished held and accepted Claude input and consumed Codex input. Staged remote Codex retries yielded one consumed notice. Status checked the original receipt. [Proof predicates and live results](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#ping) |
+| B2 | Partial | A2 | Compare each dated readiness record to the live build, bind delegate smoke results to build and target, and expose unknown expiry, clock uncertainty and offline peers. CLI writes the record. Read-only MCP returns the sanitized result. Verify the installed sampler identity when present. |
+| B3 | Partial | A3 | Durable request reservations already prevent ordinary duplicate sends. Test capacity, expiry, concurrent retry, crash, loss and rollback over the acceptance window. Recover status after uncertainty with zero second submissions. D reuses this store. |
+
+The [independent review findings](#independent-implementation-review) track the open spool, receive, delegate, readiness and receipt issues. H owns permanent installation. Its evidence must identify the deployed revision separately from A1's staged results.
+
+### I/C · Watcher and command completion
+
+I4 through I6 preserve the three previously sequenced remote checkpoints. I1 through I4 describe accepted source scopes. The branch, file, process and session-state rows retain their different live evidence requirements.
+
+| ID | State | Depends on | Evidence required for closure |
+| --- | --- | --- | --- |
+| I1 | Accepted | A/B baseline | Local CLI and MCP inventory enumerate an additional installed reader, preserve native IDs and expose incomplete coverage. [Inventory review](#local-inventory-and-exact-addressing) |
+| I2 | Accepted | I1 | Literal local resolve handles collisions, delimiter-bearing IDs, legacy aliases and incomplete enumeration through both faces. [Selector review](#local-inventory-and-exact-addressing) |
+| I3 | Accepted | I2, B1 | Local send and ping bind the selected adapter and writer. Both desktops proved one local Codex input from a fresh CLI. Additional-client delivery has fixture coverage. [Bound delivery qualification](#local-inventory-and-exact-addressing) |
+| I4 | Accepted | I3 | Existing remote Codex protocol rechecks selection, policy and native eligibility after proof capture. Reviewed receiver cases ran on both desktops. Installed cross-host proof on these bytes belongs to I16. [Receiver recheck](#local-inventory-and-exact-addressing) |
+| I5 | Next | I4 | Add versioned read-only literal resolution. Exercise qualified and unqualified IDs, collision, incomplete inventory and an older peer through the normal CLI and MCP. Record zero message bodies and zero submissions during negotiation. |
+| I6 | Open | I5, B3 for sustained use | Bind remote effect grants, reservations and cold status to adapter and recipient. Test cross-version ID reuse, changed adapter, legacy receipts and unknown outcomes. Recover without resending. |
+| I7 | Partial | B1 | Exercise the singleton logon watcher, broker-issued grants and protected restore. Alter or revoke a grant before observation and before dispatch. Verify zero unauthorized opens or sends and inspect active and paused subscriptions through doctor. [Broker and worker design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#authenticating-the-session-profile-worker) |
+| C1 | Accepted | Broker and worker baseline | Both installed Codex workers proved exit-status delivery for a command started by the relay. Keep coverage scoped to the qualified status-only grant. [Installed job trials](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#local-broker-for-completion-reports) |
+| C2 | Open | C1, I7, I15 | From the normal client, run a long command through tool-call teardown and recover the exit and bounded tail. Release a private tail only to the original authorized instance. Test resume, revocation, missing secure storage and wrong recipient. A5 gates restricted Claude delivery. |
+| I8 | Accepted | Broker and worker baseline | Both installed desktops proved a UTC schedule notice after writer resume through the qualified Codex route. [Clock, restart and installed results](#qualification-history) |
+| I9 | Accepted | Broker and worker baseline | Both installed desktops proved a confined file-disappearance notice after resume. Fixtures distinguish deletion from an inaccessible root and check metadata changes. [File checks](#earlier-session-events) |
+| I10 | Accepted | Broker and worker baseline | Both installed brokers matched public and scoped private baselines. One installed broker proved one private branch-change notice after resume and restored its trial state. [Branch trial and coverage](#completed-branch-watcher-trial) |
+| I11 | Partial | I7 | Native shared-worker and lease fixtures passed. Authenticate installed attachment, recheck process identity, share one worker across grants and persist deduplication across reconnect. Verify revocation releases the observation handle. [Process checks](#external-process-end-observation) |
+| I12 | Open | I11, I15 | Observe a separately started process ending through the installed worker. Exercise overlap, disconnect, restart and lost observation. Prove one permitted notice to the granted logical session with the chosen disclosure scope. |
+| I13 | Partial | I3, I7 | Establish positive evidence of an ordinary eligible completion and a busy-to-idle transition. The existing Codex trial can exclude a notice-bearing turn. Unknown, initial and mixed-cause observations must yield zero wakes. [Turn evidence](#delivery-proof-and-turn-identity) |
+| I14 | Open | I13, I15 | Exercise self and reciprocal watches with a fake clock, restart, coalescing and an outage. Verify one eligible transition produces one proved notice and no subsequent watcher-caused wakes. Qualify each enabled provider and host context. |
+| I15 | Open | I6, I7 | Before connecting a new recipient-facing watch, run the Claude Code and Codex regressions and an independently registered synthetic adapter through CLI, MCP, receive and watch. Cover literal IDs, collision, incomplete lookup, changed-adapter retry, send-only caller, unqualified resume and an older peer. Require zero unauthorized submissions and one proved notice on the supported path. Qualify a real additional client before claiming it. [Adapter contract](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work) |
+| I16 | Open | I6, I7, I15, applicable A gates | Stage a restricted peer and use a raw-ID watch across machines. Prove one consumed notice in each qualified direction, recover after an outage with bounded retention, and reconcile broker, worker and doctor after restart. A5 applies to restricted Claude delivery. |
+
+### F/E · Registry and names
+
+| ID | State | Depends on | Evidence required for closure |
+| --- | --- | --- | --- |
+| E1 | Open | I2 | Register, renew and expire a local lease atomically. Race two claims for one name, reject forged ownership, and show the same role in two namespaces. Keep raw-ID operations usable with no lease or workspace. |
+| F1 | Open | E1, A2 | Exercise local and fleet `who` with a registered and an unregistered session. Attribute reported fields and observed activity separately, including unknown activity and an offline peer. |
+| F2 | Open | E1, I5 | Resolve one-off names against the applicable complete snapshot. Pin and recheck the exact lease before send. A duplicate visible in the snapshot, a changed selected lease or incomplete required coverage must submit zero times. Race a rival claim after selection and verify the original attempt cannot switch targets. The next complete snapshot must expose the duplicate. |
+| F3 | Open | F1, F2, I7, I16 | Follow only an owner-constrained name. On duplicate claims or an incomplete snapshot, show the reason in doctor and prove one pause doorbell by raw ID. Check bounded retention, reauthorization after replacement and uninterrupted independent raw-ID watches. |
+
+### G/H · Capabilities, discovery and setup
+
+| ID | State | Depends on | Evidence required for closure |
+| --- | --- | --- | --- |
+| G1 | Partial | B2, I1 | Publish dated capability evidence per installed adapter, build, host and mode. Age stale evidence and report unsupported and unknown operations independently. Exercise a synthetic additional adapter. For each real client claimed, record caller access, idle wake, busy queue, consumed receipt and resume separately. |
+| G2 | Open | G1 | Record prompt blocking behavior, native job-end wake, artifact publishing, instruction-file limits and sign-in expiry with their evidence sources. Exercise safe doctor refresh and verify ordinary checks produce zero wakes, prompts or publications. |
+| H1 | Open | A2 | Use tagged network discovery or the synced private directory. Verify stable short labels, online status, directory drift, label collisions and fallback on a simulated fleet of at least three peers. |
+| H2 | Partial | A1, A3, H1 | Exercise one setup run on an SSH-ready machine. Generate its own relay key locally, distribute managed restricted public entries and pins, and preserve ordinary SSH and existing CLI/MCP configuration. Test idempotence, interruption, revocation and rollback. Document new-machine sign-in and first SSH enablement. |
+| H3 | Open | H2, G1, B2, B3, applicable I gates | Run installation and effective key-restriction tests on both enrolled desktops. Check provider registrations and per-tool approvals from real clients, watcher logon, denied channels, live build agreement and doctor after restart. Record each enabled route and outstanding provider limitation. |
+
+### D · Machine signatures
+
+| ID | State | Depends on | Evidence required for closure |
+| --- | --- | --- | --- |
+| D1 | Open | H2 | Verify the separately protected signer, pinned owner trust authority and authenticated trust revisions. Exercise enrollment, overlap, emergency revocation, rollback and offline trust expiry. |
+| D2 | Open | D1, I6 | Verify canonical request and receipt signatures bind all fields and domains. Alter the operation, recipient, payload and reply independently. Invalid, missing or misdirected signed frames must yield zero provider calls. |
+| D3 | Open | D2, B3 | Reuse the durable reservation across key rotation. With a fake clock test bounded lifetime and skew, full store, concurrent duplicate, crash and lost state. Confirm one effect and a receipt bound to the original digest. |
+| D4 | Open | D3, H3 | Roll out per peer pair with signed and explicitly unsigned peers. Exercise reconnect after revocation and downgrade refusal. Inspect the delivered header and cold receipt for distinct machine and session evidence, then verify the installed pair in both directions. |
+
 ## Current handoff
 
 Provider coverage is open-ended. Claude Code and Codex are the first clients to qualify. Apply the shared adapter and capability requirements to each watcher and routing checkpoint, including a synthetic client unknown to the core. Keep live support claims specific to the client and operation actually tested. [Provider compatibility](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#provider-compatibility)
@@ -234,7 +321,9 @@ The coordinator received the read-only retrospective on `ec46bad`. The reviewer 
 | Medium, doctor | `readiness.mjs` can accept equally stale cached builds after both live builds change. Compare each record to its live build and bind smoke evidence to its target and build. Include installed sampler identity in watcher evidence. |
 | Medium, sustained receive | `receipts.mjs` stops accepting new submissions when full and cannot detect rollback to an older valid database. Specify and test retention and recovery across the entire acceptance window. |
 
-| Phase | Evidence | Open work |
+The following phase summary records the scope of the retrospective. Use the [checkpoint map](#rollout-checkpoints) for current assignments and counts.
+
+| Phase | Evidence at review | Work outstanding at review |
 | --- | --- | --- |
 | A and B · addressing, proof and health | Both desktops qualified a temporary restricted SSH route for Codex inventory, send and transcript proof. Both providers received live probes using the baseline transport. See design §11. | Permanent enrollment belongs to H. Restricted remote Claude delivery requires enforcement of recipient, payload and call count before the tool acts. |
 | I, including C · watcher and command completion **(active)** | Both installed workers proved job exit, UTC schedule and file-disappearance notices in Codex threads. Both desktops qualified MCP watch activation, writer resume, anonymous branch observation and synthetic credential isolation. Both installed brokers matched the private baseline. One installed broker proved exactly one private branch-change notice after a Codex thread resumed. | Process and session transitions, other providers, cross-host notices and private tails remain open. |
