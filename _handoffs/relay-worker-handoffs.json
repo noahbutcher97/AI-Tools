@@ -1,5 +1,32 @@
 [
   {
+    "id": "i7-partial-upgrade",
+    "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+    "coordinator": "relay coordinator",
+    "worker": "package maintainer",
+    "state": "assigned",
+    "scope": "Enforce the documented whole-package gate across all partial updater paths.",
+    "acceptance": "A partial update cannot migrate the on-disk database beyond the rollback binary."
+  },
+  {
+    "id": "i7-job-recovery",
+    "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+    "coordinator": "relay coordinator",
+    "worker": "job recovery maintainer",
+    "state": "assigned",
+    "scope": "Check interrupted key creation and retained grant batches.",
+    "acceptance": "Require complete durable key publication, valid retained jobs and an actual new claim on an upgraded store."
+  },
+  {
+    "id": "i7-reservation-scope",
+    "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+    "coordinator": "relay coordinator",
+    "worker": "watcher recovery worker",
+    "state": "assigned",
+    "scope": "Keep a paused verified reservation blocking another wake for the same destination.",
+    "acceptance": "Exercise paused sample with outstanding receipt and confirm another destination can proceed."
+  },
+  {
     "id": "i7-integrated-source-review",
     "revision": "6d5b77952eba7a3deac44db183a1821dd3528b89",
     "coordinator": "relay coordinator",
