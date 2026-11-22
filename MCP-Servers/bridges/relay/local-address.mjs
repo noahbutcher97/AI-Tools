@@ -3,6 +3,7 @@ import path from "node:path";
 import { createLocalInventory } from "./client.mjs";
 import { exactKeys, HOST, matches } from "./delivery-protocol.mjs";
 import { installationRoot } from "./fleet.mjs";
+import { installedReaders } from "./installed-readers.mjs";
 
 function readOptional(root, file) {
   try {
@@ -37,7 +38,7 @@ const resolutionDetails = {
 
 // Only installation code supplies readers and the configuration root. Both
 // public faces re-read the enabled set for each request.
-export function createLocalAddresses({ root = installationRoot, additionalAdapters = [],
+export function createLocalAddresses({ root = installationRoot, additionalAdapters = installedReaders,
   survey = (installed, selector, options) => installed.resolve(selector, options) } = {}) {
   function readers(dir) {
     const config = readOptional(dir, "inventory-adapters.json");
@@ -58,7 +59,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return inventory(options);
   }
 
-  async function lookup(selector, { aliasTargetId, requireCodexEligibility = false } = {}) {
+  async function lookup(selector, { aliasTargetId, requireCodexEligibility = false, maxAmbiguousAdapters } = {}) {
     if (!selector || typeof selector !== "object" || !Object.hasOwn(selector, "id") ||
         Object.keys(selector).some(key => !["host", "id", "adapter"].includes(key))) {
       return { ok: false, state: "invalid_selector" };
@@ -87,11 +88,11 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     } catch {
       return { ok: false, state: "inventory_unavailable" };
     }
-    const result = aliasTargetId === undefined ? await survey(inventory, { id, adapter }, { requireCodexEligibility })
+    const result = aliasTargetId === undefined ? await survey(inventory, { id, adapter }, { requireCodexEligibility, maxAmbiguousAdapters })
       : await inventory.resolveAlias(id, aliasTargetId);
-    // Both an exact match and a miss can start delivery: a miss permits
-    // looking up a legacy name. Only use them under the installation surveyed.
-    if (result.ok || result.state === "missing") {
+    // Matches and misses can start delivery. Ambiguity can disclose matching
+    // reader keys. All three depend on the installation just surveyed.
+    if (result.ok || result.state === "missing" || result.state === "ambiguous") {
       try {
         if (root() !== dir || readHost(dir) !== localHost) return { ok: false, state: "installation_changed" };
       } catch {
@@ -111,8 +112,8 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return { ...result, target: { ...result.target, host: localHost } };
   }
 
-  async function resolve(selector, { requireCodexEligibility = false } = {}) {
-    const result = await lookup(selector, { requireCodexEligibility });
+  async function resolve(selector, { requireCodexEligibility = false, maxAmbiguousAdapters } = {}) {
+    const result = await lookup(selector, { requireCodexEligibility, maxAmbiguousAdapters });
     return { ...result, detail: resolutionDetails[result.state] };
   }
 

@@ -296,7 +296,7 @@ test("CLI and MCP discover and resolve the same literal local address and report
     fs.mkdirSync(install);
     fs.writeFileSync(path.join(install, "machine.json"), JSON.stringify({ host: "local-test" }));
     await check({ id, host: "local-test", adapter: row.kind }, "resolved");
-    await check({ id, host: "other-test" }, "nonlocal_host");
+    await check({ id, host: "other-test" }, "directory_unavailable");
 
     const second = path.join(registry, "second.json");
     fs.writeFileSync(second, "{");
