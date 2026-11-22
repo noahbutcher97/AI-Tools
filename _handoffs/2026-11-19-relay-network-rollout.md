@@ -125,6 +125,10 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 
 ## Current handoff
 
+### Watcher restore qualification
+
+At the I7 baseline both installed watcher heartbeats were fresh in reports-only mode with zero subscriptions. The coordinator read the bounded status projection on each desktop. The new source checks use disposable grants and stores to exercise revocation and restored state.
+
 ### Private failure recovery
 
 Synthetic relay suites and CI use the disposable profile runner through `npm test`. For cross-suite runs, use the command in the [repository test guidelines](../AGENTS.md#testing-guidelines). Earlier ad hoc suite profiles required separate cleanup after their outer process exited. The runner allocates a private directory for each invocation and prints its location before starting the child. The test fixtures exercise nonzero exit, retained external files and a replaced profile. Real enrolled desktop trials remain separate. [Runner regressions](../MCP-Servers/bridges/relay/test-profile-runner.test.mjs)
