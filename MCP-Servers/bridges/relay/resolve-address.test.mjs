@@ -50,7 +50,10 @@ test("CLI and MCP resolve the same literal on one enrolled host with just one bo
     const result = JSON.parse(run.stdout);
     assert.equal(result.state, state);
     assert.equal(result.ok, state === "resolved");
-    assert.deepEqual(Object.keys(result).sort(), state === "resolved" ? ["detail", "ok", "state", "target"] : ["detail", "ok", "state"]);
+    const expectedKeys = ["detail", "ok", "state"];
+    if (state === "resolved") expectedKeys.push("target");
+    if (state === "ambiguous") expectedKeys.push("adapters");
+    assert.deepEqual(Object.keys(result).sort(), expectedKeys.sort());
     assert.ok(result.detail);
     if (result.ok) assert.deepEqual(result.target, { host: selector.host, id: selector.id, adapter: selector.adapter ?? "sample" });
     assert.equal(frames().length - before, count);
@@ -67,7 +70,9 @@ test("CLI and MCP resolve the same literal on one enrolled host with just one bo
   }
   const host = "host-b";
   await check({ host, id: unique }, "resolved");
-  assert.match((await check({ host, id: shared }, "ambiguous")).detail, /--adapter KEY/);
+  const collision = await check({ host, id: shared }, "ambiguous");
+  assert.match(collision.detail, /--adapter KEY/);
+  assert.deepEqual([...collision.adapters].sort(), ["other", "sample"]);
   await check({ host, id: shared, adapter: "other" }, "resolved");
   await check({ host, id: "Absent" }, "missing");
   await check({ host, id: "Denied" }, "receive_denied");

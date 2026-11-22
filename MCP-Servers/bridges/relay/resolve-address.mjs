@@ -52,6 +52,10 @@ export async function resolveAddress(selector) {
   if (response.error) return refused(response.error);
   const { reply } = response;
   if (!validLookupReply(reply, request, directory.local)) return refused("invalid_response");
-  if (reply.state !== "resolved") return refused(reply.state);
+  if (reply.state !== "resolved") {
+    const result = refused(reply.state);
+    if (reply.state === "ambiguous" && reply.adapters) result.adapters = reply.adapters;
+    return result;
+  }
   return { ok: true, state: "resolved", target: reply.target, detail: details.resolved };
 }
