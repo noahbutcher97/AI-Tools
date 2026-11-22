@@ -9,7 +9,7 @@ const details = {
   directory_unavailable: "The enrolled host directory is unavailable. Check the local relay setup.",
   unknown_host: "Check the enrolled host labels with relay list --all-hosts --json.",
   installation_changed: "Machine or reader settings changed. Run the lookup again.",
-  ambiguous: "Multiple sessions match on that host. Retry with the intended adapter key. If they share an adapter, check the duplicate entries on that host.",
+  ambiguous: "Multiple sessions match on that host. Repeat the lookup with --adapter KEY on the CLI or the adapter field in relay_resolve. Use the reader key for the intended client. If both entries share a reader, check them on that host.",
   incomplete_inventory: "An applicable reader could not finish. Specify the known adapter or check its inventory on the named host.",
   missing: "No exact match on that host. Check the raw ID and its case.",
   unknown_adapter: "The named host has no enabled reader with that adapter key. Check the row's kind on that host.",

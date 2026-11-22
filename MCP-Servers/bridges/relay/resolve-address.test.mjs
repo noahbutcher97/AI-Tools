@@ -67,7 +67,7 @@ test("CLI and MCP resolve the same literal on one enrolled host with just one bo
   }
   const host = "host-b";
   await check({ host, id: unique }, "resolved");
-  await check({ host, id: shared }, "ambiguous");
+  assert.match((await check({ host, id: shared }, "ambiguous")).detail, /--adapter KEY/);
   await check({ host, id: shared, adapter: "other" }, "resolved");
   await check({ host, id: "Absent" }, "missing");
   await check({ host, id: "Denied" }, "receive_denied");
