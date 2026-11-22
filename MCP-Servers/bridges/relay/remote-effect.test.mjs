@@ -99,6 +99,48 @@ test("cold proof uses a stored cursor only for the current granted binding and n
   assert.equal(f.calls.length, 1);
 });
 
+for (const disposition of ["pending", "unknown"]) test("duplicate ping returns stored " + disposition + " without rereading proof", needsDb, async t => {
+  const f = await fixture(t);
+  f.options.permit = (_peer, _binding, action) => action === "ping";
+  if (disposition === "unknown") {
+    f.options.adapters[0].submit = (binding, text) => { f.calls.push({ binding, text }); throw Error("lost response"); };
+  }
+  const ping = { ...f.base, op: "ping" };
+  assert.equal(await f.wire(ping), disposition);
+  assert.deepEqual(f.observed, disposition === "pending" ? ["capture", "verify"] : ["capture"]);
+  f.consumed.push(f.calls[0]);
+  const reads = f.observed.length;
+  assert.equal(await f.wire({ ...ping, op: "status" }), "receive_denied");
+  assert.equal(await f.wire({ v: 2, op: "status", host, requestId: ping.requestId },
+    { allowed: () => true, receipts: f.options.receipts, verify: assert.fail }), "missing");
+  assert.equal(await f.wire(ping), disposition);
+  assert.equal(f.observed.length, reads);
+  assert.equal(f.calls.length, 1);
+  f.options.permit = (_peer, _binding, action) => action === "status";
+  assert.equal(await f.wire({ ...ping, op: "status" }), "delivered");
+  assert.equal(f.observed.length, reads + 1);
+  assert.equal(f.calls.length, 1);
+});
+
+test("status withholds proof when the installed reader is disabled during verification", needsDb, async t => {
+  const f = await fixture(t);
+  assert.equal(await f.wire({ ...f.base, op: "ping" }), "pending");
+  let enabled = true, start, release;
+  const started = new Promise(resolve => { start = resolve; });
+  f.options.permitsProof = () => enabled;
+  f.options.adapters[0].proof.verify = async () => {
+    start();
+    await new Promise(resolve => { release = resolve; });
+    return "delivered";
+  };
+  const status = f.wire({ ...f.base, op: "status" });
+  await started;
+  enabled = false;
+  release();
+  assert.equal(await status, "proof_unavailable");
+  assert.equal(f.calls.length, 1);
+});
+
 test("policy is exact and rechecked around readiness, cursor capture, submission and response", needsDb, async t => {
   const f = await fixture(t);
   const dir = path.dirname(f.db);

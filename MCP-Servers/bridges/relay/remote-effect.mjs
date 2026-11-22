@@ -64,6 +64,7 @@ export async function dispatchBoundRemote(request, peer, options) {
     if (!proofReady() || !validCursor(saved.cursor, binding) || !matches(/^[0-9a-f]{64}$/, saved.expected)) return "proof_unavailable";
     const result = await proof.verify(saved.cursor, saved.expected, { binding, profile: os.homedir() });
     if (!permitted()) return "receive_denied";
+    if (!proofReady()) return "proof_unavailable";
     if (state === "unknown" && result === "pending") return "unknown";
     return ["pending", "delivered"].includes(result) ? result : "proof_unavailable";
   }
@@ -118,7 +119,9 @@ export async function dispatchBoundRemote(request, peer, options) {
       if (!store.supportsBindings) return "unavailable";
     } else {
       const state = store.reserve(peer, key, hash, now(), immutable);
-      if (state !== "reserved") return action === "ping" ? await checkedState(state) : state;
+      // A replay returns its recorded disposition. Reading fresh proof after
+      // the original ping uses the independently authorized status operation.
+      if (state !== "reserved") return state;
       reserved = true;
     }
     if (native) {
