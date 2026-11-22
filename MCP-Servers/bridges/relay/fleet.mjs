@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 import { createLocalInventory, discoverTargets } from "./client.mjs";
+import { installedReaders } from "./installed-readers.mjs";
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const SESSION = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
@@ -96,7 +97,7 @@ if (!isMainThread && parentPort && workerData?.relayInventoryWorker) {
   parentPort.postMessage(await inventory(workerData.options));
 }
 if (!isMainThread && parentPort && workerData?.relayExactSurvey) {
-  const installed = createLocalInventory([], workerData.enabled);
+  const installed = createLocalInventory(installedReaders, workerData.enabled);
   parentPort.postMessage(await installed.resolve(workerData.selector, workerData.options));
 }
 

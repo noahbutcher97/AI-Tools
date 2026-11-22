@@ -3,6 +3,7 @@ import path from "node:path";
 import { createLocalInventory } from "./client.mjs";
 import { exactKeys, HOST, matches } from "./delivery-protocol.mjs";
 import { installationRoot } from "./fleet.mjs";
+import { installedReaders } from "./installed-readers.mjs";
 
 function readOptional(root, file) {
   try {
@@ -37,7 +38,7 @@ const resolutionDetails = {
 
 // Only installation code supplies readers and the configuration root. Both
 // public faces re-read the enabled set for each request.
-export function createLocalAddresses({ root = installationRoot, additionalAdapters = [],
+export function createLocalAddresses({ root = installationRoot, additionalAdapters = installedReaders,
   survey = (installed, selector, options) => installed.resolve(selector, options) } = {}) {
   function readers(dir) {
     const config = readOptional(dir, "inventory-adapters.json");

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createLocalAddresses } from "./local-address.mjs";
 import { validLookupReply } from "./lookup-protocol.mjs";
 import { receive } from "./receive.mjs";
@@ -34,6 +34,17 @@ function setup(t) {
 function runReceive(frame, lookup, dispatch, args = binding) {
   const bytes = Buffer.from(typeof frame === "string" ? frame : JSON.stringify(frame));
   return receive(args, "relay receive", Readable.from([bytes]), 3000, undefined, dispatch, undefined, lookup);
+}
+
+function profileCli(profile, cli, args, input) {
+  const preload = fileURLToPath(new URL("./fixtures/receive-test-root.cjs", import.meta.url));
+  const result = spawnSync(process.execPath, ["--require", preload, cli, ...args], {
+    input, encoding: "utf8", timeout: 15000,
+    env: { ...process.env, RELAY_RECEIVE_TEST_ROOT: profile, HOME: profile, USERPROFILE: profile,
+      SSH_ORIGINAL_COMMAND: "relay receive" },
+  });
+  assert.equal(result.status, 0, result.error?.message || result.stderr);
+  return JSON.parse(result.stdout);
 }
 
 test("v3 receive resolves exact installed reader identities without accessing an effect route", async t => {
@@ -156,20 +167,43 @@ test("Windows forced CLI uses installed read policy and enrolled identity for di
   fs.writeFileSync(path.join(registry, "fixture.json"), JSON.stringify({ sessionId: id, cwd: profile }));
   write("inventory-adapters.json", { enabled: ["claude"] });
   const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
-  const preload = fileURLToPath(new URL("./fixtures/receive-test-root.cjs", import.meta.url));
-  const run = () => {
-    const result = spawnSync(process.execPath, ["--require", preload, cli, "receive", ...binding], {
-      input: JSON.stringify({ ...request, adapter: "claude" }), encoding: "utf8", timeout: 15000,
-      env: { ...process.env, RELAY_RECEIVE_TEST_ROOT: profile, HOME: profile, USERPROFILE: profile,
-        SSH_ORIGINAL_COMMAND: "relay receive" },
-    });
-    assert.equal(result.status, 0, result.error?.message || result.stderr);
-    return JSON.parse(result.stdout);
-  };
+  const run = () => profileCli(profile, cli, ["receive", ...binding], JSON.stringify({ ...request, adapter: "claude" }));
   assert.deepEqual(run(), { ...header, state: "receive_denied" });
   write("lookup-policy.json", readGrant);
   assert.deepEqual(run(), { ...header, state: "resolved", target: { id, adapter: "claude", host } });
   write("machine.json", { host: "another-host" });
   assert.deepEqual(run(), { ...header, state: "unavailable" });
+  assert.equal(fs.existsSync(path.join(dir, "receipts.sqlite")), false);
+});
+
+test("a packaged reader resolves locally and in the bounded receiver worker through one static registration", async t => {
+  const { profile, dir, write } = setup(t);
+  const source = fileURLToPath(new URL("./", import.meta.url));
+  for (const file of fs.readdirSync(source).filter(file => file.endsWith(".mjs") && !file.endsWith(".test.mjs"))) {
+    fs.copyFileSync(path.join(source, file), path.join(dir, file));
+  }
+  fs.copyFileSync(path.join(source, "fixtures", "lookup-installed-readers.mjs"), path.join(dir, "installed-readers.mjs"));
+  write("inventory-adapters.json", { enabled: ["sample"] });
+  write("lookup-policy.json", readGrant);
+  const frame = { ...request, adapter: "sample" };
+  const expected = { ...header, state: "resolved", target };
+  if (process.platform === "win32") {
+    const cli = path.join(dir, "cli.mjs");
+    assert.deepEqual(profileCli(profile, cli, ["resolve", "--id", id, "--adapter", "sample", "--json"]).target, target);
+    assert.deepEqual(profileCli(profile, cli, ["receive", ...binding], JSON.stringify(frame)), expected);
+  } else {
+    // The POSIX production config lives under /etc. Bind only the disposable
+    // config root here; use the packaged local resolver, receive and worker.
+    const load = name => import(pathToFileURL(path.join(dir, name)).href);
+    const { createLocalAddresses } = await load("local-address.mjs");
+    const { createRemoteLookup } = await load("remote-lookup-receiver.mjs");
+    const { receive } = await load("receive.mjs");
+    const root = () => dir;
+    assert.deepEqual((await createLocalAddresses({ root }).resolve({ id, adapter: "sample" })).target, target);
+    assert.deepEqual(await receive(binding, "relay receive", Readable.from([Buffer.from(JSON.stringify(frame))]),
+      3000, undefined, undefined, undefined, createRemoteLookup({ root })), expected);
+  }
+  const observed = fs.readFileSync(path.join(dir, "reader-calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+  assert.deepEqual(observed, [{ worker: false, operation: "enumerate" }, { worker: true, operation: "enumerate" }]);
   assert.equal(fs.existsSync(path.join(dir, "receipts.sqlite")), false);
 });
