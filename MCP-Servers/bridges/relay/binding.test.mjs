@@ -15,19 +15,18 @@ function fixture(t, sessions) {
   }
   return {
     to: "session-a", message: "test notice", claudeSessionsDir: dir, codexHome: home,
-    allowDelegate: true, spoolPath: path.join(home, "spool"), spoolFallbackPath: path.join(home, "fallback"),
+    allowDelegate: true, spoolPath: path.join(home, "spool"),
     runDelegate: () => assert.fail("unexpected delivery"),
   };
 }
 
 const session = { pid: 1000, sessionId: "session-a", name: "worker", messagingSocketPath: "endpoint" };
 
-test("failed dry runs leave both spool locations untouched", async (t) => {
+test("failed dry runs leave the spool untouched", async (t) => {
   const opts = fixture(t, []);
   const result = await sendMessage({ ...opts, dryRun: true });
   assert.equal(result.cause, "target_not_found");
   assert.equal(fs.existsSync(opts.spoolPath), false);
-  assert.equal(fs.existsSync(opts.spoolFallbackPath), false);
 });
 
 test("a raw ID cannot authorize delivery to an unusable or ambiguous provider name", async (t) => {

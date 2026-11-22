@@ -18,7 +18,7 @@ const date = value => typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\
 const stamp = ms => new Date(ms).toISOString();
 
 export function buildFingerprint(root = fileURLToPath(new URL(".", import.meta.url))) {
-  const files = fs.readdirSync(root).filter(name => name === "package-lock.json" || name === "completion-acl.ps1" || name === "CompletionChannel.cs" ||
+  const files = fs.readdirSync(root).filter(name => name === "package-lock.json" || name === "completion-acl.ps1" || name === "private-spool.ps1" || name === "CompletionChannel.cs" ||
     (name.endsWith(".mjs") && !name.endsWith(".test.mjs"))).sort();
   return digest(JSON.stringify(files.map(name => {
     const source = fs.readFileSync(path.join(root, name), "utf8").replaceAll("\r\n", "\n");

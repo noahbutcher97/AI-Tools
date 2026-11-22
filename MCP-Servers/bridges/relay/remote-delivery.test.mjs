@@ -377,7 +377,8 @@ test("a restricted receive CLI with no grants denies even a well-formed delivery
   const cli = fileURLToPath(new URL("cli.mjs", import.meta.url));
   const preload = fileURLToPath(new URL("fixtures/receive-test-root.cjs", import.meta.url));
   const result = spawnSync(process.execPath, ["--require", preload, cli, "receive", ...binding], { input: JSON.stringify(request),
-    encoding: "utf8", env: { ...process.env, RELAY_RECEIVE_TEST_ROOT: root, SSH_ORIGINAL_COMMAND: "relay receive" } });
+    encoding: "utf8", env: { ...process.env, RELAY_RECEIVE_TEST_ROOT: root, HOME: root, USERPROFILE: root,
+      TMPDIR: root, TEMP: root, TMP: root, RELAY_SPOOL: path.join(root, "spool.log"), SSH_ORIGINAL_COMMAND: "relay receive" } });
   assert.equal(result.status, 0);
   assert.equal(JSON.parse(result.stdout).state, "receive_denied");
   assert.doesNotMatch(result.stdout, /fixture/);

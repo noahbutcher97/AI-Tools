@@ -1,3 +1,4 @@
+import { recoveryFixture } from "./fixtures/private-spool.mjs";
 import { addIndexedSession } from "./fixtures/session-index.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -77,7 +78,7 @@ function refuses(stderr) {
 
 function harness(home, overrides = {}) {
   const calls = [];
-  const spoolPath = path.join(tmpdir(), "spool.log");
+  const spoolPath = path.join(recoveryFixture(), "spool.log");
   return {
     calls,
     spoolPath,
@@ -264,7 +265,7 @@ test("a claude target is refused with the reason, not attempted", needsStore, as
 
 // ── Queue failures ──
 
-test("a nonzero queue exit is reported with the error codex gave", needsStore, async () => {
+test("a nonzero queue exit keeps provider output private", needsStore, async () => {
   const home = codexHome();
   liveThread(home);
   const h = harness(home, {
@@ -274,7 +275,7 @@ test("a nonzero queue exit is reported with the error codex gave", needsStore, a
   const result = await sendMessage({ to: THREAD, message: MESSAGE, ...h.options });
 
   assert.equal(result.cause, SEND_CAUSES.QUEUE_FAILED);
-  assert.match(result.detail, /-32603/);
+  assert.doesNotMatch(JSON.stringify(result), /-32603/);
 });
 
 test("a zero exit without a confirmation line is a failure, not a success", needsStore, async () => {
@@ -304,7 +305,7 @@ test("a queue invocation that cannot start at all is reported, not thrown", need
   const result = await sendMessage({ to: THREAD, message: MESSAGE, ...h.options });
 
   assert.equal(result.cause, SEND_CAUSES.QUEUE_FAILED);
-  assert.match(result.detail, /ENOENT/);
+  assert.doesNotMatch(JSON.stringify(result), /ENOENT/);
 });
 
 // ── Spool ──
@@ -384,7 +385,7 @@ test("an unfamiliar host metadata key is recorded to the spool and does not bloc
   // opposite failures and a test for one passes under the other.
   const home = codexHome();
   liveThread(home);
-  const spoolFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "relay-drift-")), "spool.log");
+  const spoolFile = path.join(recoveryFixture(), "spool.log");
   const h = harness(home, { spoolPath: spoolFile });
 
   const result = await sendMessage({
