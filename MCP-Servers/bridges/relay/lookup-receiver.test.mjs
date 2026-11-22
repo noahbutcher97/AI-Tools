@@ -201,6 +201,27 @@ test("only matching bounded distinct reader keys may accompany an ambiguous repl
   }
 });
 
+test("a complete collision across seventeen installed readers stays ambiguous without a partial list", async t => {
+  const { dir, write } = setup(t);
+  write("lookup-policy.json", readGrant);
+  const root = () => dir;
+  const keys = Array.from({ length: 17 }, (_, n) => "reader-" + n);
+  const surveyed = [];
+  let effects = 0;
+  const readers = keys.map(kind => ({ kind, enumerate() {
+    surveyed.push(kind);
+    return { complete: true, targets: [{ id }] };
+  } }));
+  const local = createLocalAddresses({ root, additionalAdapters: readers });
+  const lookup = createRemoteLookup({ root, resolve: local.resolve });
+  write("inventory-adapters.json", { enabled: keys });
+  assert.deepEqual(await runReceive(request, lookup, () => effects++), { ...header, state: "ambiguous" });
+  assert.deepEqual(surveyed, keys);
+  assert.deepEqual((await local.resolve({ host, id })).adapters, keys);
+  assert.equal(effects, 0);
+  assert.equal(fs.existsSync(path.join(dir, "receipts.sqlite")), false);
+});
+
 test("Windows forced CLI uses installed read policy and enrolled identity for disposable registry metadata", {
   skip: process.platform !== "win32",
 }, t => {

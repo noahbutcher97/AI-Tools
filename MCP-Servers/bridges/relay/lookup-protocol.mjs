@@ -1,5 +1,7 @@
 import { exactKeys, HOST, matches, UUID } from "./delivery-protocol.mjs";
 
+export const MAX_AMBIGUOUS_ADAPTERS = 16;
+
 // Literal IDs are compared as data. Controls, format characters and unpaired
 // surrogates cannot identify a session on the wire.
 export function validLookupId(id) {
@@ -16,7 +18,7 @@ export function validLookupFrame(request) {
 }
 
 export function validAmbiguousAdapters(adapters, request) {
-  return Array.isArray(adapters) && adapters.length > 0 && adapters.length <= 16 &&
+  return Array.isArray(adapters) && adapters.length > 0 && adapters.length <= MAX_AMBIGUOUS_ADAPTERS &&
     new Set(adapters).size === adapters.length &&
     [...adapters].every(key => matches(HOST, key) && (request.adapter === undefined || key === request.adapter));
 }

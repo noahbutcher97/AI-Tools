@@ -3,7 +3,7 @@ import path from "node:path";
 import { exactKeys, HOST, matches } from "./delivery-protocol.mjs";
 import { installationRoot, surveyRemoteSelection } from "./fleet.mjs";
 import { createLocalAddresses } from "./local-address.mjs";
-import { validAmbiguousAdapters, validLookupFrame, validLookupId } from "./lookup-protocol.mjs";
+import { MAX_AMBIGUOUS_ADAPTERS, validAmbiguousAdapters, validLookupFrame, validLookupId } from "./lookup-protocol.mjs";
 import { readEnabledReceivePolicy } from "./receive-policy.mjs";
 
 function permitsLookup(dir, peer, id) {
@@ -26,7 +26,7 @@ export function createRemoteLookup({ root = installationRoot,
       if (!permitsLookup(dir, peer, request.id)) return { state: "receive_denied" };
       const selector = { host: request.host, id: request.id };
       if (Object.hasOwn(request, "adapter")) selector.adapter = request.adapter;
-      const result = await resolve(selector);
+      const result = await resolve(selector, { maxAmbiguousAdapters: MAX_AMBIGUOUS_ADAPTERS });
       // Authorization can change while an installed reader is running. Even
       // a miss or collision discloses information about the surveyed ID.
       if (root() !== dir || !permitsLookup(dir, peer, request.id)) return { state: "receive_denied" };

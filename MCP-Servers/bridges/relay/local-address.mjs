@@ -59,7 +59,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return inventory(options);
   }
 
-  async function lookup(selector, { aliasTargetId, requireCodexEligibility = false } = {}) {
+  async function lookup(selector, { aliasTargetId, requireCodexEligibility = false, maxAmbiguousAdapters } = {}) {
     if (!selector || typeof selector !== "object" || !Object.hasOwn(selector, "id") ||
         Object.keys(selector).some(key => !["host", "id", "adapter"].includes(key))) {
       return { ok: false, state: "invalid_selector" };
@@ -88,7 +88,7 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     } catch {
       return { ok: false, state: "inventory_unavailable" };
     }
-    const result = aliasTargetId === undefined ? await survey(inventory, { id, adapter }, { requireCodexEligibility })
+    const result = aliasTargetId === undefined ? await survey(inventory, { id, adapter }, { requireCodexEligibility, maxAmbiguousAdapters })
       : await inventory.resolveAlias(id, aliasTargetId);
     // Matches and misses can start delivery. Ambiguity can disclose matching
     // reader keys. All three depend on the installation just surveyed.
@@ -112,8 +112,8 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     return { ...result, target: { ...result.target, host: localHost } };
   }
 
-  async function resolve(selector, { requireCodexEligibility = false } = {}) {
-    const result = await lookup(selector, { requireCodexEligibility });
+  async function resolve(selector, { requireCodexEligibility = false, maxAmbiguousAdapters } = {}) {
+    const result = await lookup(selector, { requireCodexEligibility, maxAmbiguousAdapters });
     return { ...result, detail: resolutionDetails[result.state] };
   }
 
