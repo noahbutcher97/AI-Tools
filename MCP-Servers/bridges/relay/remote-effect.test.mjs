@@ -5,6 +5,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { digest, newRequestId, requestDigest } from "./delivery-protocol.mjs";
+import { createLocalAddresses } from "./local-address.mjs";
 import { receive } from "./receive.mjs";
 import { initializeReceipts, openReceipts } from "./receipts.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
@@ -140,6 +141,41 @@ test("status withholds proof when the installed reader is disabled during verifi
   assert.equal(await status, "proof_unavailable");
   assert.equal(f.calls.length, 1);
 });
+
+for (const phase of ["admission", "preflight", "capture", "final readiness"]) {
+  test("protected reader withdrawal at " + phase + " prevents an unprovable remote probe", needsDb, async t => {
+    const f = await fixture(t);
+    const root = path.dirname(f.db);
+    fs.writeFileSync(path.join(root, "machine.json"), JSON.stringify({ host }));
+    const install = enabled => fs.writeFileSync(path.join(root, "inventory-adapters.json"), JSON.stringify({ enabled }));
+    const route = f.options.adapters[0];
+    route.enumerate = () => ({ targets: [], complete: true });
+    f.options.permitsProof = createLocalAddresses({ root: () => root, additionalAdapters: [route] }).permitsProof;
+    install(phase === "admission" ? [] : [route.kind]);
+    let checks = 0, captures = 0;
+    route.ready = async () => {
+      checks++;
+      await Promise.resolve();
+      if (phase === "preflight" || (phase === "final readiness" && checks === 2)) install([]);
+      return true;
+    };
+    route.proof.capture = async () => {
+      captures++;
+      await Promise.resolve();
+      if (phase === "capture") install([]);
+      return { kind: route.kind, id: to };
+    };
+    const frame = phase === "preflight" ? { ...f.base, op: "resolve", action: "ping" } : { ...f.base, op: "ping" };
+    const state = await f.wire(frame);
+    assert.equal(f.calls.length, 0, "no provider submissions after proof authority is withdrawn");
+    assert.equal(state, "proof_unavailable");
+    assert.equal(captures, ["capture", "final readiness"].includes(phase) ? 1 : 0);
+    assert.deepEqual(f.observed, []);
+    const store = await openReceipts(f.db);
+    try { assert.equal(Boolean(store.proof(peer, f.base.requestId)), phase === "final readiness"); }
+    finally { store.close(); }
+  });
+}
 
 test("policy is exact and rechecked around readiness, cursor capture, submission and response", needsDb, async t => {
   const f = await fixture(t);

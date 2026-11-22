@@ -55,6 +55,7 @@ export async function dispatchBoundRemote(request, peer, options) {
   const stored = op => storedBinding(binding, op);
   const proofReady = () => permitsProof(binding) === true && proof?.validateId?.(binding.id) === true &&
     typeof proof.verify === "function";
+  const canCapture = () => proofReady() && typeof proof.capture === "function";
 
   async function checkedState(state) {
     if (!["pending", "unknown"].includes(state)) return state;
@@ -130,19 +131,19 @@ export async function dispatchBoundRemote(request, peer, options) {
     } else if (!route || !hasLocalDeliveryRoute(route) || route.validId(binding.id) !== true) {
       return finish("restricted_route");
     }
-    if (action === "ping" && (!proofReady() || typeof proof.capture !== "function")) return finish("proof_unavailable");
+    const ping = action === "ping";
+    if (ping && !canCapture()) return finish("proof_unavailable");
     const selected = await selection();
     if (selected) return finish(selected);
     const first = await readiness();
     if (first || !permitted()) return finish(first ?? "receive_denied");
-    if (request.op === "resolve") return "eligible";
+    if (request.op === "resolve") return ping && !canCapture() ? "proof_unavailable" : "eligible";
     let quote;
     if (request.re) {
       if (!native) return finish("reference_unresolved");
       quote = await reference(binding.id, request.re);
       if (quote?.ok !== true) return finish("reference_unresolved");
     }
-    const ping = action === "ping";
     const payload = ping ? { ...request, kind: "notice", from: null, inReplyTo: null,
       message: "Delivery probe " + randomUUID() + ". No reply is needed." } : request;
     const text = remoteEnvelope(payload, peer, quote);
@@ -150,17 +151,19 @@ export async function dispatchBoundRemote(request, peer, options) {
     if (ping) {
       let cursor;
       try {
-        if (!permitted() || !proofReady()) return finish("receive_denied");
+        if (!permitted()) return finish("receive_denied");
+        if (!canCapture()) return finish("proof_unavailable");
         const encoded = JSON.stringify(await proof.capture(binding, { binding, profile: os.homedir() }));
         if (Buffer.byteLength(encoded) > 8192) return finish("proof_unavailable");
         cursor = JSON.parse(encoded);
       } catch { return finish("proof_unavailable"); }
-      if (!validCursor(cursor, binding)) return finish("proof_unavailable");
       if (!permitted()) return finish("receive_denied");
+      if (!proofReady() || !validCursor(cursor, binding)) return finish("proof_unavailable");
       store.saveProof(peer, key, cursor, digest(text));
     }
     const last = await readiness();
     if (last || !permitted()) return finish(last ?? "receive_denied");
+    if (ping && !proofReady()) return finish("proof_unavailable");
     const accepted = native ? await run(binding.id, text) === "queued" : (await route.submit(binding, text))?.ok === true;
     if (!accepted) return finish("unknown");
     return ping ? await checkedState(finish("pending")) : finish("queued");
