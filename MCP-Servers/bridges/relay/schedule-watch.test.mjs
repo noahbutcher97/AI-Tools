@@ -10,6 +10,7 @@ import { parseArgs } from "./client.mjs";
 import { listenForJobReports, reportJob, startCompletionBroker } from "./completion-broker.mjs";
 import { initializeCompletionJobs, openCompletionJobs } from "./completion-jobs.mjs";
 import { changeNotice, scheduleNotice } from "./completion-protocol.mjs";
+import { sessionDelivery } from "./completion-session.mjs";
 import { readScheduleGrant } from "./run-handoff.mjs";
 import { branchBinding, fileBinding, scheduleBinding, validBranchWatch, validFileWatch, validSchedule } from "./schedule-watch.mjs";
 import { subscribeWatch } from "./watch-client.mjs";
@@ -418,6 +419,59 @@ test("fixed clock grants reject redirection, job operations and reused condition
   f.now += 120000;
   assert.equal(await f.observe(), false);
   assert.equal(f.sends, 0);
+});
+
+for (const interruption of ["shutdown", "revocation"]) {
+  test("an unsent watch releases its reservation after " + interruption + " before handle capture", async t => {
+    const f = await fixture(t);
+    const other = { ...f.g, condition: randomUUID() };
+    f.policy.push(other);
+    f.store.watches.provision();
+    for (const g of f.policy) assert.equal((await f.subscribe(g.condition)).ok, true);
+    f.now += 60000;
+    const controller = new AbortController();
+    const commands = [];
+    const normalSend = f.send;
+    f.send = sessionDelivery(f.root, operation => operation({
+      write(frame) { commands.push(frame.op); },
+      read() {
+        if (commands.at(-1) === "send") return { op: "target", target: f.session };
+        if (interruption === "shutdown") controller.abort();
+        else f.policy = [other];
+        return { op: "handle", handle: f.handle };
+      },
+    })).send;
+    assert.equal(await f.store.watches.dispatchDue(controller.signal), true);
+    assert.deepEqual(commands, ["send","capture"]);
+    assert.ok(f.rows().every(r => r.state === "waiting"));
+    await f.restart();
+    assert.equal(f.rows().length, interruption === "shutdown" ? 2 : 1);
+    f.send = normalSend;
+    f.now += 10000;
+    await f.observe();
+    assert.equal(f.sends, 1);
+    if (interruption === "revocation") {
+      f.policy = [f.g, other];
+      assert.deepEqual(f.rows().map(r => r.state), ["waiting","observing"]);
+    }
+  });
+}
+
+test("a failed result after handle reservation leaves only the original proof eligible", async t => {
+  const f = await fixture(t);
+  await f.subscribe();
+  f.now += 60000;
+  f.send = async (_, __, options) => {
+    await options.onHandle(f.handle, f.session);
+    return { state: "dispatch_failed" };
+  };
+  await f.observe();
+  assert.equal(f.rows()[0].state, "observing");
+  await f.restart();
+  f.send = assert.fail;
+  f.now += 10000;
+  await f.observe();
+  assert.equal(f.proofs, 1);
 });
 
 test("schedule worker rechecks policy before submission and keeps interrupted reservations unknown", async t => {

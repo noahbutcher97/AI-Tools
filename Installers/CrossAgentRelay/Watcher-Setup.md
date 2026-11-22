@@ -66,7 +66,7 @@ After acquiring its exclusive listener the broker issues one capability through 
 
 Stage the current broker module against the previously reviewed package in a new private directory. Staging checks the previous digest and copies the other members byte for byte. Keep both packages until the update and its recovery window are complete.
 
-For a change to the broker's job store module, use `stage-jobs` and pass `-Component Jobs` to the updater. Each update still replaces one reviewed file. Install a job store API addition before installing a broker that calls it.
+For an independently compatible job store change, `stage-jobs` and `-Component Jobs` update one reviewed file. The schema 5 change requires the store, schedule reader and ACL checks from the same build. Stage the complete watcher package for that transition. Keep the current installation in reports-only mode until its whole-package upgrade and recovery have been qualified. The single-file updater rejects this transition.
 
 ```text
 node watcher-package.mjs stage-broker <new-directory> <previous-directory> <previous-digest>

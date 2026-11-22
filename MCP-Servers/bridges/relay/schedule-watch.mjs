@@ -188,9 +188,13 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
       },
     });
     if (result.state === "dispatch_failed") transaction(() => {
-      recheck("dispatching");
-      for (const { g } of members) db.prepare("UPDATE schedule_watches SET state=?,batch=NULL WHERE condition=?")
-        .run(change ? "ready" : "waiting", g.condition);
+      // The adapter confirmed non-submission. Release only our authenticated
+      // reservations without handles, even while shutting down or after
+      // revocation. A later attempt goes through current authority again.
+      const release = db.prepare(`UPDATE schedule_watches SET state=?,batch=NULL WHERE condition IN (
+        SELECT condition FROM verified_schedule_watches WHERE condition=? AND revision=? AND batch=?
+        AND state='dispatching' AND handle IS NULL)`);
+      for (const { g, row } of members) release.run(row.state, g.condition, row.revision, batch);
     });
     return true;
   }
