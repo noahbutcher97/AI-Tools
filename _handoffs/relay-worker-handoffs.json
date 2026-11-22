@@ -1,21 +1,63 @@
 [
   {
+    "id": "i7-integrated-source-review",
+    "revision": "6d5b77952eba7a3deac44db183a1821dd3528b89",
+    "coordinator": "relay coordinator",
+    "worker": "independent integration reviewer",
+    "state": "accepted",
+    "scope": "Review final package staging, interrupted watches and combined I6/I7 source.",
+    "acceptance": "Confirm one effect per relevant grant, no re-delivery of uncertain work, compatible staged package and usable doctor.",
+    "result": {
+      "revision": "6d5b77952eba7a3deac44db183a1821dd3528b89",
+      "verdict": "passed",
+      "evidence": "Independent final review at 6d5b779 passed all 49 combined cases across six suites. Staging checked copied bytes; only authenticated confirmed-unsent reservations without a handle were released. Saved handles remained proof-only across restart. Public doctor and remote receipt recovery passed.",
+      "limitations": "Source integration, staged package and disposable provider fixtures only. Installed migration, simultaneous rollback of both stores and power loss remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Advance to I15 source compatibility after merge. Keep installed activation separate."
+    }
+  },
+  {
     "id": "i7-stage-byte-check",
     "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
     "coordinator": "relay coordinator",
     "worker": "package maintainer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Check that staged state modules match the compatibility check.",
-    "acceptance": "Deterministically change fixture source between qualification and copy; reject mismatched staged bytes."
+    "acceptance": "Deterministically change fixture source between qualification and copy; reject mismatched staged bytes.",
+    "result": {
+      "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+      "verdict": "corrected",
+      "evidence": "A source change during partial staging reproduced the missed rejection. At 96c9802 staged bytes are compared with the original compatibility digest before package publication. Windows package suite passed two tests, including singleton and restart.",
+      "limitations": "Source staging and disposable package only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Final integration review and CI."
+    }
   },
   {
     "id": "i7-confirmed-unsent",
     "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
     "coordinator": "relay coordinator",
     "worker": "watcher recovery worker",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Recover authenticated pre-submission cancellation without disrupting unrelated watches.",
-    "acceptance": "Use positive non-submission evidence, preserve uncertain reservations and enforce current grants before retry."
+    "acceptance": "Use positive non-submission evidence, preserve uncertain reservations and enforce current grants before retry.",
+    "result": {
+      "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+      "verdict": "corrected",
+      "evidence": "Three regressions failed on previous code. During separate stop and revocation tests the session adapter never reached submit. Confirmed-unsent reservations were released, retry checked current grants, and reserved handles stayed proof-only. Combined regression suite passed all 32.",
+      "limitations": "Local disposable session adapter and staged package."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Verify after integration with main."
+    }
   },
   {
     "id": "i7-schema-final-review",
