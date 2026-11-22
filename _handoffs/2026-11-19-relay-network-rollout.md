@@ -10,12 +10,12 @@ Start here to find the next assignment. The [design](../docs/superpowers/specs/2
 
 | Stage | Checkpoints | Accepted in stated scope | Remaining |
 | --- | ---: | ---: | ---: |
-| A/B · addressing, proof and health | 8 | 2 | 6 |
+| A/B · addressing, proof and health | 8 | 3 | 5 |
 | I/C · watcher and command completion | 18 | 9 | 9 |
 | F/E · registry and names | 4 | 0 | 4 |
 | G/H · capabilities, discovery and setup | 5 | 0 | 5 |
 | D · machine signatures | 4 | 0 | 4 |
-| **Total** | **39** | **11** | **28** |
+| **Total** | **39** | **12** | **27** |
 
 Within the paired stages, A owns 5 checkpoints and B owns 3, I owns 16 and C owns 2, F owns 3 and E owns 1, and G owns 2 and H owns 3. D owns all 4 in its stage.
 
@@ -25,7 +25,7 @@ Work in stage order subject to the dependencies below. Keep the qualified A/B ba
 
 ### Order of work and parallel assignments
 
-**I6 is the next feature checkpoint.** I5 lookup has passed source qualification. A4 private failure storage can proceed independently. The table below preserves the original two-checkpoint assignment and its acceptance criteria. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
+**I6 is the next feature checkpoint.** I5 lookup has passed source qualification. A4 private failure storage passed its independent source checks in parallel. The table below preserves the original two-checkpoint assignment and its acceptance criteria. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
 
 #### First assignments
 
@@ -62,13 +62,13 @@ Within G/H, run **G1 → G2** and **H1 → H2** independently once their earlier
 | A1 | Accepted | — | Temporary source-restricted keys on both desktops permitted the fixed probe, refused alternate channels and stopped working after revocation. The two logon contexts reached both baseline clients. [Staged trials](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) |
 | A2 | Partial | A1 | File-directory inventory and host-prefixed CLI/MCP send worked on the staged Codex route. Exercise all-host list, ping and doctor in parallel (F1 adds who) with a slow and an offline peer, bound inbound work and verify partial results within the deadline. |
 | A3 | Partial | A1 | Qualify receive enable/disable, peer, operation, recipient and unknown-origin policy for each supported protocol version. Exercise audit and sanitized refusals through receive, including zero provider calls on denial. Verify a fixed relay header, escaped metadata, host-qualified remote reply address, unverified session provenance and a bounded explicitly requested reference. Required before permanent enrollment. |
-| A4 | Open | — | Close the local spool finding. Failures retain bodies only in verified private storage. Record zero destination writes, zero failed dry-run writes and sanitized diagnostics through both public faces. |
+| A4 | Accepted | — | Private Windows and Linux recovery and refusal passed independent checks. CLI and MCP distinguish unavailable storage from an uncertain write. Failed dry runs and remote refusal wrote zero recovery records. [Storage checks and operator evidence](#private-failure-recovery) |
 | A5 | Partial | A3 | Qualify protected provider startup, deadline cancellation and the delegate's effective settings. For restricted Claude delivery prove one exact recipient and payload at the actual tool boundary. Keep unsupported grants disabled and visible. |
 | B1 | Accepted | A1 | The tested local probes distinguished held and accepted Claude input and consumed Codex input. Staged remote Codex retries yielded one consumed notice. Status checked the original receipt. [Proof predicates and live results](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#ping) |
 | B2 | Partial | A2 | Compare each dated readiness record to the live build, bind delegate smoke results to build and target, and expose unknown expiry, clock uncertainty and offline peers. CLI writes the record. Read-only MCP returns the sanitized result. Verify the installed sampler identity when present. |
 | B3 | Partial | A3 | Durable request reservations already prevent ordinary duplicate sends. Test capacity, expiry, concurrent retry, crash, loss and rollback over the acceptance window. Recover status after uncertainty with zero second submissions. D reuses this store. |
 
-The [independent review findings](#independent-implementation-review) track the open spool, receive, delegate, readiness and receipt issues. H owns permanent installation. Its evidence must identify the deployed revision separately from A1's staged results.
+The [independent review findings](#independent-implementation-review) track the closed spool finding and open receive, delegate, readiness and receipt issues. H owns permanent installation. Its evidence must identify the deployed revision separately from A1's staged results.
 
 ### I/C · Watcher and command completion
 
@@ -124,6 +124,12 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | D4 | Open | D3, H3 | Roll out per peer pair with signed and explicitly unsigned peers. Exercise reconnect after revocation and downgrade refusal. Inspect the delivered header and cold receipt for distinct machine and session evidence, then verify the installed pair in both directions. |
 
 ## Current handoff
+
+### Private failure recovery
+
+The local CLI and MCP identify a saved, unavailable or uncertain recovery copy after an eligible failed send. The initiating machine verifies the private directory and file before appending. On Windows both must belong to the sending account with private access confined to that account. Linux qualification checked the effective owner, directory and file mode, links and file identity. A failed dry run and a refused remote receive produced zero recovery writes. [Storage regression cases](../MCP-Servers/bridges/relay/spool.test.mjs) · [CLI and MCP results](../MCP-Servers/bridges/relay/server.test.mjs)
+
+Independent review reproduced two cases before correction. An existing privileged read grant on the final Windows file was accepted. On Linux an operating-system file-size limit could retain the message body even though the first diagnostic said recovery was unavailable. The revised CLI reports uncertainty after the write starts and gives a private locator. The operator walkthrough used Claude Code Haiku at low effort with a failed synthetic send. In separate trials the operator identified the unavailable copy and the possible partial copy without another send. Direct file inspection confirmed the latter. This source qualification covered Windows NTFS and Ubuntu under WSL. Other filesystems, macOS and actual provider sessions were unexercised. [Independent review and operator evidence](relay-worker-handoffs.json)
 
 ### Versioned remote lookup
 
@@ -357,7 +363,7 @@ The coordinator received the read-only retrospective on `ec46bad`. The reviewer 
 | Priority and scope | Finding and next check |
 | --- | --- |
 | High, private branch reads | Source fix independently reviewed at `3f07523`. The original synthetic withdrawal reached the recording launch adapter once. After the fix an unchanged grant reached it once, and withdrawal, replacement and expiry during verification reached it zero times. The later bound-reader review and both installed isolation checks passed. Both installed brokers matched a private ref using a repository-scoped reader. On the second desktop the installed broker also proved one consumed private branch-change notice in the resumed Codex thread. |
-| High, local send failures | `client.mjs` and `spool.test.mjs` retain a predictable temporary fallback for message bodies and diagnostics. Remove the fallback and require verified private storage or an unavailable result. |
+| High, local send failures | Closed by A4 for the qualified private storage paths. Ineligible storage is refused, and partial writes return an uncertain result. [Disposition and evidence](#private-failure-recovery) |
 | High, permanent receive enrollment | At `b2e3753`, v2 rechecks selection and policy after proof capture. Its existing grant still covers a peer and target. Explicit operation and unknown-origin scope, and v1 read and disable scope, remain open before permanent enrollment. |
 | High, Claude watcher grants | `completion-worker.mjs` can invoke the delegate under a job grant. Its exact target, bytes and call count still depend on instructions in `client.mjs`. Keep Claude job grants disabled until these are enforced before the tool acts. |
 | Medium, doctor | `readiness.mjs` can accept equally stale cached builds after both live builds change. Compare each record to its live build and bind smoke evidence to its target and build. Include installed sampler identity in watcher evidence. |

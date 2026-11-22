@@ -41,6 +41,9 @@ test("the fleet compares identical source across checkout line endings", t => {
   assert.equal(buildFingerprint(profile), first);
   fs.writeFileSync(file, "export default 2;\r\n");
   assert.notEqual(buildFingerprint(profile), first);
+  const beforeHelper = buildFingerprint(profile);
+  fs.writeFileSync(path.join(profile, "private-spool.ps1"), "fixture");
+  assert.notEqual(buildFingerprint(profile), beforeHelper);
 });
 
 test("plain doctor writes a dated record, remote reads never launch or publish private data", async t => {

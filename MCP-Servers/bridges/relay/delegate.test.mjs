@@ -1,3 +1,4 @@
+import { recoveryFixture } from "./fixtures/private-spool.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fs from "node:fs";
@@ -358,7 +359,7 @@ test("a delegate that does not confirm is a failure, not a success", async () =>
   assert.match(result.detail, /confirm/i);
 });
 
-test("a delegate that exits nonzero is reported with what it said", async () => {
+test("a delegate that exits nonzero keeps provider output private", async () => {
   const result = await sendMessage(
     sendOptions({
       allowDelegate: true,
@@ -367,11 +368,11 @@ test("a delegate that exits nonzero is reported with what it said", async () => 
   );
 
   assert.equal(result.cause, SEND_CAUSES.DELEGATE_FAILED);
-  assert.match(result.detail, /stdin/);
+  assert.doesNotMatch(JSON.stringify(result), /stdin/);
 });
 
 test("a failed delegate relay spools the message", async () => {
-  const spoolPath = path.join(tmpdir(), "spool.log");
+  const spoolPath = path.join(recoveryFixture(), "private", "spool.log");
   await sendMessage(
     sendOptions({
       spoolPath,

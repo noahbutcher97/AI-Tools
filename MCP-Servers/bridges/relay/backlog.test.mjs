@@ -1,3 +1,4 @@
+import { recoveryFixture } from "./fixtures/private-spool.mjs";
 import { addIndexedSession } from "./fixtures/session-index.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -166,7 +167,7 @@ test("the threshold is configurable so the wake measurement can be revised", nee
 
 test("a refused send still spools the message", needsStore, async () => {
   const home = codexHome();
-  const spoolPath = path.join(tmpdir(), "spool.log");
+  const spoolPath = path.join(recoveryFixture(), "private", "spool.log");
   queueDb(home, [{ threadId: THREAD, createdAtMs: NOW - 600_000 }]);
 
   await send(home, { spoolPath });

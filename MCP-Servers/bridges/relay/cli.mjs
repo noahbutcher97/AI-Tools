@@ -68,6 +68,7 @@ const sendHelp = `Usage: relay send <target> | --id LITERAL [--adapter KEY] [--h
   --message TEXT or piped stdin supplies the message. Use --dry-run to check
   eligibility first. --kind, --from, --re, --conversation and --in-reply-to
   carry message metadata. --json prints the full result.
+  For a saved recovery copy, open the file named by RELAY_SPOOL or the reported default.
   For remote delivery use a host:id target. --request-id applies to remote sends.
 
 ${literalTargetHelp}`;
@@ -256,8 +257,8 @@ async function runSend(options) {
     // Only report a location when something was actually written. Printing a
     // path that holds nothing sends an operator looking for a message that is
     // not there.
-    if (result.spooled) console.error(`  message spooled to ${result.spooled}`);
-    else if (result.spoolError) console.error(`  MESSAGE NOT SPOOLED: ${result.spoolError}`);
+    if (result.spooled) console.error(`  Message saved for manual recovery in ${result.spooled}.`);
+    else if (result.spoolError) console.error(`  ${result.spoolError}`);
   }
   // A failed send must not look like a success to a script or a shell chain.
   if (!result.ok) process.exitCode = 1;

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
@@ -842,25 +843,69 @@ export async function defaultRunQueue(threadId, text, {
   return run(resolved.command, [...resolved.prefix, "queue", "--thread", threadId, "--message", text], { env });
 }
 
-// Where the spool goes when the primary location cannot be written. Measured:
-// a relay invoked from a Codex shell command runs under workspace-write, so
-// anything outside the workspace — including the home directory the spool
-// deliberately lives in — fails with EPERM. The fallback must still be outside
-// any repository, because keeping message bodies out of git is the reason the
-// spool is not workspace-local in the first place.
-export function fallbackSpoolPath() {
-  return path.join(os.tmpdir(), "cross-agent-relay-spool.log");
+// Verify each ancestor before using or creating its children. In a sticky
+// shared directory only trusted owners may replace the next checked entry.
+function preparePosixSpool(file) {
+  const uid = process.getuid();
+  const parent = path.dirname(file);
+  const directories = [parent];
+  while (directories[0] !== "/") directories.unshift(path.dirname(directories[0]));
+  for (const dir of directories) {
+    let stat = fs.lstatSync(dir, { throwIfNoEntry: false });
+    if (!stat) {
+      try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (err) { if (err.code !== "EEXIST") throw err; }
+      stat = fs.lstatSync(dir);
+    }
+    if (!stat.isDirectory() || (stat.uid !== 0 && stat.uid !== uid) ||
+        ((stat.mode & 0o022) && !(stat.mode & 0o1000)) ||
+        (dir === parent && (stat.uid !== uid || (stat.mode & 0o077)))) throw Error();
+  }
+  try {
+    fs.closeSync(fs.openSync(file, "wx", 0o600));
+  } catch (err) { if (err.code !== "EEXIST") throw err; }
 }
 
-// Append-only, human-readable, and never read back by anything in this module.
-// Spec section 2 rejected a fallback transport because a second delivery path
-// reintroduces duplicate delivery, reordering, racing drains and ambiguous
-// addressing; a drained spool is that path by another name.
-//
-// Returns { path, error }. A path is reported only when something was actually
-// written: naming a file that holds nothing would send an operator looking for
-// a message that is not there.
-function spool(spoolPath, fallbackPath, entry) {
+async function appendPrivateSpool(file, block) {
+  if (!path.isAbsolute(file)) throw Error();
+  file = path.normalize(file);
+  const windows = process.platform === "win32";
+  if (windows) {
+    // The helper checks native DACLs and creates new objects with protected
+    // ACLs. It receives only the path. Its errors stay out of caller output.
+    const shell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    const helper = fileURLToPath(new URL("./private-spool.ps1", import.meta.url));
+    const result = await runProvider(shell, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", helper], {
+      stdin: file, timeoutMs: 5000, maxBytes: 4096,
+      env: { SystemRoot: process.env.SystemRoot, PSModulePath: path.join(path.dirname(shell), "Modules") },
+    });
+    if (result.code !== 0) throw Error();
+  } else {
+    preparePosixSpool(file);
+  }
+
+  const before = fs.lstatSync(file, { bigint: true });
+  if (!before.isFile() || before.nlink !== 1n) throw Error();
+  const { O_APPEND, O_RDWR, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = fs.constants;
+  const fd = fs.openSync(file, O_RDWR | O_APPEND | O_NOFOLLOW | O_NONBLOCK);
+  let writeStarted = false;
+  try {
+    try {
+      const stat = fs.fstatSync(fd, { bigint: true });
+      if (!stat.isFile() || stat.nlink !== 1n || stat.ino !== before.ino || stat.dev !== before.dev ||
+          (!windows && (stat.uid !== BigInt(process.getuid()) || (stat.mode & 0o777n) !== 0o600n))) throw Error();
+      writeStarted = true;
+      fs.writeFileSync(fd, block);
+    } finally { fs.closeSync(fd); }
+  } catch (err) {
+    // A write or close may fail after bytes reach the file. Rolling back by
+    // length could also discard another sender's concurrent append.
+    if (writeStarted) return "uncertain";
+    throw err;
+  }
+  return "saved";
+}
+
+async function spool(spoolPath, entry) {
   const block = [
     `--- ${new Date(entry.now).toISOString()}`,
     `target: ${entry.to}${entry.kind ? ` (${entry.kind})` : ""}`,
@@ -869,19 +914,20 @@ function spool(spoolPath, fallbackPath, entry) {
     "message:",
     entry.message,
     "",
+    "",
   ].join("\n");
 
-  const attempts = [];
-  for (const candidate of [spoolPath, fallbackPath].filter(Boolean)) {
-    try {
-      fs.mkdirSync(path.dirname(candidate), { recursive: true });
-      fs.appendFileSync(candidate, `${block}\n`);
-      return { path: candidate, error: null };
-    } catch (err) {
-      attempts.push(`${candidate}: ${err.message}`);
-    }
+  try {
+    let location = "the configured spool file";
+    if (spoolPath === process.env.RELAY_SPOOL) location = "the file named by RELAY_SPOOL";
+    else if (spoolPath === defaultSpoolPath()) location = "~/.cross-agent-relay/spool.log";
+    const spoolState = await appendPrivateSpool(spoolPath, block);
+    if (spoolState === "uncertain") return { spoolState, spooled: null,
+      spoolError: `Relay could not confirm the recovery write. A partial or complete copy may exist in ${location}.` };
+    return { spoolState, spooled: location, spoolError: null };
+  } catch {
+    return { spoolState: "unavailable", spooled: null, spoolError: "Private recovery storage is unavailable. Relay did not save a recoverable copy of this message." };
   }
-  return { path: null, error: `could not spool the message anywhere — ${attempts.join("; ")}` };
 }
 
 function isThreadId(value) {
@@ -913,8 +959,8 @@ async function relayViaDelegate({ target, message, origin, originTarget, identit
   let invocation;
   try {
     invocation = buildDelegateInvocation({ targetName: target.name, message, origin, originTarget, identity, reference, kind, conversation, messageId, inReplyTo, openedNew, recipient: target.id });
-  } catch (err) {
-    return fail(SEND_CAUSES.DELEGATE_FAILED, err.message, target.kind);
+  } catch {
+    return fail(SEND_CAUSES.DELEGATE_FAILED, "The delegate could not prepare the message.", target.kind);
   }
 
   if (dryRun) {
@@ -929,13 +975,12 @@ async function relayViaDelegate({ target, message, origin, originTarget, identit
     const refusal = await checkLocalBinding() || checkRecipient();
     if (refusal) return refusal;
     outcome = await runDelegate(invocation);
-  } catch (err) {
-    return fail(SEND_CAUSES.DELEGATE_FAILED, `delegate could not be invoked: ${err.message}`, target.kind);
+  } catch {
+    return fail(SEND_CAUSES.DELEGATE_FAILED, "The delegate invocation failed.", target.kind);
   }
 
   if (outcome.code !== 0) {
-    const said = (outcome.stderr || outcome.stdout || "").trim();
-    return fail(SEND_CAUSES.DELEGATE_FAILED, `delegate exited ${outcome.code}: ${said}`, target.kind);
+    return fail(SEND_CAUSES.DELEGATE_FAILED, "The delegate exited without confirming submission.", target.kind);
   }
 
   if (!String(outcome.stdout || "").includes(DELEGATE_CONFIRMATION)) {
@@ -1051,8 +1096,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
     kind = "notice",
     inReplyTo = null,
     now = Date.now(),
-    spoolPath = defaultSpoolPath(),
-    spoolFallbackPath = fallbackSpoolPath(),
+    spoolPath = process.env.RELAY_SPOOL || defaultSpoolPath(),
     runQueue = defaultRunQueue,
     runDelegate = defaultRunDelegate,
     allowDelegate = false,
@@ -1071,19 +1115,19 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
   } = options;
 
   let queueStarted = false;
-  const fail = (cause, detail, kind) => {
+  const fail = async (cause, detail, kind, dispatch) => {
     if (binding) {
       if (queueStarted) return { ok: false, cause: "unknown", detail: "The Codex queue submission outcome is unknown.", to, dispatch: "unknown" };
       return { ok: false, cause, detail: cause === SEND_CAUSES.QUEUE_FAILED ? "Could not prepare the exact local delivery." : detail,
         to, dispatch: "not_submitted" };
     }
-    if (dryRun || options.beforeSubmit) return { ok: false, cause, detail, to };
-    const written = spool(spoolPath, spoolFallbackPath, { now, to, kind, cause, detail, message });
-    return { ok: false, cause, detail, to, spooled: written.path, spoolError: written.error };
+    const result = { ok: false, cause, detail, to, ...(dispatch && { dispatch }) };
+    if (dryRun || options.beforeSubmit) return result;
+    return { ...result, ...await spool(spoolPath, { now, to, kind, cause, detail, message }) };
   };
 
   if (binding && (binding.adapter !== "codex" || binding.id !== to || !isThreadId(to))) {
-    return { ...fail("invalid_target", "A bound Codex send requires its exact native thread ID."), dispatch: "not_submitted" };
+    return fail("invalid_target", "A bound Codex send requires its exact native thread ID.");
   }
   // Discovery is run here rather than accepting a listing from the caller: a
   // listing that is seconds old is already stale on both sides.
@@ -1119,7 +1163,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
   async function checkLocalBinding() {
     if (!options.checkLocalBinding) return null;
     const refusal = await options.checkLocalBinding(target);
-    return refusal && { ...fail(refusal.cause, refusal.detail, target.kind), dispatch: "not_submitted" };
+    return refusal && fail(refusal.cause, refusal.detail, target.kind, "not_submitted");
   }
   if (options.checkLocalBinding) {
     const refusal = await checkLocalBinding();
@@ -1130,9 +1174,9 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
   // something watching for it. Recorded once per new key to the spool, which is
   // human-readable and never agent-drained. Never blocks a send: an unfamiliar
   // field is a thing to look at, not a reason to refuse.
-  const freshKeys = dryRun || binding ? [] : newHostKeys(buildHostMetadata(identity?.host).kept);
+  const freshKeys = dryRun || binding || options.beforeSubmit ? [] : newHostKeys(buildHostMetadata(identity?.host).kept);
   if (freshKeys.length > 0) {
-    spool(spoolPath, spoolFallbackPath, {
+    await spool(spoolPath, {
       now,
       to,
       kind: target.kind,
@@ -1156,7 +1200,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
       return fail(SEND_CAUSES.NOT_ADDRESSABLE, "target lacks a delivery name or endpoint", target.kind);
     }
     const reference = re ? await resolveClaudeReference(target, options, re, 280) : null;
-    if (reference && !reference.ok) return fail(SEND_CAUSES.REFERENCE_UNRESOLVED, reference.detail, target.kind);
+    if (reference && !reference.ok) return fail(SEND_CAUSES.REFERENCE_UNRESOLVED, "The referenced turn could not be resolved.", target.kind);
     // SendMessage consumes the current name, even when the caller selected an ID.
     function checkRecipient() {
       const current = readClaudeTargets(discovery.claudeSessionsDir ?? defaultClaudeSessionsDir(),
@@ -1164,7 +1208,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
       const named = current.filter((row) => row.name === target.name);
       if (named.length !== 1 || named[0].id !== target.id || named[0].pid !== target.pid ||
           named[0].startedAt !== target.startedAt || !named[0].addressable) {
-        return { ...fail(SEND_CAUSES.NOT_ADDRESSABLE, "target binding changed or is ambiguous", target.kind), dispatch: "not_submitted" };
+        return fail(SEND_CAUSES.NOT_ADDRESSABLE, "target binding changed or is ambiguous", target.kind, "not_submitted");
       }
       return null;
     }
@@ -1187,7 +1231,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
   if (re) {
     const resolved = await resolveCodexReference(target.id, re, { codexHome, openDb });
     if (!resolved.ok) {
-      return fail(SEND_CAUSES.REFERENCE_UNRESOLVED, resolved.detail, target.kind);
+      return fail(SEND_CAUSES.REFERENCE_UNRESOLVED, "The referenced turn could not be resolved.", target.kind);
     }
     reference = resolved;
   }
@@ -1214,7 +1258,7 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
         return options.checkLocalBinding?.(target);
       },
     });
-    return block && { ...fail(block.cause, block.detail, target.kind), dispatch: "not_submitted" };
+    return block && fail(block.cause, block.detail, target.kind, "not_submitted");
   }
 
   if (dryRun) {
@@ -1256,13 +1300,12 @@ export async function sendMessage(options = {}, { binding, buildEnvelope = build
     }
     queueStarted = true;
     outcome = await runQueue(target.id, stamped, { codexHome });
-  } catch (err) {
-    return fail(SEND_CAUSES.QUEUE_FAILED, `codex queue could not be invoked: ${err.message}`, target.kind);
+  } catch {
+    return fail(SEND_CAUSES.QUEUE_FAILED, "The Codex queue invocation failed.", target.kind);
   }
 
   if (outcome.code !== 0) {
-    const said = (outcome.stderr || outcome.stdout || "").trim();
-    return fail(SEND_CAUSES.QUEUE_FAILED, `codex queue exited ${outcome.code}: ${said}`, target.kind);
+    return fail(SEND_CAUSES.QUEUE_FAILED, "The Codex queue exited without confirming submission.", target.kind);
   }
 
   const confirmation = binding

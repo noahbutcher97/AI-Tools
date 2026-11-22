@@ -12,6 +12,6 @@
     "(~/.claude/sessions and ~/.codex) and shells out to already-authenticated CLIs.",
     "Codex targets are queued with `codex queue`. Claude targets are relayed by a",
     "`claude -p` delegate confined to the SendMessage tool.",
-    "Optional env: RELAY_SPOOL relocates the failure spool, default ~/.cross-agent-relay/spool.log."
+    "Optional env: RELAY_SPOOL relocates the failure spool, default ~/.cross-agent-relay/spool.log. Use an absolute path in a private directory."
   ]
 }

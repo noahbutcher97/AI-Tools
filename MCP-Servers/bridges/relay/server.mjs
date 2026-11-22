@@ -176,9 +176,6 @@ server.registerTool("relay_send", {
     kind,
     inReplyTo: in_reply_to,
     re,
-    // RELAY_SPOOL relocates the failure spool. The registration tests set it
-    // so a test run cannot append to the operator's real spool.
-    ...(process.env.RELAY_SPOOL ? { spoolPath: process.env.RELAY_SPOOL } : {}),
   };
   if (id !== undefined) {
     const result = await sendBound({ id, adapter, host }, options);
