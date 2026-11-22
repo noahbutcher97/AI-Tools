@@ -3,7 +3,7 @@ import path from "node:path";
 import { exactKeys, HOST, matches } from "./delivery-protocol.mjs";
 import { installationRoot, surveyRemoteSelection } from "./fleet.mjs";
 import { createLocalAddresses } from "./local-address.mjs";
-import { validLookupFrame, validLookupId } from "./lookup-protocol.mjs";
+import { validAmbiguousAdapters, validLookupFrame, validLookupId } from "./lookup-protocol.mjs";
 import { readEnabledReceivePolicy } from "./receive-policy.mjs";
 
 function permitsLookup(dir, peer, id) {
@@ -34,6 +34,10 @@ export function createRemoteLookup({ root = installationRoot,
           result.target.id === request.id && matches(HOST, result.target.adapter) &&
           (request.adapter === undefined || result.target.adapter === request.adapter)) {
         return { state: "resolved", target: { host: request.host, adapter: result.target.adapter, id: request.id } };
+      }
+      if (result?.ok === false && result.state === "ambiguous" && Object.hasOwn(result, "adapters")) {
+        return validAmbiguousAdapters(result.adapters, request)
+          ? { state: "ambiguous", adapters: [...result.adapters] } : { state: "unavailable" };
       }
       if (result?.ok === false && ["ambiguous", "incomplete_inventory", "missing", "unknown_adapter",
         "installation_changed"].includes(result.state)) return { state: result.state };

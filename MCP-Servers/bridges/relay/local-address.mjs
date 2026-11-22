@@ -90,9 +90,9 @@ export function createLocalAddresses({ root = installationRoot, additionalAdapte
     }
     const result = aliasTargetId === undefined ? await survey(inventory, { id, adapter }, { requireCodexEligibility })
       : await inventory.resolveAlias(id, aliasTargetId);
-    // Both an exact match and a miss can start delivery: a miss permits
-    // looking up a legacy name. Only use them under the installation surveyed.
-    if (result.ok || result.state === "missing") {
+    // Matches and misses can start delivery. Ambiguity can disclose matching
+    // reader keys. All three depend on the installation just surveyed.
+    if (result.ok || result.state === "missing" || result.state === "ambiguous") {
       try {
         if (root() !== dir || readHost(dir) !== localHost) return { ok: false, state: "installation_changed" };
       } catch {

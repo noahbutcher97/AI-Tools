@@ -56,6 +56,7 @@ export async function receive(args, originalCommand, input, timeoutMs = 3000, in
       const result = await lookup(request, reply.peer);
       const response = { ...reply, state: result?.state };
       if (result?.state === "resolved") response.target = result.target;
+      if (result?.state === "ambiguous" && Object.hasOwn(result, "adapters")) response.adapters = result.adapters;
       return validLookupReply(response, request, reply.peer) ? response : { ...reply, state: "unavailable" };
     }
     if (request.v === 2) {

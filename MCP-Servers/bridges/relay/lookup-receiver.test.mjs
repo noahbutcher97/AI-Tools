@@ -56,19 +56,20 @@ test("v3 receive resolves exact installed reader identities without accessing an
     proof: { capture() { calls.proofs++; }, verify() { calls.proofs++; } },
     enumerate() {
       calls.surveys.push(kind);
-      return { targets: [{ id, cwd: "private-test-directory", message: "private-test-content" }],
-        complete: kind === "sample" || otherComplete };
+      return { targets: [{ id: kind === "unrelated" ? "Separate-ID" : id,
+        cwd: "private-test-directory", message: "private-test-content" }],
+        complete: kind !== "other" || otherComplete };
     },
   });
   const root = () => dir;
-  const local = createLocalAddresses({ root, additionalAdapters: [reader("sample"), reader("other")] });
+  const local = createLocalAddresses({ root, additionalAdapters: ["sample", "other", "unrelated"].map(reader) });
   const lookup = createRemoteLookup({ root, resolve: local.resolve });
   const run = frame => runReceive(frame, lookup, () => calls.dispatches++);
   write("inventory-adapters.json", { enabled: ["sample"] });
   write("lookup-policy.json", readGrant);
   assert.deepEqual(await run(request), { ...header, state: "resolved", target });
-  write("inventory-adapters.json", { enabled: ["sample", "other"] });
-  assert.deepEqual(await run(request), { ...header, state: "ambiguous" });
+  write("inventory-adapters.json", { enabled: ["sample", "other", "unrelated"] });
+  assert.deepEqual(await run(request), { ...header, state: "ambiguous", adapters: ["sample", "other"] });
   assert.deepEqual(await run({ ...request, id: "Absent" }), { ...header, state: "missing" });
   otherComplete = false;
   assert.deepEqual(await run(request), { ...header, state: "incomplete_inventory" });
@@ -116,10 +117,29 @@ test("v3 policy denies before surveying and rechecks revocation for positive and
   write("lookup-policy.json", readGrant);
   duringSurvey = () => {
     write("receive-policy.json", { enabled: false, codex: [] });
-    return { ok: false, state: "ambiguous", adapters: ["private-reader"] };
+    return { ok: false, state: "ambiguous", adapters: ["sample", "other"] };
   };
   assert.deepEqual(await runReceive(request, lookup), denied);
   assert.equal(surveys, 2);
+});
+
+test("ambiguous reader keys belong to the host and applicable reader set still installed after the survey", async t => {
+  const { dir, write } = setup(t);
+  const root = () => dir;
+  write("lookup-policy.json", readGrant);
+  let change;
+  const reader = kind => ({ kind, enumerate() {
+    change?.();
+    return { complete: true, targets: [{ id }, { id }] };
+  } });
+  const local = createLocalAddresses({ root, additionalAdapters: [reader("sample"), reader("other")] });
+  const run = frame => runReceive(frame, createRemoteLookup({ root, resolve: local.resolve }));
+  write("inventory-adapters.json", { enabled: ["sample", "other"] });
+  assert.deepEqual(await run({ ...request, adapter: "sample" }), { ...header, state: "ambiguous", adapters: ["sample"] });
+  change = () => write("inventory-adapters.json", { enabled: ["sample"] });
+  assert.deepEqual(await run(request), { ...header, state: "installation_changed" });
+  change = () => write("machine.json", { host: "another-host" });
+  assert.deepEqual(await run({ ...request, adapter: "sample" }), { ...header, state: "installation_changed" });
 });
 
 test("receiver rejects extra fields, duplicate JSON members and malformed literal selectors before dispatch", async () => {
@@ -155,6 +175,29 @@ test("projection and caller validation bind peer, request, host, selector and re
     { ...expected, warning: "private" }, { ...expected, target: { ...target, cwd: "private" } },
     { ...header, state: "ambiguous", adapters: ["private"] }]) {
     assert.equal(validLookupReply(reply, qualified, peer), false);
+  }
+});
+
+test("only matching bounded distinct reader keys may accompany an ambiguous reply", async t => {
+  const { dir, write } = setup(t);
+  write("lookup-policy.json", readGrant);
+  const qualified = { ...request, adapter: "sample" };
+  let result = { ok: false, state: "ambiguous" };
+  const lookup = createRemoteLookup({ root: () => dir, resolve: async () => result });
+  const base = { ...header, state: "ambiguous" };
+  assert.deepEqual(await runReceive(request, lookup), base);
+  assert.equal(validLookupReply(base, request, peer), true);
+  for (const [frame, adapters] of [[request, []], [request, null], [request, ["sample", "sample"]],
+    [request, ["private\ntext"]], [request, [{}]], [qualified, ["other"]],
+    [qualified, ["sample", "other"]], [request, Array.from({ length: 17 }, (_, n) => "reader-" + n)]]) {
+    result = { ok: false, state: "ambiguous", adapters };
+    assert.deepEqual(await runReceive(frame, lookup), { ...header, state: "unavailable" });
+    assert.equal(validLookupReply({ ...base, adapters }, frame, peer), false);
+  }
+  const maxKeys = Array.from({ length: 16 }, (_, n) => "reader-" + n);
+  assert.equal(validLookupReply({ ...base, adapters: maxKeys }, request, peer), true);
+  for (const state of ["receive_denied", "missing", "incomplete_inventory", "unknown_adapter", "installation_changed"]) {
+    assert.equal(validLookupReply({ ...header, state, adapters: ["sample"] }, request, peer), false);
   }
 });
 
@@ -206,4 +249,18 @@ test("a packaged reader resolves locally and in the bounded receiver worker thro
   const observed = fs.readFileSync(path.join(dir, "reader-calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   assert.deepEqual(observed, [{ worker: false, operation: "enumerate" }, { worker: true, operation: "enumerate" }]);
   assert.equal(fs.existsSync(path.join(dir, "receipts.sqlite")), false);
+});
+
+test("the verified watcher package can import fleet without a full receiver registry", async t => {
+  try { await import("node:sqlite"); } catch { return t.skip("node:sqlite unavailable"); }
+  const { buildWatcherPackage, verifyWatcherPackage } = await import("../../../Installers/CrossAgentRelay/watcher-package.mjs");
+  const { profile } = setup(t);
+  const image = path.join(profile, "fixture-image");
+  fs.writeFileSync(image, "synthetic");
+  const bundle = path.join(profile, "watcher");
+  const compile = (dir, file) => fs.copyFileSync(image, path.join(dir, file));
+  const digest = await buildWatcherPackage(bundle, { node: image, codex: image, claude: image, compile });
+  assert.equal(await verifyWatcherPackage(bundle, digest), digest);
+  const fleet = await import(pathToFileURL(path.join(bundle, "relay", "fleet.mjs")).href);
+  assert.equal(typeof fleet.installationRoot(), "string");
 });

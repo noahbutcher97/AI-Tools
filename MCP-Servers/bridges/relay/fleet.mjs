@@ -5,8 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
-import { createLocalInventory, discoverTargets } from "./client.mjs";
-import { installedReaders } from "./installed-readers.mjs";
+import { discoverTargets } from "./client.mjs";
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const SESSION = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/;
@@ -52,9 +51,9 @@ export function loadDirectory() {
 
 // A provider database or directory read may block synchronously. Both fleet
 // listing and exact receive surveys keep these reads off the receiver's loop.
-function inventoryWorker(data) {
+function inventoryWorker(entrypoint, data) {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL(import.meta.url), { workerData: data, execArgv: [] });
+    const worker = new Worker(entrypoint, { workerData: data, execArgv: [] });
     const timer = setTimeout(() => {
       worker.unref();
       void worker.terminate();
@@ -71,12 +70,13 @@ function inventoryWorker(data) {
 
 export async function surveyRemoteSelection(installed, selector, options) {
   try {
-    return await inventoryWorker({ relayExactSurvey: true, enabled: installed.readerKinds, selector, options });
+    return await inventoryWorker(new URL("./exact-survey-worker.mjs", import.meta.url),
+      { enabled: installed.readerKinds, selector, options });
   } catch { return { ok: false, state: "incomplete_inventory" }; }
 }
 
 export async function inventory(options = {}) {
-  if (isMainThread) return inventoryWorker({ relayInventoryWorker: true, options });
+  if (isMainThread) return inventoryWorker(new URL(import.meta.url), { relayInventoryWorker: true, options });
   const { targets, warnings } = await discoverTargets({ scope: "all", ...options });
   const rows = [];
   let partial = warnings.length > 0;
@@ -95,10 +95,6 @@ export async function inventory(options = {}) {
 
 if (!isMainThread && parentPort && workerData?.relayInventoryWorker) {
   parentPort.postMessage(await inventory(workerData.options));
-}
-if (!isMainThread && parentPort && workerData?.relayExactSurvey) {
-  const installed = createLocalInventory(installedReaders, workerData.enabled);
-  parentPort.postMessage(await installed.resolve(workerData.selector, workerData.options));
 }
 
 export function sshInvocation(entry) {
