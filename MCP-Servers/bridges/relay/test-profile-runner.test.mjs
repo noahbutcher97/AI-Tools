@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -59,4 +59,31 @@ test("a replaced profile is reported and its replacement survives", t => {
   assert.ok(child.stderr.includes(link));
   assert.match(child.stderr, /redirected|changed/);
   assert.ok(fs.existsSync(path.join(parent, "original", "tmp")));
+});
+
+test("termination waits for the child to finish before removing its profile", { skip: process.platform === "win32", timeout: 10000 }, async () => {
+  const runnerProcess = spawn(process.execPath, [runner, "--", "node", "-e", `
+    const fs = require("node:fs"), os = require("node:os");
+    process.on("SIGTERM", () => setTimeout(() => {
+      console.log(fs.existsSync(os.homedir()) ? "flushed" : "lost");
+      process.exit(0);
+    }, 30));
+    console.log("ready");
+    setTimeout(() => process.exit(9), 2500);
+  `], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "", diagnostic = "";
+  runnerProcess.stderr.on("data", chunk => { diagnostic += chunk; });
+  runnerProcess.stdout.on("data", chunk => {
+    output += chunk;
+    if (output.trim() === "ready") runnerProcess.kill("SIGTERM");
+  });
+  const status = await new Promise((resolve, reject) => {
+    runnerProcess.once("error", reject);
+    runnerProcess.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  const profile = diagnostic.match(/^Disposable test profile: (.+)$/m)?.[1];
+  assert.ok(profile);
+  assert.match(output, /flushed/);
+  assert.deepEqual(status, { code: 143, signal: null });
+  assert.equal(fs.existsSync(profile), false);
 });

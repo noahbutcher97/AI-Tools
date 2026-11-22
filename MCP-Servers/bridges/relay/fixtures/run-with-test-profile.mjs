@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const usage = "Usage: node run-with-test-profile.mjs -- <program> [arguments...]\n" +
@@ -37,7 +37,7 @@ function directoryIdentity(dir) {
   return [stat.dev, stat.ino].join("/");
 }
 
-function run([separator, command, ...args]) {
+async function run([separator, command, ...args]) {
   if (separator === "--help" || separator === "-h") { console.log(usage); return 0; }
   if (separator !== "--" || !command) { console.error(usage); return 2; }
   const root = privateRoot();
@@ -53,9 +53,29 @@ function run([separator, command, ...args]) {
       env[key] = path.join(profile, key.toLowerCase());
       fs.mkdirSync(env[key], { mode: 0o700 });
     }
-    const child = spawnSync(command === "node" ? process.execPath : command, args, { env, stdio: "inherit", shell: false });
-    if (child.error) throw child.error;
-    return child.status ?? (128 + (os.constants.signals[child.signal] ?? 0));
+    const child = spawn(command === "node" ? process.execPath : command, args, { env, stdio: "inherit", shell: false });
+    let interrupted;
+    const forward = signal => {
+      interrupted ??= signal;
+      child.kill(signal);
+    };
+    const onInterrupt = () => forward("SIGINT");
+    const onTerminate = () => forward("SIGTERM");
+    process.on("SIGINT", onInterrupt);
+    process.on("SIGTERM", onTerminate);
+    try {
+      let childError;
+      const { code, signal } = await new Promise(resolve => {
+        child.on("error", error => { childError = error; });
+        child.once("close", (code, signal) => resolve({ code, signal }));
+      });
+      if (childError) throw childError;
+      const reason = interrupted ?? signal;
+      return reason ? 128 + os.constants.signals[reason] : code;
+    } finally {
+      process.off("SIGINT", onInterrupt);
+      process.off("SIGTERM", onTerminate);
+    }
   } finally {
     if (path.dirname(profile) !== root || directoryIdentity(root) !== rootId || directoryIdentity(profile) !== profileId) {
       throw new Error("Cleanup refused because the original test directory changed.");
@@ -64,5 +84,5 @@ function run([separator, command, ...args]) {
   }
 }
 
-try { process.exitCode = run(process.argv.slice(2)); }
+try { process.exitCode = await run(process.argv.slice(2)); }
 catch (error) { console.error(error.message); process.exitCode = 1; }
