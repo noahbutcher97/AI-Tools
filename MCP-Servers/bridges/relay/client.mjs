@@ -1764,7 +1764,10 @@ async function resolveInventory(enabled, selector, options, alias) {
   const found = targets.filter(row => row.id === id);
   if (!found.length) return { ok: false, state: "missing" };
   if (found.length > 1) {
-    return { ok: false, state: "ambiguous", adapters: [...new Set(found.map(row => row.kind))] };
+    const adapters = [...new Set(found.map(row => row.kind))];
+    const result = { ok: false, state: "ambiguous" };
+    if (adapters.length <= (options?.maxAmbiguousAdapters ?? Infinity)) result.adapters = adapters;
+    return result;
   }
   if (options?.requireCodexEligibility && found[0].kind === "codex" && !found[0].addressable) {
     return { ok: false, state: SEND_CAUSES.NOT_ADDRESSABLE };

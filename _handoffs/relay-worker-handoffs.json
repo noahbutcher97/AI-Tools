@@ -100,6 +100,186 @@
     }
   },
   {
+    "revision": "6f299ac2204d59fbd80be0c1321635a4dc803305",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-i5-lookup-cap-review",
+    "worker": "independent lookup reviewer",
+    "scope": "Review final over-limit behavior and integration with matching-key responses.",
+    "acceptance": "Check regression above sixteen readers, input validation, packaged worker and public resolution.",
+    "result": {
+      "revision": "6f299ac2204d59fbd80be0c1321635a4dc803305",
+      "verdict": "Passed final source review.",
+      "evidence": "A disposable verified installation and forced receiver enumerated sixteen and seventeen real worker readers. Both responses were ambiguous; only the former included keys. Oversized wire hints were refused and no receipt database appeared. Twelve focused cases passed; local and legacy regressions passed 35 with two Windows SQLite skips.",
+      "limitations": "Windows Node 22.20.0 and local process pipes. Live fleet enrollment and installed provider delivery remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Accept I5 in its source scope. Proceed to I6 under its existing dependencies."
+    }
+  },
+  {
+    "revision": "6f299ac2204d59fbd80be0c1321635a4dc803305",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-i5-lookup-cap-walk",
+    "worker": "fresh constrained terminal operator",
+    "scope": "Repeat the ambiguous literal task on the over-limit correction.",
+    "acceptance": "Select the intended reader and verify the exact two recorded lookup frames.",
+    "result": {
+      "revision": "6f299ac2204d59fbd80be0c1321635a4dc803305",
+      "verdict": "Passed on the final cap correction.",
+      "evidence": "A fresh constrained Claude Code Haiku operator selected the matching reader from the ambiguous CLI response. The frame log showed exactly one unqualified and one qualified read for the same host and literal ID; the second returned the expected address.",
+      "limitations": "Windows with synthetic readers and transport. No live SSH, human participant or provider receipt."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Keep the same fixture for subsequent caller regression checks."
+    }
+  },
+  {
+    "revision": "21669c228b8e6dd1e6db0e7a0c86d7a0aa8b3ad3",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-i5-lookup-review-recheck",
+    "worker": "independent lookup reviewer",
+    "scope": "Recheck integrated v3 lookup, matching keys and installed worker imports.",
+    "acceptance": "Confirm no disclosure on revoked, denied or partial inventory; inspect package and previous gate.",
+    "result": {
+      "revision": "21669c228b8e6dd1e6db0e7a0c86d7a0aa8b3ad3",
+      "verdict": "Returned one compatibility finding after confirming the package fix.",
+      "evidence": "Verified packaged fleet import and 11 focused tests. Complete matches from seventeen authorized readers produced unavailable instead of ambiguous. The keyless ambiguity reply remains valid.",
+      "limitations": "Local process pipes and disposable packages. No live host or provider was enrolled."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Preserve ambiguity with zero candidate keys when the truthful list exceeds the disclosure limit and recheck."
+    }
+  },
+  {
+    "revision": "21669c228b8e6dd1e6db0e7a0c86d7a0aa8b3ad3",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-i5-lookup-walkthrough-final",
+    "worker": "fresh constrained terminal operator",
+    "scope": "Resolve the ambiguous remote literal ID for the intended reader from ordinary terminal output.",
+    "acceptance": "Verify matching reply on recovery and no submission, receipt reservation or inventory disclosure beyond the permitted matches.",
+    "result": {
+      "revision": "21669c228b8e6dd1e6db0e7a0c86d7a0aa8b3ad3",
+      "verdict": "Passed the ambiguous literal lookup task after the recovery wording and keys were added.",
+      "evidence": "A fresh constrained Claude Code Haiku operator used the matching reader key from the actual CLI reply and recovered the requested literal in one more call. Two recorded frames contained lookup fields only, and the fixture produced no recovery files.",
+      "limitations": "Windows CLI with synthetic peer and readers. Agent-operated walkthrough; real SSH enrollment and a live additional client remain unexercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Keep the paired CLI and MCP regression in CI."
+    }
+  },
+  {
+    "id": "relay-i5-lookup-walkthrough-repeat",
+    "revision": "0a864b7a367f06b81b4e2900d67f2df5a78f913a",
+    "coordinator": "relay coordinator",
+    "worker": "fresh constrained terminal operator",
+    "state": "accepted",
+    "scope": "Repeat the remote ambiguous-ID task against the CLI with the revised recovery message.",
+    "acceptance": "Find the exact host, adapter and literal ID with only task and terminal history. Verify matched reply, recorded frames and zero effects.",
+    "result": {
+      "revision": "0a864b7a367f06b81b4e2900d67f2df5a78f913a",
+      "verdict": "Blocked with the syntax available but no candidate keys.",
+      "evidence": "A fresh operator identified the correct lookup option but could not establish the intended key from the response. One body-free query reached the synthetic peer. No submit or status call occurred.",
+      "limitations": "The operator had a client name and a literal ID. No private inventory or setup information was available."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Show the validated matching reader keys for the authorized exact ID on a complete collision and repeat on the revised candidate."
+    }
+  },
+  {
+    "revision": "9a5ba878c518422d0f72d4d9975149708ebfdbdc",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-i5-lookup-review",
+    "worker": "independent lookup reviewer",
+    "scope": "Review the integrated CLI, MCP, versioned wire and installed reader lookup effects and compatibility on this revision.",
+    "acceptance": "Verify authorization, legacy and offline behavior, identity binding, bounded read-only responses and static adapter composition. Identify blocking findings and exercised scope.",
+    "result": {
+      "revision": "9a5ba878c518422d0f72d4d9975149708ebfdbdc",
+      "verdict": "Hold the candidate for a package import regression.",
+      "evidence": "The reviewer reproduced the new missing static-reader import when loading fleet from the exact watcher package member set. The previous revision imported it successfully. Eight focused tests passed. The reviewer exercised the actual older receiver against local pipes and two independently registered readers in a disposable package.",
+      "limitations": "Read-only Windows source and fixture review. Two open-database mutation cases skipped. No live SSH or installed upgrade."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the finding. Keep the checkpoint open pending recheck.",
+      "next": "Recheck the corrected package import and the final ambiguity projection."
+    }
+  },
+  {
+    "revision": "9a5ba878c518422d0f72d4d9975149708ebfdbdc",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-i5-lookup-walkthrough",
+    "worker": "constrained terminal operator",
+    "scope": "Using the practice CLI and terminal history, find the intended adapter and literal identity after an ambiguous remote lookup.",
+    "acceptance": "Confirm the exact host, client and ID from a successful lookup. Independently verify the request frames and zero submissions. No access to source, private inputs or production peers.",
+    "result": {
+      "revision": "9a5ba878c518422d0f72d4d9975149708ebfdbdc",
+      "verdict": "Blocked after the ambiguous lookup.",
+      "evidence": "A fresh low-effort terminal operator saw the refusal, tried to list remote readers, then stopped without confirming the target. The synthetic receiver recorded one body-free lookup and no submission.",
+      "limitations": "The practice terminal declined the list attempt. This was a model using a disposable terminal, with no human participant or live peer."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Add an actionable recovery message and repeat."
+    }
+  },
+  {
+    "id": "relay-i5-lookup-implementation",
+    "worker": "receiver implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+    "scope": "Implement a body-free remote literal lookup under explicit installed read authority with receiver tests.",
+    "acceptance": "Pin compatible frames and refuse ambiguous, incomplete and unauthorized reads. Exercise the actual receiver and record zero submissions or effect reservations.",
+    "state": "accepted",
+    "result": {
+      "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+      "verdict": "Returned receiver and bounded worker.",
+      "evidence": "Receiver and authorization in 0cc7aa6, installed reader composition in 9a5ba87, and verified package import plus matching-key projection in f357187. Nine focused receiver tests passed.",
+      "limitations": "Synthetic readers and installed package fixtures. The existing watcher package closure defect is tracked separately."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Close with final integrated review and operator return."
+    }
+  },
+  {
+    "id": "relay-i5-lookup-caller",
+    "worker": "caller implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+    "scope": "Integrate versioned read-only remote selector lookup through CLI and MCP after receiver examples are agreed.",
+    "acceptance": "Preserve local addressing and cover remote exact lookup, collision, incomplete reads and old or unavailable peers with zero submissions.",
+    "state": "accepted",
+    "result": {
+      "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+      "verdict": "Returned both public lookup entry points.",
+      "evidence": "4ed1fe7 connected CLI and MCP to versioned literal lookup. 21669c2 projected authorized candidate keys into public results for recovery. Both interfaces exercise ambiguity, missing permission, older peers and offline hosts.",
+      "limitations": "Synthetic peers and additional client. No live cross-host wake or enrollment."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Close with integrated review of the final bytes."
+    }
+  },
+  {
     "id": "relay-visible-local-worker",
     "revision": "201c366f309aef7ee0b0c79cb571b429c9671953",
     "worker": "disposable local terminal worker",

@@ -16,7 +16,8 @@
 // The CLI requires --via-delegate for Claude delivery.
 
 import { formatTargets, parseArgs } from "./client.mjs";
-import { listInstalledTargets, resolveLocalAddress } from "./local-address.mjs";
+import { listInstalledTargets } from "./local-address.mjs";
+import { resolveAddress } from "./resolve-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { pingBound, sendBound } from "./installed-delivery.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
@@ -32,7 +33,7 @@ const help = `Usage: relay <command> [options]
   list --json                  Show raw session IDs and coverage for each local reader
   list --all-hosts             List sessions on enrolled machines
   resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
-                               Look up an exact local session ID without waking it
+                               Look up an exact session ID locally or on one enrolled host
   send <target> --message TEXT Send a notice; --dry-run previews the destination
   send --id LITERAL            Send to an exact local session (see send --help)
   ping <target>                Wake the session once and check for delivery
@@ -42,15 +43,20 @@ const help = `Usage: relay <command> [options]
   watch --notify <id> <condition-id>  Activate an approved watch
   run -- <command> [args...]   Run an approved job with completion notification
 
-Use the host-qualified ID shown by list --all-hosts for a remote session.
+For a remote lookup, pass --host LABEL and --id LITERAL separately.
+For a remote send or ping, use the host-qualified ID shown by list --all-hosts.
 A queue receipt confirms acceptance. A delivered probe confirms arrival.`;
 
 const resolveHelp = `Usage: relay resolve --id LITERAL [--adapter KEY] [--host LABEL] [--json]
 
-Copy the case-sensitive id from relay list --scope all --json. Keep any colon
-or slash inside the ID. For an ID beginning with -- use --id=VALUE.
-Use the row's kind as --adapter to narrow the lookup to one installed reader.
-The optional --host must identify this machine. Resolution only reads inventory.`;
+Omit --host for local lookup. Find local IDs with relay list --scope all --json.
+For remote lookup, pass the enrolled --host label and the case-sensitive raw
+--id separately, for example: relay resolve --host host-b --id=--Sample:Chat/One
+Keep colons and slashes inside the ID. For an ID beginning with -- use --id=VALUE.
+If several readers match or one is incomplete, use --adapter KEY to select
+the intended reader. Find its kind with relay list --scope all --json on the
+machine that owns the session. A remote lookup requires the
+host owner's read grant for this ID. Resolution only reads inventory.`;
 
 const literalTargetHelp = `Copy the case-sensitive id from relay list --scope all --json. For a leading
 double dash use --id=VALUE. If multiple adapters match, pass the row's kind as
@@ -114,9 +120,9 @@ async function main() {
   }
 
   if (options.command === "resolve") {
-    const result = await resolveLocalAddress(options.selector);
+    const result = await resolveAddress(options.selector);
     if (options.json) console.log(JSON.stringify(result, null, 2));
-    else if (result.ok) console.log(`Resolved local session ${JSON.stringify(result.target)}`);
+    else if (result.ok) console.log(`Resolved session ${JSON.stringify(result.target)}`);
     else {
       console.error(`${result.state}: ${result.detail}`);
       if (result.adapters?.length) console.error(`Adapters: ${JSON.stringify(result.adapters)}`);

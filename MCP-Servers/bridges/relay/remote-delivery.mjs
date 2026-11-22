@@ -7,19 +7,15 @@ import path from "node:path";
 import { codexQueueBlock, resolveCodexReference, SEND_CAUSES } from "./client.mjs";
 import { installationRoot, surveyRemoteSelection } from "./fleet.mjs";
 import { createLocalAddresses } from "./local-address.mjs";
-import { digest, exactKeys, HOST, UUID, matches, remoteEnvelope, requestDigest } from "./delivery-protocol.mjs";
+import { digest, UUID, matches, remoteEnvelope, requestDigest } from "./delivery-protocol.mjs";
+import { readEnabledReceivePolicy } from "./receive-policy.mjs";
 import { openReceipts } from "./receipts.mjs";
 
 const resolveRemoteRecipient = createLocalAddresses({ survey: surveyRemoteSelection }).resolve;
 
 function policyAllows(peer, id) {
-  try {
-    const policy = JSON.parse(fs.readFileSync(path.join(installationRoot(), "receive-policy.json"), "utf8"));
-    return exactKeys(policy, ["enabled", "codex"]) && policy.enabled === true && Array.isArray(policy.codex) &&
-      policy.codex.every(row => exactKeys(row, ["peer", "ids"]) && matches(HOST, row.peer) &&
-        (row.ids === "all" || (Array.isArray(row.ids) && row.ids.every(id => matches(UUID, id))))) &&
-      policy.codex.some(row => row.peer === peer && (id === null || row.ids === "all" || row.ids.includes(id)));
-  } catch { return false; }
+  const policy = readEnabledReceivePolicy();
+  return policy?.codex.some(row => row.peer === peer && (id === null || row.ids === "all" || row.ids.includes(id))) ?? false;
 }
 
 function providerPath() {
