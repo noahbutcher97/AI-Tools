@@ -1,12 +1,103 @@
 [
   {
+    "revision": "73c18e6c4cb7be686c8ccde63e922ef53b37f5bf",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-a4-private-final-review",
+    "worker": "independent storage reviewer",
+    "scope": "Recheck preexisting final ACL and post-write uncertainty on the amended implementation.",
+    "acceptance": "Verify both prior findings and the changed failure paths on Windows and Linux.",
+    "result": {
+      "revision": "73c18e6c4cb7be686c8ccde63e922ef53b37f5bf",
+      "verdict": "Passed both corrections and source review.",
+      "evidence": "Twenty-five focused Windows tests passed. An extra SYSTEM read grant on a preexisting file was refused without changing its contents. Six concurrent writes retained each unique body once. Under a real Linux file-size limit the body reached disk and the caller correctly reported uncertain recovery.",
+      "limitations": "Local Windows NTFS and Ubuntu under WSL. No separate interactive account, live provider submission or production installation was exercised."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Accept A4 for Windows and Linux source fixtures. Recheck both public surfaces on integration."
+    }
+  },
+  {
+    "revision": "73c18e6c4cb7be686c8ccde63e922ef53b37f5bf",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-a4-private-final-walk",
+    "worker": "constrained terminal operator",
+    "scope": "Check unavailable and interrupted private recovery on the amended CLI.",
+    "acceptance": "Independently verify zero recovery or a partial record as appropriate and no repeated sends.",
+    "result": {
+      "revision": "73c18e6c4cb7be686c8ccde63e922ef53b37f5bf",
+      "verdict": "Passed unavailable and uncertain recovery tasks.",
+      "evidence": "Two fresh low-effort Claude Code Haiku operators saw one failed CLI send each. Both distinguished text in command history from a relay copy. The first correctly reported unavailable storage. The second identified the private location and could not confirm a complete record. Independent file inspection found a partial record in that case. Neither made a second send.",
+      "limitations": "Windows CLI against a disposable missing recipient with a controlled short-write fault. No real session or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Keep public CLI and MCP regressions for both outcomes."
+    }
+  },
+  {
+    "revision": "bbe773c6953ce3538ebbcf2bb5e689bf6c5ad08c",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-a4-private-review",
+    "worker": "independent storage reviewer",
+    "scope": "Review private failed-send retention through the ordinary callers.",
+    "acceptance": "Check file access controls, links, concurrency, errors and side effects on failure. Report findings and exercised platforms.",
+    "result": {
+      "revision": "bbe773c6953ce3538ebbcf2bb5e689bf6c5ad08c",
+      "verdict": "Returned two blocking findings.",
+      "evidence": "Twenty focused Windows cases passed. Six concurrent sends retained six complete unique bodies. A preexisting privileged read ACE was accepted on the final Windows file. A Linux file-size limit retained a complete body despite the result reporting no copy. Six Linux spool tests and FIFO refusal passed.",
+      "limitations": "Windows NTFS and Ubuntu under WSL on Node 22.20. No live provider submissions."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Enforce the final owner-only ACL, distinguish possible partial writes from prewrite refusal, and repeat independent qualification."
+    }
+  },
+  {
+    "revision": "bbe773c6953ce3538ebbcf2bb5e689bf6c5ad08c",
+    "coordinator": "relay coordinator",
+    "state": "accepted",
+    "id": "relay-a4-private-walk",
+    "worker": "constrained terminal operator",
+    "scope": "Interpret a failed local send when recovery storage is unavailable.",
+    "acceptance": "Determine whether a copy exists and make a safe recovery decision using only ordinary CLI output. Verify storage independently.",
+    "result": {
+      "revision": "bbe773c6953ce3538ebbcf2bb5e689bf6c5ad08c",
+      "verdict": "Passed the unavailable-storage recovery task.",
+      "evidence": "A constrained Claude Code operator using Haiku at low effort saw one actual CLI failure, correctly distinguished the original command history from a retained relay copy and stopped after one attempt. The disposable storage scan contained zero recovery files and the frame log was empty.",
+      "limitations": "Agent-operated terminal and synthetic local failure on Windows. No real recipient or human participant."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Use the unavailable-storage wording and keep the CLI regression in CI."
+    }
+  },
+  {
     "id": "relay-a4-private-failure-implementation",
     "worker": "private storage implementer",
     "coordinator": "relay coordinator",
     "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
     "scope": "Implement the failed-send recovery change and focused regressions in an isolated checkout.",
     "acceptance": "Show the existing fallback with synthetic data, protect recovery storage, sanitize failure reporting, test public faces, failed dry runs and receive refusal.",
-    "state": "assigned"
+    "state": "accepted",
+    "result": {
+      "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+      "verdict": "Returned private local storage implementation.",
+      "evidence": "Commit 6bff72c replaced the temporary fallback. The full Windows bridge suite passed 447 tests with three skips. Six Linux storage cases passed under an unprivileged account. The Windows helper deadline test verified child exit.",
+      "limitations": "NTFS and Linux owner and mode checks exercised. Other filesystems and macOS remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Review the private sink and its public results independently."
+    }
   },
   {
     "id": "relay-visible-local-worker",
