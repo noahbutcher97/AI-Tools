@@ -1,5 +1,25 @@
 [
   {
+    "id": "relay-rollout-checkpoint-recheck",
+    "revision": "8e19df9e7b1f37713ac7f884a19eb72f9a7e2571",
+    "worker": "independent plan reviewer",
+    "coordinator": "relay coordinator",
+    "scope": "Read-only recheck of the revised checkpoint map.",
+    "acceptance": "Verify both review findings, per-letter counts and navigation against the approved rollout.",
+    "state": "accepted",
+    "result": {
+      "revision": "8e19df9e7b1f37713ac7f884a19eb72f9a7e2571",
+      "verdict": "Accept the revised checkpoint map.",
+      "evidence": "Verified the four-interface compatibility gate and its recipient-facing dependents, independent native observation, the three name-race outcomes and all nine letter totals. The map preserves the accepted historical scopes and names versioned read-only resolution next.",
+      "limitations": "Independent document and repository review. No new provider runs, hosted CI or installed qualification by the reviewer."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted. The map covers all five stages with 39 unique checkpoints and preserves the approved sequence.",
+      "next": "Qualify versioned read-only remote resolution under I5."
+    }
+  },
+  {
     "id": "relay-rollout-checkpoint-map",
     "revision": "2649f38b84940281b662062875b8ba85aa48bdea",
     "worker": "independent plan reviewer",
