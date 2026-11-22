@@ -1,5 +1,14 @@
 [
   {
+    "id": "relay-a4-private-failure-implementation",
+    "worker": "private storage implementer",
+    "coordinator": "relay coordinator",
+    "revision": "f0d53fd68ca9f6b04dcc531b7c32b970f493391c",
+    "scope": "Implement the failed-send recovery change and focused regressions in an isolated checkout.",
+    "acceptance": "Show the existing fallback with synthetic data, protect recovery storage, sanitize failure reporting, test public faces, failed dry runs and receive refusal.",
+    "state": "assigned"
+  },
+  {
     "id": "relay-visible-local-worker",
     "revision": "201c366f309aef7ee0b0c79cb571b429c9671953",
     "worker": "disposable local terminal worker",
