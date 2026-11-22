@@ -1,5 +1,23 @@
 [
   {
+    "id": "relay-i6-receiver",
+    "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+    "coordinator": "relay coordinator",
+    "worker": "receiver and receipts implementer",
+    "state": "assigned",
+    "scope": "Bind remote effects, status and stored reservations across versions to one exact adapter and native ID.",
+    "acceptance": "Record one submission across identical retries, changed adapter and version conflicts, authorized cold status, and zero effects for denied or uncertain recovery."
+  },
+  {
+    "id": "relay-i6-caller",
+    "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+    "coordinator": "relay coordinator",
+    "worker": "CLI and MCP implementer",
+    "state": "assigned",
+    "scope": "Route explicit remote selectors through versioned body-free negotiation and the bound effect contract.",
+    "acceptance": "Exercise both public faces with two registered readers, receipt recovery from a fresh caller, older receivers and transport uncertainty."
+  },
+  {
     "id": "relay-test-profile-interrupt-review",
     "revision": "86f599a081dd10801c7f699662af290181b799e7",
     "coordinator": "relay coordinator",
