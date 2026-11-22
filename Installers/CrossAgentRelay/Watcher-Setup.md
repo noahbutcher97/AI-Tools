@@ -4,6 +4,14 @@ The completion watcher collects job exit reports in a private local database. It
 
 ## Prepare and review
 
+### Existing watcher state
+
+The broker that uses job-store schema 4 authenticates restored job, grant handoff, watch and observation rows with a key in its private state directory. Stage compatible broker modules together. Before a cutover, stop accepting new work and reconcile outstanding effects and their original receipts. Opening an older store retains the old rows. Unsigned work cannot prove its original association with a grant or proof handle and stays inert. Check earlier receipts using their original authority. A newly issued condition or job ID covers future work.
+
+A missing key on an upgraded store requires trusted recovery. An earlier broker binary cannot read schema 4. Replacing the database with an old snapshot can replay previously valid work; the row authentication mechanism does not detect a matching rollback of the database and its authenticated rows. Installed upgrade and recovery require a separate qualification with the deployed package.
+
+For current health, run `relay doctor --json`. In `watcher.record.subscriptions`, a paused condition with reason `grant_changed` indicates that the current grant differs from the stored revision. `stored_state_unverified` means the broker could not authenticate the required state. A revoked grant disappears from the list. The `partial` flag can indicate retained work whose identity cannot be safely displayed, or additional subscriptions beyond the bounded list. The read-only MCP tool `relay_doctor` shows the last dated CLI record.
+
 Use the checked-out package builder with the installed Node runtime and absolute paths to the two native provider executables. Choose a new directory outside the checkout. Each desktop builds its own package.
 
 ```text
