@@ -372,7 +372,7 @@ test("a delegate that exits nonzero keeps provider output private", async () => 
 });
 
 test("a failed delegate relay spools the message", async () => {
-  const spoolPath = path.join(recoveryFixture(), "spool.log");
+  const spoolPath = path.join(recoveryFixture(), "private", "spool.log");
   await sendMessage(
     sendOptions({
       spoolPath,

@@ -78,7 +78,7 @@ function refuses(stderr) {
 
 function harness(home, overrides = {}) {
   const calls = [];
-  const spoolPath = path.join(recoveryFixture(), "spool.log");
+  const spoolPath = path.join(recoveryFixture(), "private", "spool.log");
   return {
     calls,
     spoolPath,
@@ -385,7 +385,7 @@ test("an unfamiliar host metadata key is recorded to the spool and does not bloc
   // opposite failures and a test for one passes under the other.
   const home = codexHome();
   liveThread(home);
-  const spoolFile = path.join(recoveryFixture(), "spool.log");
+  const spoolFile = path.join(recoveryFixture(), "private", "spool.log");
   const h = harness(home, { spoolPath: spoolFile });
 
   const result = await sendMessage({

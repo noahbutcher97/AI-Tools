@@ -9,15 +9,18 @@ try {
 
     function Assert-Access($acl, [bool]$private) {
         $sd = [Security.AccessControl.RawSecurityDescriptor]::new($acl.GetSecurityDescriptorBinaryForm(), 0)
-        if ($sd.Owner.Value -notin $trusted -or $null -eq $sd.DiscretionaryAcl) { throw 'access' }
+        $authorities = $trusted
+        if ($private) { $authorities = @($owner.Value) }
+        if ($sd.Owner.Value -notin $authorities -or $null -eq $sd.DiscretionaryAcl) { throw 'access' }
         # Reject effective rights that could replace or redirect a checked component.
         $unsafe = [int][Security.AccessControl.FileSystemRights]'WriteData,WriteAttributes,WriteExtendedAttributes,Delete,DeleteSubdirectoriesAndFiles,ChangePermissions,TakeOwnership'
         $unsafe = $unsafe -bor 0x50000000 # GENERIC_WRITE and GENERIC_ALL
-        if ($private) { $unsafe = $unsafe -bor 7 -bor [int]::MinValue } # read, write, append, GENERIC_READ
         foreach ($ace in $sd.DiscretionaryAcl) {
             if ($ace.AceType -notin @('AccessAllowed','AccessDenied')) { throw 'access' }
-            if ($ace.AceType -eq 'AccessDenied' -or $ace.SecurityIdentifier.Value -in $trusted -or
-                (([int]$ace.AceFlags -band [int][Security.AccessControl.AceFlags]::InheritOnly) -ne 0)) { continue }
+            if ($ace.AceType -eq 'AccessDenied' -or $ace.SecurityIdentifier.Value -in $authorities) { continue }
+            # Only the owner may receive grants on the recovery directory and file.
+            if ($private) { throw 'access' }
+            if (([int]$ace.AceFlags -band [int][Security.AccessControl.AceFlags]::InheritOnly) -ne 0) { continue }
             if ($ace.AccessMask -band $unsafe) { throw 'access' }
         }
     }

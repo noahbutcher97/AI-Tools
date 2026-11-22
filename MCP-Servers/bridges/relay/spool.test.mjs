@@ -68,8 +68,9 @@ for (const mode of ["readable directory", "readable file", "hard link", "redirec
   test("private recovery refuses a " + mode, async () => {
     const root = recoveryFixture();
     const dir = path.join(root, "private");
-    fs.mkdirSync(dir, { mode: 0o700 });
     const file = path.join(dir, "spool.log");
+    assert.equal((await fail(root, file)).spoolState, "saved");
+    if (mode === "readable directory" || mode === "redirected ancestor") fs.unlinkSync(file);
     if (mode === "readable directory") grantRead(dir, true);
     if (mode === "readable file") {
       fs.writeFileSync(file, "before", { mode: 0o600 });
@@ -77,8 +78,8 @@ for (const mode of ["readable directory", "readable file", "hard link", "redirec
     }
     if (mode === "hard link") {
       const source = path.join(root, "original");
-      fs.writeFileSync(source, "before", { mode: 0o600 });
-      fs.linkSync(source, file);
+      fs.writeFileSync(file, "before");
+      fs.linkSync(file, source);
     }
     let candidate = file;
     if (mode === "redirected ancestor") {
@@ -90,6 +91,28 @@ for (const mode of ["readable directory", "readable file", "hard link", "redirec
     assert.equal(result.spooled, null);
     if (["hard link", "readable file"].includes(mode)) assert.equal(fs.readFileSync(file, "utf8"), "before");
     else assert.equal(fs.existsSync(file), false);
+  });
+}
+
+for (const [object, name, sid, permission] of [
+  ["file", "SYSTEM", "S-1-5-18", "R"],
+  ["file", "Administrators", "S-1-5-32-544", "W"],
+  ["file", "TrustedInstaller", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", "R"],
+  ["directory", "SYSTEM", "S-1-5-18", "R"],
+]) {
+  test(`an existing recovery ${object} with an extra grant for ${name} refuses another append`, {
+    skip: process.platform !== "win32",
+  }, async () => {
+    const root = recoveryFixture();
+    const file = path.join(root, "private", "spool.log");
+    assert.equal((await fail(root, file)).spoolError, null);
+    const original = fs.readFileSync(file, "utf8");
+    const changed = object === "file" ? file : path.dirname(file);
+    execFileSync(path.join(process.env.SystemRoot, "System32", "icacls.exe"),
+      [changed, "/grant", `*${sid}:${permission}`]);
+    const result = await fail(root, file);
+    assert.equal(result.spooled, null);
+    assert.equal(fs.readFileSync(file, "utf8"), original);
   });
 }
 

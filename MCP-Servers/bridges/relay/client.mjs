@@ -887,12 +887,22 @@ async function appendPrivateSpool(file, block) {
   if (!before.isFile() || before.nlink !== 1n) throw Error();
   const { O_APPEND, O_RDWR, O_NOFOLLOW = 0, O_NONBLOCK = 0 } = fs.constants;
   const fd = fs.openSync(file, O_RDWR | O_APPEND | O_NOFOLLOW | O_NONBLOCK);
+  let writeStarted = false;
   try {
-    const stat = fs.fstatSync(fd, { bigint: true });
-    if (!stat.isFile() || stat.nlink !== 1n || stat.ino !== before.ino || stat.dev !== before.dev ||
-        (!windows && (stat.uid !== BigInt(process.getuid()) || (stat.mode & 0o777n) !== 0o600n))) throw Error();
-    fs.writeFileSync(fd, block);
-  } finally { fs.closeSync(fd); }
+    try {
+      const stat = fs.fstatSync(fd, { bigint: true });
+      if (!stat.isFile() || stat.nlink !== 1n || stat.ino !== before.ino || stat.dev !== before.dev ||
+          (!windows && (stat.uid !== BigInt(process.getuid()) || (stat.mode & 0o777n) !== 0o600n))) throw Error();
+      writeStarted = true;
+      fs.writeFileSync(fd, block);
+    } finally { fs.closeSync(fd); }
+  } catch (err) {
+    // A write or close may fail after bytes reach the file. Rolling back by
+    // length could also discard another sender's concurrent append.
+    if (writeStarted) return "uncertain";
+    throw err;
+  }
+  return "saved";
 }
 
 async function spool(spoolPath, entry) {
@@ -908,13 +918,15 @@ async function spool(spoolPath, entry) {
   ].join("\n");
 
   try {
-    await appendPrivateSpool(spoolPath, block);
     let location = "the configured spool file";
-    if (spoolPath === defaultSpoolPath()) location = "~/.cross-agent-relay/spool.log";
-    else if (spoolPath === process.env.RELAY_SPOOL) location = "the file named by RELAY_SPOOL";
-    return { spooled: location, spoolError: null };
+    if (spoolPath === process.env.RELAY_SPOOL) location = "the file named by RELAY_SPOOL";
+    else if (spoolPath === defaultSpoolPath()) location = "~/.cross-agent-relay/spool.log";
+    const spoolState = await appendPrivateSpool(spoolPath, block);
+    if (spoolState === "uncertain") return { spoolState, spooled: null,
+      spoolError: `Relay could not confirm the recovery write. A partial or complete copy may exist in ${location}.` };
+    return { spoolState, spooled: location, spoolError: null };
   } catch {
-    return { spooled: null, spoolError: "Private recovery storage is unavailable. Relay did not save a recoverable copy of this message." };
+    return { spoolState: "unavailable", spooled: null, spoolError: "Private recovery storage is unavailable. Relay did not save a recoverable copy of this message." };
   }
 }
 

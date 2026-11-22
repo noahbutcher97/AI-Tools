@@ -27,7 +27,9 @@ function profileNodeArgs(env) {
   // Leave the real installed settings untouched on either platform.
   if (!env.USERPROFILE) return [];
   const loader = new URL("../../../Installers/CrossAgentRelay/fixtures/local-inventory-loader.mjs", import.meta.url);
-  return ["--no-warnings", "--experimental-loader", loader.href];
+  const args = ["--no-warnings", "--experimental-loader", loader.href];
+  if (env.RELAY_TEST_SPOOL_FAULT) args.push("--require", fileURLToPath(new URL("./fixtures/spool-write-fault.cjs", import.meta.url)));
+  return args;
 }
 
 async function withClient(name, fn, env = {}) {
@@ -430,8 +432,12 @@ test("CLI and MCP report recovery only when a local send creates a private copy"
         assert.equal(result.spooled, undefined);
         assert.equal(result.spoolError, undefined);
       }
-      if (mode === "saved") assert.match(result.spooled, /RELAY_SPOOL/);
+      if (mode === "saved") {
+        assert.equal(result.spoolState, "saved");
+        assert.match(result.spooled, /RELAY_SPOOL/);
+      }
       if (mode === "unavailable") {
+        assert.equal(result.spoolState, "unavailable");
         assert.equal(result.spooled, null);
         assert.match(result.spoolError, /did not save a recoverable copy/);
       }
@@ -449,6 +455,42 @@ test("CLI and MCP report recovery only when a local send creates a private copy"
       assert.equal(fs.readFileSync(spool, "utf8").split(message).length - 1, 2);
     }
     assert.deepEqual(fs.readdirSync(temp), []);
+  }
+});
+
+test("CLI and MCP identify an uncertain recovery write without changing earlier entries", async () => {
+  const profile = recoveryFixture();
+  fs.mkdirSync(path.join(profile, ".claude", "sessions"), { recursive: true });
+  fs.mkdirSync(path.join(profile, ".codex", "thread-writer-locks"), { recursive: true });
+  const to = "01a09999-0000-7000-a000-000000000000";
+  const message = "synthetic interrupted record";
+  const spool = path.join(profile, "private", "log");
+  const env = { HOME: profile, USERPROFILE: profile, RELAY_SPOOL: spool, PATH: profile, RELAY_FIXTURE_ROOT: "" };
+  const cli = (text, json = true) => spawnSync(process.execPath,
+    [...profileNodeArgs(env), "cli.mjs", "send", to, ...(json ? ["--json"] : [])],
+    { cwd: bridgeDir, input: text, env: { ...process.env, ...env }, encoding: "utf8", timeout: 15000 });
+  const first = cli("earlier entry");
+  assert.equal(JSON.parse(first.stdout).spoolError, null);
+  const original = fs.readFileSync(spool, "utf8");
+  for (const fault of ["partial", "close"]) {
+    env.RELAY_TEST_SPOOL_FAULT = fault;
+    const command = cli(message);
+    assert.equal(command.status, 1, command.stderr);
+    const mcp = await withClient("relay-write-fault", c => c.callTool({ name: "relay_send", arguments: { to, message } }), env);
+    for (const result of [JSON.parse(command.stdout), JSON.parse(mcp.content[0].text)]) {
+      assert.equal(result.spoolState, "uncertain");
+      assert.equal(result.spooled, null);
+      assert.match(result.spoolError, /partial or complete copy may exist/i);
+      assert.match(result.spoolError, /RELAY_SPOOL/);
+      assert.doesNotMatch(JSON.stringify(result), /EFBIG|synthetic interrupted record|relay-private-test-/);
+    }
+    const human = cli(message, false);
+    assert.equal(human.status, 1);
+    assert.match(human.stderr, /partial or complete copy may exist/i);
+    const actual = fs.readFileSync(spool, "utf8");
+    assert.ok(actual.startsWith(original));
+    assert.equal(actual.split("synthetic interrupted").length - 1, fault === "partial" ? 3 : 6);
+    assert.equal(actual.split(message).length - 1, fault === "partial" ? 0 : 3);
   }
 });
 
