@@ -151,6 +151,18 @@ test("a missing independent witness refuses startup without blessing retained st
   assert.equal(f.rows()[0].state, "waiting");
 });
 
+test("restored schema names cannot alias the broker witness under SQLite identifier casing", async t => {
+  const f = await fixture(t);
+  await f.subscribe();
+  await f.stop();
+  const db = new DatabaseSync(f.file);
+  try { db.exec("CREATE TABLE Current_Seals (fixture INTEGER)"); }
+  finally { db.close(); }
+  await assert.rejects(f.restart, /invalid broker schema/);
+  assert.equal(f.sends, 0);
+  assert.equal(f.proofs, 0);
+});
+
 test("separately granted file changes coalesce and exhaust one fixed notice across writer resumes", async t => {
   const f = await fixture(t, true);
   const other = { ...f.g, condition: randomUUID(), file: "other" };

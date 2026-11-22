@@ -108,7 +108,7 @@ function attachWitness(db, file, key, version) {
     db.exec("PRAGMA main.user_version=5");
   } else if (!db.prepare("SELECT 1 FROM witness.binding WHERE id=?").get(binding)) throw new Error("invalid broker witness");
   if (db.prepare("SELECT 1 FROM witness.sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").get() ||
-      db.prepare("SELECT 1 FROM main.sqlite_schema WHERE name='current_seals'").get()) throw new Error("invalid broker schema");
+      db.prepare("SELECT 1 FROM main.sqlite_schema WHERE name='current_seals' COLLATE NOCASE").get()) throw new Error("invalid broker schema");
 }
 
 // Views authenticate before reads. Connection-local triggers update the
@@ -125,6 +125,11 @@ function protectState(db, key, schedules) {
     const fields = stateColumns[table].split(" ");
     const id = fields[0];
     const mac = prefix => "relay_state_mac('" + table + "'," + fields.map(c => prefix + "." + c).join(",") + ")";
+    // SQLite trigger writes use unqualified names. Check through the view
+    // with qualified reads so a schema change after open cannot commit a row
+    // whose actual independent witness was never updated.
+    const checkWrite = `SELECT RAISE(ABORT,'broker witness unavailable') WHERE NOT EXISTS
+      (SELECT 1 FROM temp.verified_${table} WHERE ${id}=NEW.${id});`;
     db.exec(`CREATE TEMP VIEW verified_${table} AS
       SELECT r.* FROM main.${table} AS r JOIN main.broker_seals AS s
       ON s.kind='${table}' AND s.id=r.${id} AND s.mac=${mac("r")}
@@ -135,10 +140,12 @@ function protectState(db, key, schedules) {
       BEGIN SELECT RAISE(ABORT,'unverified broker state'); END;
       CREATE TEMP TRIGGER issue_${table} AFTER INSERT ON main.${table}
       BEGIN INSERT INTO broker_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")});
-        INSERT INTO current_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")}); END;
+        INSERT INTO current_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")});
+        ${checkWrite} END;
       CREATE TEMP TRIGGER seal_${table} AFTER UPDATE ON main.${table}
       BEGIN UPDATE broker_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id};
-        UPDATE current_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id}; END`);
+        UPDATE current_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id};
+        ${checkWrite} END`);
   }
 }
 
