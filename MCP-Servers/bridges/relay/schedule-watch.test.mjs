@@ -41,9 +41,14 @@ async function fixture(t, fileWatch = false, credential = null) {
     f.sends++;
     return { state: "pending" };
   };
-  f.restart = async () => {
+  f.stop = async () => {
     await listener?.close();
     f.store?.close();
+    listener = undefined;
+    f.store = undefined;
+  };
+  f.restart = async () => {
+    await f.stop();
     f.store = await openCompletionJobs(file, { now: () => f.now, schedules: { root, policy: () => f.policy,
       sampleFile: fileWatch ? grant => f.sample(grant) : undefined,
       sampleBranch: fileWatch === "branch" ? (...args) => f.readRef(...args) : undefined },
@@ -51,7 +56,7 @@ async function fixture(t, fileWatch = false, credential = null) {
     f.store.watches.provision();
     listener = await listenForJobReports(f.store.acceptFrame, { port: 0 });
   };
-  t.after(async () => { await listener?.close(); f.store?.close(); fs.rmSync(root, { recursive: true, force: true }); });
+  t.after(async () => { await f.stop(); fs.rmSync(root, { recursive: true, force: true }); });
   f.subscribe = (id = g.condition) => subscribeWatch(target, id, { id: target, provider: "codex" }, { root, port: listener.port });
   f.observe = async () => { await f.store.watches.pollChanges(); return f.store.watches.dispatchDue(); };
   f.rows = () => f.store.watches.subscriptions(f.policy);
@@ -100,6 +105,50 @@ test("restoring an older watch cursor cannot replace the original pending proof"
   assert.equal(f.sends, 1);
   assert.equal(f.proofs, 0);
   assert.equal(f.rows()[0].reason, "stored_state_unverified");
+});
+
+test("a broker keeps a consumed one-shot grant spent after restoring its older signed data", async t => {
+  const f = await fixture(t, true);
+  await f.subscribe();
+  let reads = 0;
+  let observed = "absent";
+  f.sample = () => { reads++; return observed; };
+  await f.observe();
+  await f.stop();
+  const backup = path.join(f.root, "state-backup");
+  fs.copyFileSync(f.file, backup);
+  await f.restart();
+  f.now += 10000;
+  observed = "a".repeat(48) + ":" + "0".repeat(16) + ":" + "1".repeat(16);
+  await f.observe();
+  assert.equal(f.sends, 1);
+  f.proof = { state: "delivered", to: f.to };
+  f.now += 10000;
+  await f.observe();
+  assert.deepEqual(f.rows(), []);
+  assert.equal(f.proofs, 1);
+  await f.stop();
+  fs.copyFileSync(backup, f.file);
+  await f.restart();
+  assert.equal(f.rows()[0].reason, "stored_state_unverified");
+  f.now += 10000;
+  await f.observe();
+  assert.deepEqual({ reads, calls: f.sends, proofs: f.proofs }, { reads: 2, calls: 1, proofs: 1 });
+  assert.equal((await f.subscribe()).ok, false);
+});
+
+test("a missing independent witness refuses startup without blessing retained state", async t => {
+  const f = await fixture(t);
+  await f.subscribe();
+  await f.stop();
+  const witness = f.file + ".witness";
+  fs.renameSync(witness, witness + ".offline");
+  await assert.rejects(f.restart);
+  assert.equal(fs.existsSync(witness), false);
+  assert.equal(f.sends, 0);
+  fs.renameSync(witness + ".offline", witness);
+  await f.restart();
+  assert.equal(f.rows()[0].state, "waiting");
 });
 
 test("separately granted file changes coalesce and exhaust one fixed notice across writer resumes", async t => {

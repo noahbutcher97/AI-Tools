@@ -178,10 +178,12 @@ test("empty stdin launches two literal commands with two grants and refuses a th
 test("v2 stores preserve an unsigned outstanding grant for inspection and refuse its claim", async t => {
   const f = await fixture(t);
   const existing = f.store.issue(target, f.until);
-  const db = new DatabaseSync(f.db);
+  const legacy = path.join(f.base, "legacy.sqlite");
+  fs.copyFileSync(f.db, legacy);
+  const db = new DatabaseSync(legacy);
   try { db.exec("DROP TABLE broker_seals; DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only; PRAGMA user_version=2"); }
   finally { db.close(); }
-  const upgraded = await openCompletionJobs(f.db, { permits: loadJobPolicy(f.root) });
+  const upgraded = await openCompletionJobs(legacy, { permits: loadJobPolicy(f.root) });
   try {
     assert.throws(() => upgraded.acceptFrame(prepareJobRequest(existing, "claim", null).frame), /denied/);
     assert.equal(await upgraded.dispatch(existing.id), "unavailable");
@@ -201,6 +203,36 @@ test("an unverifiable handoff does not publish or allocate another set of jobs",
   assert.equal(f.store.subscriptions().partial, true);
   assert.equal(f.store.subscriptions().subscriptions.length, 2);
   assert.deepEqual(fs.readFileSync(f.file), contents);
+});
+
+test("an interrupted two-store grant transaction recovers without publishing or retaining a partial batch", async t => {
+  const f = await fixture(t);
+  const child = `
+    import { openCompletionJobs } from ${JSON.stringify(new URL("./completion-jobs.mjs", import.meta.url).href)};
+    const [file, session, binding] = process.argv.slice(1);
+    let checks = 0;
+    const store = await openCompletionJobs(file, { permits() {
+      // The first job and its witnesses have been inserted when the broker
+      // asks for authority to add the second job to the same transaction.
+      if (++checks === 3) process.exit(73);
+      return true;
+    } });
+    store.provision(session, binding, 2, Date.now() + 60000, () => process.exit(74));
+  `;
+  await assert.rejects(promisify(execFile)(process.execPath, ["--input-type=module", "-e", child, f.db, session, binding],
+    { windowsHide: true, timeout: 10000 }), { code: 73 });
+  assert.equal(fs.existsSync(f.file), false);
+  assert.deepEqual(f.store.subscriptions(), { partial: false, subscriptions: [] });
+  const witness = new DatabaseSync(f.db + ".witness");
+  try {
+    assert.equal(witness.prepare("SELECT count(*) AS n FROM current_seals").get().n, 0);
+    witness.exec("BEGIN IMMEDIATE");
+    await assert.rejects(f.issue());
+    assert.equal(fs.existsSync(f.file), false);
+    witness.exec("ROLLBACK");
+  } finally { witness.close(); }
+  assert.equal((await f.issue()).count, 2);
+  assert.equal(f.store.subscriptions().subscriptions.length, 2);
 });
 
 // The real CLI uses the installed broker port. Run explicitly on an otherwise

@@ -62,7 +62,8 @@ function slot(g, at) {
 export function scheduleWatches(db, transaction, { policy, now, root, send, status, sampleFile, sampleBranch }) {
   const lookup = db.prepare("SELECT * FROM verified_schedule_watches WHERE condition=?");
   const known = db.prepare(`SELECT 1 FROM schedule_watches WHERE condition=?
-    UNION ALL SELECT 1 FROM broker_seals WHERE kind='schedule_watches' AND id=? LIMIT 1`);
+    UNION ALL SELECT 1 FROM broker_seals WHERE kind='schedule_watches' AND id=?
+    UNION ALL SELECT 1 FROM witness.current_seals WHERE kind='schedule_watches' AND id=? LIMIT 1`);
   const sampleRow = db.prepare("SELECT baseline,next_poll FROM verified_file_samples WHERE condition=?");
   function current() {
     const grants = policy();
@@ -81,7 +82,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
     for (const g of current()) {
       const binding = (branchScope(g) ? branchBinding : fileScope(g) ? fileBinding : scheduleBinding)(g.target, g.condition);
       const row = transaction(() => {
-        if (known.get(g.condition, g.condition)) return authorized(g);
+        if (known.get(g.condition, g.condition, g.condition)) return authorized(g);
         const capability = randomBytes(32).toString("hex");
         const pending = JSON.stringify({ v: 1, session: g.target, instance: binding, validUntil: Date.parse(g.expiresAt),
           grants: [{ id: g.condition, capability }] });
@@ -116,7 +117,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
       const row = authorized(g);
       const binding = { id: g.condition, target: g.target, condition: branchScope(g) ? "branch" : fileScope(g) ? "file" : "schedule" };
       if (!row) {
-        if (!known.get(g.condition, g.condition)) return [];
+        if (!known.get(g.condition, g.condition, g.condition)) return [];
         const saved = lookup.get(g.condition);
         const reason = saved && saved.revision !== revision(g) ? "grant_changed" : "stored_state_unverified";
         return [{ ...binding, state: "paused", reason }];

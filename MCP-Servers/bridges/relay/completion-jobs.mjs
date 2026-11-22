@@ -84,6 +84,33 @@ function readStateKey(file, initializing) {
   } finally { fs.closeSync(fd); }
 }
 
+// Keep the latest witness outside the restorable job database. SQLite's
+// attached rollback journals commit both stores together. One witness per
+// row is updated in place, including when a sampler advances its poll time.
+function attachWitness(db, file, key, version) {
+  const witnessFile = file + ".witness";
+  if (version < 5 && !fs.existsSync(witnessFile)) fs.closeSync(fs.openSync(witnessFile, "wx", 0o600));
+  if (path.relative(witnessFile, fs.realpathSync.native(witnessFile)) !== "" ||
+      !fs.lstatSync(witnessFile).isFile() || fs.statSync(witnessFile).nlink !== 1) throw new Error("invalid broker witness");
+  const url = pathToFileURL(witnessFile);
+  url.searchParams.set("mode", "rw");
+  db.prepare("ATTACH DATABASE ? AS witness").run(url.href);
+  for (const schema of ["main","witness"]) {
+    if (db.prepare(`PRAGMA ${schema}.journal_mode`).get().journal_mode !== "delete" ||
+        db.prepare(`PRAGMA ${schema}.synchronous`).get().synchronous < 2) throw new Error("unsafe broker journals");
+  }
+  const binding = createHmac("sha256", key).update("relay-watch-witness-v1").digest("hex");
+  if (version < 5) {
+    if (db.prepare("SELECT 1 FROM witness.sqlite_schema LIMIT 1").get()) throw new Error("existing broker witness");
+    db.exec(`CREATE TABLE witness.binding (id TEXT PRIMARY KEY) WITHOUT ROWID;
+      CREATE TABLE witness.current_seals (kind TEXT, id TEXT, mac TEXT NOT NULL, PRIMARY KEY(kind,id)) WITHOUT ROWID`);
+    db.prepare("INSERT INTO witness.binding VALUES(?)").run(binding);
+    db.exec("PRAGMA main.user_version=5");
+  } else if (!db.prepare("SELECT 1 FROM witness.binding WHERE id=?").get(binding)) throw new Error("invalid broker witness");
+  if (db.prepare("SELECT 1 FROM witness.sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").get() ||
+      db.prepare("SELECT 1 FROM main.sqlite_schema WHERE name='current_seals'").get()) throw new Error("invalid broker schema");
+}
+
 // Views authenticate before reads. Connection-local triggers update the
 // witness in the same SQLite statement, including for legacy call sites.
 // Another connection cannot edit a persisted row and refresh its witness.
@@ -100,15 +127,18 @@ function protectState(db, key, schedules) {
     const mac = prefix => "relay_state_mac('" + table + "'," + fields.map(c => prefix + "." + c).join(",") + ")";
     db.exec(`CREATE TEMP VIEW verified_${table} AS
       SELECT r.* FROM main.${table} AS r JOIN main.broker_seals AS s
-      ON s.kind='${table}' AND s.id=r.${id} AND s.mac=${mac("r")};
+      ON s.kind='${table}' AND s.id=r.${id} AND s.mac=${mac("r")}
+      JOIN witness.current_seals AS w ON w.kind=s.kind AND w.id=s.id AND w.mac=s.mac;
       CREATE TEMP TRIGGER protect_${table} BEFORE UPDATE ON main.${table}
       WHEN OLD.${id} IS NOT NEW.${id} OR NOT EXISTS
-        (SELECT 1 FROM broker_seals WHERE kind='${table}' AND id=OLD.${id} AND mac=${mac("OLD")})
+        (SELECT 1 FROM verified_${table} WHERE ${id}=OLD.${id})
       BEGIN SELECT RAISE(ABORT,'unverified broker state'); END;
       CREATE TEMP TRIGGER issue_${table} AFTER INSERT ON main.${table}
-      BEGIN INSERT INTO broker_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")}); END;
+      BEGIN INSERT INTO broker_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")});
+        INSERT INTO current_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")}); END;
       CREATE TEMP TRIGGER seal_${table} AFTER UPDATE ON main.${table}
-      BEGIN UPDATE broker_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id}; END`);
+      BEGIN UPDATE broker_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id};
+        UPDATE current_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id}; END`);
   }
 }
 
@@ -131,13 +161,14 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         CREATE INDEX jobs_due ON jobs(state,next_check,id);
         CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
         PRAGMA user_version=2`);
-    } else if (![2,3,4].includes(version)) throw new Error("invalid job store");
+    } else if (![2,3,4,5].includes(version)) throw new Error("invalid job store");
     if (version < 3) db.exec(HANDOFF_TABLE + "; ALTER TABLE jobs ADD COLUMN run_only INTEGER NOT NULL DEFAULT 0; PRAGMA user_version=3");
     if (schedules) db.exec(scheduleTable);
     key = readStateKey(file, version < 4);
     if (version < 4) db.exec(`CREATE TABLE broker_seals (
       kind TEXT, id TEXT, mac TEXT NOT NULL, PRIMARY KEY(kind,id)
     ) WITHOUT ROWID; PRAGMA user_version=4`);
+    attachWitness(db, file, key, version);
     protectState(db, key, schedules);
     db.exec("COMMIT");
   } catch (error) { key?.fill(0); db.close(); throw error; }
@@ -264,7 +295,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
       (SELECT 1 FROM verified_jobs v WHERE v.id=j.id)
       UNION ALL SELECT 1 FROM grant_handoffs h WHERE NOT EXISTS
       (SELECT 1 FROM verified_grant_handoffs v WHERE v.instance=h.instance)
-      UNION ALL SELECT 1 FROM broker_seals s WHERE
+      UNION ALL SELECT 1 FROM witness.current_seals s WHERE
       (s.kind='jobs' AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id=s.id)) OR
       (s.kind='grant_handoffs' AND NOT EXISTS (SELECT 1 FROM grant_handoffs h WHERE h.instance=s.id))
       LIMIT 1`).get();
@@ -304,7 +335,8 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
           return existing;
         }
         const retained = db.prepare(`SELECT 1 FROM grant_handoffs WHERE instance=?
-          UNION ALL SELECT 1 FROM broker_seals WHERE kind='grant_handoffs' AND id=? LIMIT 1`).get(binding, binding);
+          UNION ALL SELECT 1 FROM broker_seals WHERE kind='grant_handoffs' AND id=?
+          UNION ALL SELECT 1 FROM witness.current_seals WHERE kind='grant_handoffs' AND id=? LIMIT 1`).get(binding, binding, binding);
         if (retained) return null;
         const grants = Array.from({ length: count }, () => issueBound(session, provider, binding, validUntil, true));
         const pending = JSON.stringify({ v: 1, session, instance: binding, validUntil, grants });
