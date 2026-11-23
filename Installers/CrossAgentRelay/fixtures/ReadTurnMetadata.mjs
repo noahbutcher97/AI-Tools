@@ -16,19 +16,30 @@ function readOnly(file, query) {
   } finally { db.close(); }
 }
 
+// The study admits two turns and two user items per turn. One lookahead
+// prevents a truncated input projection from supporting an origin decision.
+export function readTrialTurns(thread, profile) {
+  assert.ok(matches(UUID, thread));
+  return readOnly(path.join(profile, ".codex", "thread_history_1.sqlite"), db => {
+    db.exec("BEGIN"); // Rows and their input IDs must come from one SQLite snapshot.
+    const rows = db.prepare(`SELECT turn_id, rollout_ordinal, status, started_at, completed_at,
+      root_turn_id, first_user_item_id FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal LIMIT 3`).all(thread);
+    assert.ok(rows.length <= 2, "Unexpected additional turn in disposable thread");
+    const inputs = db.prepare(`SELECT item_id FROM thread_items
+      WHERE thread_id=? AND turn_id=? AND item_type='userMessage' ORDER BY rollout_ordinal LIMIT 3`);
+    return rows.map(row => {
+      const items = inputs.all(thread, row.turn_id);
+      return { ...row, inputs: items.slice(0, 2).map(item => item.item_id), inputsComplete: items.length <= 2 };
+    });
+  });
+}
+
 // The cold observer receives the disposable thread and condition, with no
 // ground-truth turn labels, queue confirmation, payload, or live connection.
 export function readTrialMetadata(thread, condition, file, profile = os.homedir()) {
   assert.ok(matches(UUID, thread) && matches(UUID, condition));
   const dir = path.join(profile, ".codex");
-  const turns = readOnly(path.join(dir, "thread_history_1.sqlite"), db => {
-    const rows = db.prepare(`SELECT turn_id, rollout_ordinal, status, started_at, completed_at,
-      root_turn_id, first_user_item_id FROM thread_turns WHERE thread_id=? ORDER BY rollout_ordinal LIMIT 3`).all(thread);
-    assert.ok(rows.length <= 2, "Unexpected additional turn in disposable thread");
-    const inputs = db.prepare(`SELECT item_id FROM thread_items
-      WHERE thread_id=? AND turn_id=? AND item_type='userMessage' ORDER BY rollout_ordinal LIMIT 2`);
-    return rows.map(row => ({ ...row, inputs: inputs.all(thread, row.turn_id).map(item => item.item_id) }));
-  });
+  const turns = readTrialTurns(thread, profile);
   const queued = readOnly(path.join(dir, "queue_1.sqlite"), db =>
     db.prepare("SELECT COUNT(*) AS n FROM queued_items WHERE thread_id=?").get(thread).n);
   const watch = readOnly(file, db => db.prepare(`SELECT state, cursor, handle IS NOT NULL AS hasHandle,
