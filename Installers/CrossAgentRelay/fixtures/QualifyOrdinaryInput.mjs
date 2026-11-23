@@ -6,6 +6,11 @@ import { readTrialTurns } from "./ReadTurnMetadata.mjs";
 // The controller owns one new thread and supplies one ordinary input. Retain
 // correlation fields only. The provider's echo does not certify every cause.
 export async function qualifyOrdinaryInput(thread, call, listen, readTurns = readTrialTurns) {
+  function snapshot(beforeSubmission = false) {
+    try { return readTurns(thread, os.homedir()); }
+    catch { throw Error(beforeSubmission ? "Turn metadata unavailable before submission." : "Turn metadata unavailable after submission."); }
+  }
+  if (snapshot(true).length) throw Error("Expected an empty disposable thread before submission.");
   const clientId = randomUUID();
   let input, conflict = false, completedTurn;
   let writerState = "unknown", sawBusy = false, sawFollowingIdle = false, interrupted = false;
@@ -32,7 +37,7 @@ export async function qualifyOrdinaryInput(thread, call, listen, readTurns = rea
     let indexedBusy = false, exactFinalInput = false, indexedComplete = false;
     const deadline = Date.now() + 90000;
     while (Date.now() < deadline) {
-      const rows = readTurns(thread, os.homedir());
+      const rows = snapshot();
       if (rows.length > 1 || (rows.length === 1 && rows[0].turn_id !== turn)) {
         conflict = true;
         break;

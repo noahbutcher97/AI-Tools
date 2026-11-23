@@ -6,11 +6,12 @@ for (const scenario of ["matched", "different echo", "contradictory echo", "seco
   "unobserved busy", "status gap"]) {
   test("ordinary input correlation: " + scenario, async () => {
     const thread = "fixture-thread", turn = "fixture-turn", item = "fixture-item";
-    let notify, terminal = false;
+    let notify, terminal = false, submitted = false;
     const status = type => notify("thread/status/changed", { threadId: thread, status: { type } });
     function start(method, request) {
       assert.equal(method, "turn/start");
       assert.equal(request.threadId, thread);
+      submitted = true;
       if (scenario !== "unobserved busy") status("active");
       if (scenario === "contradictory echo") {
         notify("item/started", { threadId: thread, turnId: turn, item: { type: "userMessage", id: item, clientId: "other" } });
@@ -22,6 +23,7 @@ for (const scenario of ["matched", "different echo", "contradictory echo", "seco
     }
     function readTurns(id) {
       assert.equal(id, thread);
+      if (!submitted) return [];
       if (!terminal) {
         queueMicrotask(() => {
           terminal = true;
@@ -38,5 +40,21 @@ for (const scenario of ["matched", "different echo", "contradictory echo", "seco
     assert.equal(result.confirmed, scenario === "matched");
     assert.equal(notify, undefined);
     assert.ok(Object.values(result).every(value => typeof value === "boolean"));
+  });
+}
+
+for (const phase of ["before", "after"]) {
+  test("unavailable metadata " + phase + " submission has a bounded diagnostic", async () => {
+    let calls = 0, listener;
+    function readTurns() {
+      if (phase === "after" && !calls) return [];
+      throw Error("fixture-private-storage-detail");
+    }
+    await assert.rejects(qualifyOrdinaryInput("fixture", () => {
+      calls++;
+      return { turn: { id: "turn" } };
+    }, value => { listener = value; }, readTurns), { message: "Turn metadata unavailable " + phase + " submission." });
+    assert.equal(calls, phase === "after" ? 1 : 0);
+    assert.equal(listener, undefined);
   });
 }
