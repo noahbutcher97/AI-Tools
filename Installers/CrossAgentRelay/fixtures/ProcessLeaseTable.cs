@@ -42,6 +42,7 @@ public sealed class ProcessLeaseTable : IDisposable
     public int Opened { get { lock (sync) return opened; } }
     public int Attempts { get { lock (sync) return attempts; } }
     public int Closed { get { lock (sync) return closed; } }
+    internal int LiveClosedByDispose { get; private set; }
     public int ActiveSlots { get { lock (sync) return leases.Count; } }
 
     public static bool ValidCreation(string text)
@@ -166,7 +167,12 @@ public sealed class ProcessLeaseTable : IDisposable
             if (disposed) return;
             disposed = true;
             timer.Dispose();
-            foreach (Guid id in new List<Guid>(leases.Keys)) Close(id);
+            foreach (Guid id in new List<Guid>(leases.Keys)) {
+                Lease lease = leases[id];
+                bool live = lease.Admitted && lease.Handle != null && clock.ElapsedMilliseconds < lease.Deadline;
+                Close(id);
+                if (live) LiveClosedByDispose++;
+            }
         }
     }
 }
