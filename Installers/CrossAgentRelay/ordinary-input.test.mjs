@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { qualifyOrdinaryInput } from "./fixtures/QualifyOrdinaryInput.mjs";
 
-for (const scenario of ["matched", "different echo", "contradictory echo", "second input", "incomplete index", "unobserved busy"]) {
+for (const scenario of ["matched", "different echo", "contradictory echo", "second input", "incomplete index",
+  "unobserved busy", "status gap"]) {
   test("ordinary input correlation: " + scenario, async () => {
     const thread = "fixture-thread", turn = "fixture-turn", item = "fixture-item";
     let notify, terminal = false;
@@ -24,6 +25,7 @@ for (const scenario of ["matched", "different echo", "contradictory echo", "seco
       if (!terminal) {
         queueMicrotask(() => {
           terminal = true;
+          if (scenario === "status gap") status("notLoaded");
           notify("turn/completed", { threadId: thread, turn: { id: turn, status: "completed" } });
           status("idle");
         });

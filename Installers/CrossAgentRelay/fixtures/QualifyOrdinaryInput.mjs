@@ -8,13 +8,14 @@ import { readTrialTurns } from "./ReadTurnMetadata.mjs";
 export async function qualifyOrdinaryInput(thread, call, listen, readTurns = readTrialTurns) {
   const clientId = randomUUID();
   let input, conflict = false, completedTurn;
-  let writerState = "unknown", sawBusy = false, sawFollowingIdle = false;
+  let writerState = "unknown", sawBusy = false, sawFollowingIdle = false, interrupted = false;
   listen((method, params) => {
     if (params?.threadId !== thread) return;
     if (method === "thread/status/changed") {
       writerState = params.status?.type;
       if (writerState === "active") sawBusy = true;
       else if (writerState === "idle" && sawBusy) sawFollowingIdle = true;
+      else if (sawBusy) interrupted = true;
     }
     if (method === "turn/completed" && params.turn?.status === "completed") completedTurn = params.turn.id;
     if ((method === "item/started" || method === "item/completed") && params.item?.type === "userMessage") {
@@ -47,6 +48,7 @@ export async function qualifyOrdinaryInput(thread, call, listen, readTurns = rea
       await delay(100);
     }
     return { clientIdEchoed: input?.echoed === true, indexedBusy, sawFollowingIdle,
-      indexedComplete, exactFinalInput, conflict, confirmed: exactFinalInput && indexedBusy && sawFollowingIdle && !conflict };
+      indexedComplete, exactFinalInput, conflict, interrupted,
+      confirmed: exactFinalInput && indexedBusy && sawFollowingIdle && !interrupted && !conflict };
   } finally { listen(undefined); }
 }
