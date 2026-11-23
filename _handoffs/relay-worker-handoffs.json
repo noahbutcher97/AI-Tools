@@ -1,5 +1,14 @@
 [
   {
+    "id": "i15-public-interface-baseline",
+    "revision": "bb20d9b7981215c0fe2e4b59fe81b84bd4c0d52f",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "assigned",
+    "scope": "Measure the public adapter contract through the CLI, MCP, receiver and watcher with an independently registered synthetic provider.",
+    "acceptance": "Exercise a permitted notice with proof, send-only watch refusals, unsupported resume and an older peer. Identify remaining support gaps before adding any new authority."
+  },
+  {
     "id": "i7-package-operator-check",
     "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
     "coordinator": "relay coordinator",
