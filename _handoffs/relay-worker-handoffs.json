@@ -1,5 +1,23 @@
 [
   {
+    "id": "i11-local-broker-attachment",
+    "revision": "d646db5437023c2759e48d2427be02820d454c6e",
+    "coordinator": "relay coordinator",
+    "worker": "worker attachment implementer",
+    "state": "assigned",
+    "scope": "Exercise grant-bound attachment, reconnect and revocation on one desktop.",
+    "acceptance": "Keep two grants distinct across reconnect, prove the original process identity and verify that revocation releases only its handle."
+  },
+  {
+    "id": "i13-local-transition-candidates",
+    "revision": "d646db5437023c2759e48d2427be02820d454c6e",
+    "coordinator": "relay coordinator",
+    "worker": "session transition implementer",
+    "state": "assigned",
+    "scope": "Exercise positive ordinary completion and busy-to-idle evidence without delivering a notice.",
+    "acceptance": "Count eligible events once and suppress initial, stale, ambiguous, notice-bearing and mixed observations. Distinguish fixture and provider evidence."
+  },
+  {
     "id": "i15-final-proof-regression",
     "revision": "b4b37447c8679f89cd9b0b4fa36688ef4accc43d",
     "coordinator": "relay coordinator",
