@@ -40,10 +40,10 @@ Give receiver and caller work different file owners once the wire examples agree
 
 #### Remaining I/C assignments
 
-**Single-desktop work for November 23.** Run I11 and I13 locally in parallel. Leave the peer checkout sync, peer installation checks and I16 cross-host delivery pending until the peer is available.
+**Single-desktop work for November 23.** The local runs produced [attachment and turn evidence](#single-desktop-attachment-and-turn-evidence). Peer checkout sync, peer installation checks and I16 cross-host delivery are pending.
 
-- **I11 · Worker attachment.** Start with `Test-ProcessLeaseControls.ps1` and `Test-SharedProcessWorker.ps1` under the disposable profile runner on the ordinary interactive Windows desktop. Both passed locally. The shared worker closed both handles and both children exited in each of the revocation, shutdown and failure scenarios. Next exercise an authenticated attachment to a disposable local broker, reconnect to the same process, and verify that revoking one grant releases its handle while the other grant remains usable. Keep installed-package qualification as a separate result.
-- **I13 · Session transitions.** Start with `turn-metadata.test.mjs` under the same runner. All three tests passed locally. Next exercise an ordinary completion and a busy-to-idle transition using local metadata fixtures, with initial, ambiguous and mixed-cause observations as controls. Count candidate transitions with a recording adapter. If a live provider session is needed to confirm the evidence, use one low-cost local session and record its result separately.
+- **I11 · Worker attachment.** The local broker fixture proved reconnect and per-grant release with two child processes. Next qualify the installed broker and worker identities, grant revisions and durable reconnect accounting.
+- **I13 · Session transitions.** Candidate fixtures and one local provider turn establish the cases below. Next determine whether a passive observer can account for every input to a completed turn, including concurrent inputs.
 
 **I15** exercises the shared contract with an independently registered client. I11 attachment and I13 transition evidence can proceed in parallel. Reserve installed trials separately. F3 owns the later live name-pause check. In the A/B backlog, **A3** supplies the policy cases for **B3** and **A5**. A3's receiver changes share a boundary with I5/I6, so agree on the wire examples before integrating those edits. **A2** fleet deadline tests can proceed independently and unblock **B2** readiness checks.
 
@@ -129,6 +129,22 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | D4 | Open | D3, H3 | Roll out per peer pair with signed and explicitly unsigned peers. Exercise reconnect after revocation and downgrade refusal. Inspect the delivered header and cold receipt for distinct machine and session evidence, then verify the installed pair in both directions. |
 
 ## Current handoff
+
+### Single-desktop attachment and turn evidence
+
+For I11, run the following from the checkout root in an ordinary interactive Windows session. The fixture starts its own broker, worker and two child processes. A successful run reports reconnection to the same worker, closure of both leases on disconnect, and release of only the revoked lease after reattachment. The independent broker observes both children to exit. No provider session is needed.
+
+```powershell
+node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- powershell.exe -NoProfile -NonInteractive -File Installers/CrossAgentRelay/Test-AuthenticatedProcessAttachment.ps1
+```
+
+The broker and worker use local named pipes, the same desktop account, two authenticated connections and in-memory grants. An earlier fixture measured process-wide handle counts. An extra observer reproduced a false failure. The revised fixture checks each worker lease directly, while the broker independently verifies process identity and exit. Deliberately omitting lease disposal failed the intended check. I11 remains partial. Its next installed check needs the enrolled broker and worker identities, persistent grant revisions and durable event accounting across reconnect.
+
+For I13, the disposable candidate tests exercise completion and busy-to-idle against a recording adapter. The positive fixture supplies a final account of every input from an independent source. Ambiguous, mixed, interrupted and revoked observations must emit zero candidates. A restarted observer takes a fresh baseline.
+
+The optional `--ordinary-input` check examines what the installed Codex client exposes for one ordinary input. It uses the signed-in local profile, one new read-only thread and one low-effort model turn. Run `node Installers/CrossAgentRelay/Qualify-CodexCompletion.mjs <installed-codex-executable> --ordinary-input` on the local desktop. Require a zero exit, a confirmed correlation and the archive confirmation. If the metadata reader is unavailable before submission, restore local reader access before attempting the check. If a submission occurred, count that turn and verify the archive confirmation before repeating.
+
+With Codex CLI 0.171.0, the provider echoed the controller's input identifier, the scoped index recorded the same item, and the observer saw busy, completion and idle. The trial archived its thread. Status-gap and missing-index checks were subsequently tightened and tested using fixtures. The candidate tests also serialize the cursor at each write. They reproduce a late idle observation after an ambiguous completion and require zero candidates. I13 remains partial. The live result correlates the controller's input. A passive watcher still needs evidence for every concurrent input before it can send automatic notices.
 
 ### Provider compatibility through the public interfaces
 
@@ -361,6 +377,8 @@ The [handoff register](relay-worker-handoffs.json) records assignments, returns 
 ### Commit, push and merge
 
 Use a short-lived branch for each independently reviewable relay checkpoint. If the shared checkout contains other work, use a separate worktree and stage only the intended files. The coordinator owns integration and may complete routine pushes and merges under the owner's standing approval.
+
+Group temporary relay worktrees under one local worktree directory. At closeout, verify the branch tip is on main and inspect local changes and ignored files. Remove the checkout with `git worktree remove` once its users have finished and any remaining files are known disposable artifacts. Preserve a checkout that contains unmerged work or unaccounted-for files.
 
 | Decision | When to act | Evidence to keep |
 | --- | --- | --- |

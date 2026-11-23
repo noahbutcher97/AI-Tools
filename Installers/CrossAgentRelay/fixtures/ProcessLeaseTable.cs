@@ -23,20 +23,26 @@ public sealed class ProcessLeaseTable : IDisposable
     private readonly Dictionary<Guid, Lease> reserved = new Dictionary<Guid, Lease>();
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly Func<Guid, int, string, bool> allowed;
+    private readonly Action<SafeProcessHandle> observeOpen;
     private readonly Timer timer;
     private bool disposed;
     private int attempts, opened, closed;
 
     public ProcessLeaseTable(Func<Guid, int, string, bool> allowed)
+        : this(allowed, null) {}
+
+    internal ProcessLeaseTable(Func<Guid, int, string, bool> allowed, Action<SafeProcessHandle> observeOpen)
     {
         if (allowed == null) throw new ArgumentNullException("allowed");
         this.allowed = allowed;
+        this.observeOpen = observeOpen;
         timer = new Timer(Expire, null, 25, 25);
     }
 
     public int Opened { get { lock (sync) return opened; } }
     public int Attempts { get { lock (sync) return attempts; } }
     public int Closed { get { lock (sync) return closed; } }
+    internal int LiveClosedByDispose { get; private set; }
     public int ActiveSlots { get { lock (sync) return leases.Count; } }
 
     public static bool ValidCreation(string text)
@@ -73,6 +79,7 @@ public sealed class ProcessLeaseTable : IDisposable
                 attempts++;
                 lease.Handle = ProcessEndObservationFixture.Open(child);
                 opened++;
+                if (observeOpen != null) observeOpen(lease.Handle);
                 lease.Creation = ProcessEndObservationFixture.CreationFileTime(lease.Handle);
                 if (unchecked((ulong)lease.Creation).ToString(CultureInfo.InvariantCulture) != creation) return "unknown";
             }
@@ -160,7 +167,12 @@ public sealed class ProcessLeaseTable : IDisposable
             if (disposed) return;
             disposed = true;
             timer.Dispose();
-            foreach (Guid id in new List<Guid>(leases.Keys)) Close(id);
+            foreach (Guid id in new List<Guid>(leases.Keys)) {
+                Lease lease = leases[id];
+                bool live = lease.Admitted && lease.Handle != null && clock.ElapsedMilliseconds < lease.Deadline;
+                Close(id);
+                if (live) LiveClosedByDispose++;
+            }
         }
     }
 }
