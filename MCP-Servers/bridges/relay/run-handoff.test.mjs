@@ -175,18 +175,132 @@ test("empty stdin launches two literal commands with two grants and refuses a th
   } finally { await listener.close(); }
 });
 
-test("v2 stores keep outstanding grants through the handoff migration", async t => {
+test("v2 stores preserve an unsigned outstanding grant for inspection and refuse its claim", async t => {
   const f = await fixture(t);
   const existing = f.store.issue(target, f.until);
-  const db = new DatabaseSync(f.db);
-  try { db.exec("DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only; PRAGMA user_version=2"); }
+  const legacy = path.join(f.base, "legacy.sqlite");
+  fs.copyFileSync(f.db, legacy);
+  const db = new DatabaseSync(legacy);
+  try { db.exec("DROP TABLE broker_seals; DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only; PRAGMA user_version=2"); }
   finally { db.close(); }
-  const upgraded = await openCompletionJobs(f.db, { permits: loadJobPolicy(f.root) });
+  const upgraded = await openCompletionJobs(legacy, { permits: loadJobPolicy(f.root) });
   try {
-    upgraded.acceptFrame(prepareJobRequest(existing, "claim", null).frame);
-    assert.equal(await upgraded.dispatch(existing.id), "claimed");
-    await f.issue();
+    assert.throws(() => upgraded.acceptFrame(prepareJobRequest(existing, "claim", null).frame), /denied/);
+    assert.equal(await upgraded.dispatch(existing.id), "unavailable");
+    assert.deepEqual(upgraded.subscriptions(), { partial: true, subscriptions: [] });
+    const fresh = upgraded.issue(target, f.until);
+    upgraded.acceptFrame(prepareJobRequest(fresh, "claim", null).frame);
+    assert.equal(await upgraded.dispatch(fresh.id), "claimed");
   } finally { upgraded.close(); }
+});
+
+test("published run grants include consumed jobs and a missing member cannot be reissued", async t => {
+  const f = await fixture(t);
+  await f.issue();
+  const bytes = fs.readFileSync(f.file);
+  const [claimed, remaining] = JSON.parse(bytes).grants;
+  f.store.acceptFrame(prepareJobRequest(claimed, "claim_run", { session }).frame);
+  assert.deepEqual(await f.issue(), { count: 2, validUntil: f.until });
+  const db = new DatabaseSync(f.db);
+  try {
+    db.prepare("DELETE FROM jobs WHERE id=?").run(remaining.id);
+    assert.deepEqual(await f.issue(), { state: "paused", reason: "stored_state_unverified" });
+    assert.deepEqual(db.prepare("SELECT id FROM jobs").all().map(r => r.id), [claimed.id]);
+    assert.deepEqual(fs.readFileSync(f.file), bytes);
+  } finally { db.close(); }
+});
+
+test("a retained handoff cannot publish a job whose state has lost its witness", async t => {
+  const f = await fixture(t);
+  assert.throws(() => f.store.provision(session, binding, 2, f.until, () => { throw Error("interrupted"); }));
+  const jobs = f.store.subscriptions().subscriptions;
+  const db = new DatabaseSync(f.db);
+  try {
+    db.prepare("DELETE FROM broker_seals WHERE kind='jobs' AND id=?").run(jobs[0].id);
+    assert.deepEqual(await f.issue(), { state: "paused", reason: "stored_state_unverified" });
+    assert.equal(fs.existsSync(f.file), false);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM jobs").get().n, 2);
+  } finally { db.close(); }
+});
+
+test("only an initial job store recovers interrupted key publication", async t => {
+  const f = await fixture(t);
+  for (const phase of ["empty", "partial", "staged", "linked"]) {
+    const file = path.join(f.base, phase + ".sqlite");
+    await initializeCompletionJobs(file);
+    const key = file + ".key", staging = key + ".pending";
+    if (phase === "empty") fs.writeFileSync(key, Buffer.alloc(0));
+    if (phase === "partial") fs.writeFileSync(staging, Buffer.alloc(4));
+    if (phase === "staged" || phase === "linked") fs.writeFileSync(staging, Buffer.alloc(32, 7));
+    if (phase === "linked") fs.linkSync(staging, key);
+    const initialized = await openCompletionJobs(file);
+    initialized.close();
+    assert.equal(fs.existsSync(staging), false);
+    const bytes = fs.readFileSync(key);
+    assert.equal(bytes.length, 32);
+    if (phase === "linked") assert.deepEqual(bytes, Buffer.alloc(32, 7));
+    const reopened = await openCompletionJobs(file);
+    reopened.close();
+    assert.deepEqual(fs.readFileSync(key), bytes);
+    fs.writeFileSync(key, Buffer.alloc(4));
+    await assert.rejects(openCompletionJobs(file), /invalid broker state key/);
+    assert.equal(fs.statSync(key).size, 4);
+  }
+});
+
+test("an unrelated hard link cannot become the staging area for a broker key", async t => {
+  const f = await fixture(t);
+  const file = path.join(f.base, "uninitialized.sqlite");
+  await initializeCompletionJobs(file);
+  const separate = path.join(f.base, "marker");
+  fs.writeFileSync(separate, "fixture");
+  fs.linkSync(separate, file + ".key.pending");
+  await assert.rejects(openCompletionJobs(file), /invalid broker state key/);
+  assert.equal(fs.readFileSync(separate, "utf8"), "fixture");
+  assert.equal(fs.existsSync(file + ".key"), false);
+});
+
+test("an unverifiable handoff does not publish or allocate another set of jobs", async t => {
+  const f = await fixture(t);
+  await f.issue();
+  const contents = fs.readFileSync(f.file);
+  const db = new DatabaseSync(f.db);
+  try { db.prepare("UPDATE broker_seals SET mac='' WHERE kind='grant_handoffs' AND id=?").run(binding); }
+  finally { db.close(); }
+  assert.deepEqual(await f.issue(), { state: "paused", reason: "stored_state_unverified" });
+  assert.equal(f.store.subscriptions().partial, true);
+  assert.equal(f.store.subscriptions().subscriptions.length, 2);
+  assert.deepEqual(fs.readFileSync(f.file), contents);
+});
+
+test("an interrupted two-store grant transaction recovers without publishing or retaining a partial batch", async t => {
+  const f = await fixture(t);
+  const child = `
+    import { openCompletionJobs } from ${JSON.stringify(new URL("./completion-jobs.mjs", import.meta.url).href)};
+    const [file, session, binding] = process.argv.slice(1);
+    let checks = 0;
+    const store = await openCompletionJobs(file, { permits() {
+      // The first job and its witnesses have been inserted when the broker
+      // asks for authority to add the second job to the same transaction.
+      if (++checks === 3) process.exit(73);
+      return true;
+    } });
+    store.provision(session, binding, 2, Date.now() + 60000, () => process.exit(74));
+  `;
+  await assert.rejects(promisify(execFile)(process.execPath, ["--input-type=module", "-e", child, f.db, session, binding],
+    { windowsHide: true, timeout: 10000 }), { code: 73 });
+  assert.equal(fs.existsSync(f.file), false);
+  assert.deepEqual(f.store.subscriptions(), { partial: false, subscriptions: [] });
+  const witness = new DatabaseSync(f.db + ".witness");
+  try {
+    assert.equal(witness.prepare("SELECT count(*) AS n FROM current_seals").get().n, 0);
+    witness.exec("BEGIN IMMEDIATE");
+    await assert.rejects(f.issue());
+    assert.equal(fs.existsSync(f.file), false);
+    witness.exec("ROLLBACK");
+  } finally { witness.close(); }
+  assert.equal((await f.issue()).count, 2);
+  assert.equal(f.store.subscriptions().subscriptions.length, 2);
 });
 
 // The real CLI uses the installed broker port. Run explicitly on an otherwise

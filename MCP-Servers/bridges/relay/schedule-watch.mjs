@@ -60,7 +60,11 @@ function slot(g, at) {
 // All destinations, times and disclosure scopes come from the separate policy
 // authority. The database holds cursors and references to that authority.
 export function scheduleWatches(db, transaction, { policy, now, root, send, status, sampleFile, sampleBranch }) {
-  const lookup = db.prepare("SELECT * FROM schedule_watches WHERE condition=?");
+  const lookup = db.prepare("SELECT * FROM verified_schedule_watches WHERE condition=?");
+  const known = db.prepare(`SELECT 1 FROM schedule_watches WHERE condition=?
+    UNION ALL SELECT 1 FROM broker_seals WHERE kind='schedule_watches' AND id=?
+    UNION ALL SELECT 1 FROM witness.current_seals WHERE kind='schedule_watches' AND id=? LIMIT 1`);
+  const sampleRow = db.prepare("SELECT baseline,next_poll FROM verified_file_samples WHERE condition=?");
   function current() {
     const grants = policy();
     if (!Array.isArray(grants) || grants.length > 32 || !grants.every(g => validSchedule(g) || validFileWatch(g) || validBranchWatch(g, true)) ||
@@ -68,16 +72,22 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
     return grants.filter(g => Date.parse(g.expiresAt) > now());
   }
   const revision = g => digest(JSON.stringify((branchScope(g) ? branchFields : fileScope(g) ? fileFields : fields).map(key => g[key])));
-  function authorized(g) {
+  function boundWatch(g) {
     const row = lookup.get(g.condition);
-    return row?.revision === revision(g) ? row : undefined;
+    if (row?.revision === revision(g)) return row;
+  }
+  function hasRequiredSample(g, row) {
+    return !isChange(g) || row.state === "issued" || Boolean(sampleRow.get(g.condition));
+  }
+  function authorized(g) {
+    const row = boundWatch(g);
+    if (row && hasRequiredSample(g, row)) return row;
   }
   function provision() {
     for (const g of current()) {
       const binding = (branchScope(g) ? branchBinding : fileScope(g) ? fileBinding : scheduleBinding)(g.target, g.condition);
       const row = transaction(() => {
-        const existing = lookup.get(g.condition);
-        if (existing) return authorized(g);
+        if (known.get(g.condition, g.condition, g.condition)) return authorized(g);
         const capability = randomBytes(32).toString("hex");
         const pending = JSON.stringify({ v: 1, session: g.target, instance: binding, validUntil: Date.parse(g.expiresAt),
           grants: [{ id: g.condition, capability }] });
@@ -85,7 +95,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
           .run(g.condition, revision(g), Buffer.from(digest(capability), "hex"), pending, digest(pending));
         return lookup.get(g.condition);
       });
-      if (!row) throw new Error("changed schedule requires a new condition ID");
+      if (!row) continue; // This grant's retained state is paused independently.
       if (!current().some(fresh => revision(fresh) === row.revision)) throw new Error("schedule authority changed");
       publishRunHandoff(root, binding, row.handoff_hash, row.pending);
       if (row.pending !== null) db.prepare("UPDATE schedule_watches SET pending=NULL WHERE condition=?").run(g.condition);
@@ -110,18 +120,24 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
   function subscriptions(grants) {
     return grants.filter(g => Date.parse(g.expiresAt) > now()).flatMap(g => {
       const row = authorized(g);
-      if (!row || ["issued","delivered"].includes(row.state)) return [];
-      return [{ id: g.condition, target: g.target, condition: branchScope(g) ? "branch" : fileScope(g) ? "file" : "schedule",
-        state: row.state === "dispatching" ? "unknown" : row.state }];
+      const binding = { id: g.condition, target: g.target, condition: branchScope(g) ? "branch" : fileScope(g) ? "file" : "schedule" };
+      if (!row) {
+        if (!known.get(g.condition, g.condition, g.condition)) return [];
+        const saved = lookup.get(g.condition);
+        const reason = saved && saved.revision !== revision(g) ? "grant_changed" : "stored_state_unverified";
+        return [{ ...binding, state: "paused", reason }];
+      }
+      if (["issued","delivered"].includes(row.state)) return [];
+      return [{ ...binding, state: row.state === "dispatching" ? "unknown" : row.state }];
     });
   }
   function reserve() {
     const stamp = now();
-    const candidates = current().map(g => ({ g, row: authorized(g) })).filter(({ row }) => row && row.state !== "issued");
-    // Only one unresolved notice per destination. A later activation or new
-    // tick cannot trigger another wake while the first outcome is unknown.
+    const candidates = current().map(g => ({ g, row: boundWatch(g) })).filter(({ row }) => row && row.state !== "issued");
+    // A verified reservation still occupies its destination when an unreadable
+    // sample pauses observation and proof for that watch.
     const outstanding = new Set(candidates.filter(x => ["dispatching", "observing"].includes(x.row.state)).map(x => x.g.target));
-    const due = candidates.filter(({ g, row }) => row.retry_at <= stamp && (row.state === "observing" ||
+    const due = candidates.filter(({ g, row }) => row.retry_at <= stamp && hasRequiredSample(g, row) && (row.state === "observing" ||
       (!outstanding.has(g.target) && (isChange(g) ? row.state === "ready" :
         row.state === "waiting" && slot(g, stamp) > row.cursor))));
     if (!due.length) return null;
@@ -176,13 +192,19 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
         });
       },
     });
-    if (result.state === "dispatch_failed") db.prepare("UPDATE schedule_watches SET state=?,batch=NULL WHERE batch=? AND state='dispatching'")
-      .run(change ? "ready" : "waiting", batch);
+    if (result.state === "dispatch_failed") transaction(() => {
+      // The adapter confirmed non-submission. Release only our authenticated
+      // reservations without handles, even while shutting down or after
+      // revocation. A later attempt goes through current authority again.
+      const release = db.prepare(`UPDATE schedule_watches SET state=?,batch=NULL WHERE condition IN (
+        SELECT condition FROM verified_schedule_watches WHERE condition=? AND revision=? AND batch=?
+        AND state='dispatching' AND handle IS NULL)`);
+      for (const { g, row } of members) release.run(row.state, g.condition, row.revision, batch);
+    });
     return true;
   }
   async function pollChanges(signal) {
     if ((!sampleFile && !sampleBranch) || signal?.aborted) return;
-    const read = db.prepare("SELECT baseline,next_poll FROM file_samples WHERE condition=?");
     for (const g of current().filter(isChange)) {
       const branch = branchScope(g);
       const observe = branch ? sampleBranch : sampleFile;
@@ -193,7 +215,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
           authorized(g)?.state === "waiting";
       }
       if (!canObserve()) continue;
-      const row = read.get(g.condition);
+      const row = sampleRow.get(g.condition);
       if (!row || row.next_poll > now()) continue;
       const deadline = now() + (branch ? 60000 : 10000);
       if (!db.prepare("UPDATE file_samples SET next_poll=? WHERE condition=? AND next_poll=?")
@@ -204,7 +226,7 @@ export function scheduleWatches(db, transaction, { policy, now, root, send, stat
       if (branch ? !matches(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/, sample) :
         sample !== "absent" && !matches(/^[a-f0-9]{48}:[a-f0-9]{16}:[a-f0-9]{16}$/, sample)) continue;
       transaction(() => {
-        if (!canObserve() || read.get(g.condition)?.next_poll !== deadline) return;
+        if (!canObserve() || sampleRow.get(g.condition)?.next_poll !== deadline) return;
         const hash = digest(sample);
         if (row.baseline === null) db.prepare("UPDATE file_samples SET baseline=? WHERE condition=?").run(hash, g.condition);
         else if (row.baseline !== hash) db.prepare("UPDATE schedule_watches SET state='ready' WHERE condition=?").run(g.condition);

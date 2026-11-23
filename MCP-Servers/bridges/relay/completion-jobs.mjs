@@ -1,11 +1,15 @@
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { digest, matches, UUID } from "./delivery-protocol.mjs";
 import { isWatchActivation, jobMac, sameMac, validExit, validJobFrame } from "./completion-protocol.mjs";
 import { localStatus, sendProvedNotice } from "./local-ping.mjs";
 import { scheduleTable, scheduleWatches } from "./schedule-watch.mjs";
 
+// The partial updater checks this declaration in each reviewed store module.
+// Increment it for on-disk changes that the previous broker cannot reopen.
+const BROKER_STORE_VERSION = 5;
 const COOLDOWN_MS = 10000;
 const HANDOFF_TABLE = `CREATE TABLE grant_handoffs (
   instance TEXT PRIMARY KEY, count INTEGER NOT NULL, valid_until INTEGER NOT NULL,
@@ -56,15 +60,136 @@ export function statusBinding(target) {
   return instanceOf(target);
 }
 
+const stateColumns = {
+  jobs: "id token_hash recipient provider instance valid_until state code signal handle run_only next_check attempts last_notice",
+  grant_handoffs: "instance count valid_until hash pending",
+  schedule_watches: "condition revision token_hash pending handoff_hash state cursor batch handle retry_at",
+  file_samples: "condition baseline next_poll",
+};
+
+// The separate broker account owns this directory. The secret is generated
+// here on first use, never in the distributable package or the session profile.
+function readStateKey(file, initializing) {
+  const keyFile = file + ".key";
+  const staging = keyFile + ".pending";
+  function inspect(name) {
+    const stat = fs.lstatSync(name, { bigint: true, throwIfNoEntry: false });
+    if (!stat) return;
+    if (!stat.isFile() || stat.size > 32n ||
+        path.relative(name, fs.realpathSync.native(name)) !== "") throw new Error("invalid broker state key");
+    return stat;
+  }
+  const final = inspect(keyFile);
+  const temp = inspect(staging);
+  if (final?.nlink === 2n && temp?.nlink === 2n && final.ino > 0n && final.ino === temp.ino &&
+      final.dev === temp.dev && final.size === 32n && initializing) {
+    // A stop between the exclusive publication and removal of its staging
+    // name leaves two links to the same complete file. Preserve the key.
+    fs.unlinkSync(staging);
+  } else if (final && final.nlink !== 1n || temp && temp.nlink !== 1n) throw new Error("invalid broker state key");
+  if (final?.size !== 32n) {
+    // Only first initialization can recover an interrupted pre-schema-4 key.
+    // BEGIN IMMEDIATE serializes this publication with other broker writers.
+    // An existing witness may belong to a newer store and must be preserved.
+    if (!initializing || fs.existsSync(file + ".witness")) throw new Error("invalid broker state key");
+    if (final) fs.unlinkSync(keyFile); // Short remnant from the old first-install writer.
+    const fd = fs.openSync(staging, temp ? "r+" : "wx", 0o600);
+    const secret = randomBytes(32);
+    try { fs.writeFileSync(fd, secret); fs.fsyncSync(fd); }
+    finally { secret.fill(0); fs.closeSync(fd); }
+    fs.linkSync(staging, keyFile);
+    fs.unlinkSync(staging);
+    if (process.platform !== "win32") {
+      const directory = fs.openSync(path.dirname(file), "r");
+      try { fs.fsyncSync(directory); } finally { fs.closeSync(directory); }
+    }
+  }
+  const fd = fs.openSync(keyFile, "r");
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size !== 32) throw new Error("invalid broker state key");
+    const bytes = Buffer.alloc(33);
+    if (fs.readSync(fd, bytes) !== 32) throw new Error("invalid broker state key");
+    return bytes.subarray(0, 32);
+  } finally { fs.closeSync(fd); }
+}
+
+// Keep the latest witness outside the restorable job database. SQLite's
+// attached rollback journals commit both stores together. One witness per
+// row is updated in place, including when a sampler advances its poll time.
+function attachWitness(db, file, key, version) {
+  const witnessFile = file + ".witness";
+  if (version < 5 && !fs.existsSync(witnessFile)) fs.closeSync(fs.openSync(witnessFile, "wx", 0o600));
+  if (path.relative(witnessFile, fs.realpathSync.native(witnessFile)) !== "" ||
+      !fs.lstatSync(witnessFile).isFile() || fs.statSync(witnessFile).nlink !== 1) throw new Error("invalid broker witness");
+  const url = pathToFileURL(witnessFile);
+  url.searchParams.set("mode", "rw");
+  db.prepare("ATTACH DATABASE ? AS witness").run(url.href);
+  for (const schema of ["main","witness"]) {
+    if (db.prepare(`PRAGMA ${schema}.journal_mode`).get().journal_mode !== "delete" ||
+        db.prepare(`PRAGMA ${schema}.synchronous`).get().synchronous < 2) throw new Error("unsafe broker journals");
+  }
+  const binding = createHmac("sha256", key).update("relay-watch-witness-v1").digest("hex");
+  if (version < 5) {
+    if (db.prepare("SELECT 1 FROM witness.sqlite_schema LIMIT 1").get()) throw new Error("existing broker witness");
+    db.exec(`CREATE TABLE witness.binding (id TEXT PRIMARY KEY) WITHOUT ROWID;
+      CREATE TABLE witness.current_seals (kind TEXT, id TEXT, mac TEXT NOT NULL, PRIMARY KEY(kind,id)) WITHOUT ROWID`);
+    db.prepare("INSERT INTO witness.binding VALUES(?)").run(binding);
+    db.exec("PRAGMA main.user_version=5");
+  } else if (!db.prepare("SELECT 1 FROM witness.binding WHERE id=?").get(binding)) throw new Error("invalid broker witness");
+  if (db.prepare("SELECT 1 FROM witness.sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").get() ||
+      db.prepare("SELECT 1 FROM main.sqlite_schema WHERE name='current_seals' COLLATE NOCASE").get()) throw new Error("invalid broker schema");
+}
+
+// Views authenticate before reads. Connection-local triggers update the
+// witness in the same SQLite statement, including for legacy call sites.
+// Another connection cannot edit a persisted row and refresh its witness.
+function protectState(db, key, schedules) {
+  db.function("relay_state_mac", { varargs: true, useBigIntArguments: true, directOnly: true }, (...values) => {
+    const typed = values.map(v => typeof v === "bigint" ? { integer: v.toString() } :
+      v instanceof Uint8Array ? { bytes: Buffer.from(v).toString("hex") } : v);
+    return createHmac("sha256", key).update(JSON.stringify(typed)).digest("hex");
+  });
+  for (const table of Object.keys(stateColumns)) {
+    if (!schedules && ["schedule_watches","file_samples"].includes(table)) continue;
+    const fields = stateColumns[table].split(" ");
+    const id = fields[0];
+    const mac = prefix => "relay_state_mac('" + table + "'," + fields.map(c => prefix + "." + c).join(",") + ")";
+    // SQLite trigger writes use unqualified names. Check through the view
+    // with qualified reads so a schema change after open cannot commit a row
+    // whose actual independent witness was never updated.
+    const checkWrite = `SELECT RAISE(ABORT,'broker witness unavailable') WHERE NOT EXISTS
+      (SELECT 1 FROM temp.verified_${table} WHERE ${id}=NEW.${id});`;
+    db.exec(`CREATE TEMP VIEW verified_${table} AS
+      SELECT r.* FROM main.${table} AS r JOIN main.broker_seals AS s
+      ON s.kind='${table}' AND s.id=r.${id} AND s.mac=${mac("r")}
+      JOIN witness.current_seals AS w ON w.kind=s.kind AND w.id=s.id AND w.mac=s.mac;
+      CREATE TEMP TRIGGER protect_${table} BEFORE UPDATE ON main.${table}
+      WHEN OLD.${id} IS NOT NEW.${id} OR NOT EXISTS
+        (SELECT 1 FROM verified_${table} WHERE ${id}=OLD.${id})
+      BEGIN SELECT RAISE(ABORT,'unverified broker state'); END;
+      CREATE TEMP TRIGGER issue_${table} AFTER INSERT ON main.${table}
+      BEGIN INSERT INTO broker_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")});
+        INSERT INTO current_seals(kind,id,mac) VALUES('${table}',NEW.${id},${mac("NEW")});
+        ${checkWrite} END;
+      CREATE TEMP TRIGGER seal_${table} AFTER UPDATE ON main.${table}
+      BEGIN UPDATE broker_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id};
+        UPDATE current_seals SET mac=${mac("NEW")} WHERE kind='${table}' AND id=NEW.${id};
+        ${checkWrite} END`);
+  }
+}
+
 export async function openCompletionJobs(file, { now = Date.now, send = sendProvedNotice, status = localStatus,
   permits = () => false, schedules } = {}) {
   const { DatabaseSync } = await import("node:sqlite");
   const url = pathToFileURL(file);
   url.searchParams.set("mode", "rw");
   const db = new DatabaseSync(url.href);
+  let key;
   try {
-    db.exec("PRAGMA synchronous=FULL; PRAGMA busy_timeout=500; BEGIN IMMEDIATE");
+    db.exec("PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA busy_timeout=500; BEGIN IMMEDIATE");
     if (db.prepare("PRAGMA application_id").get().application_id !== 1128943426) throw new Error("invalid job store");
+    if (db.prepare("SELECT 1 FROM sqlite_schema WHERE type IN ('view','trigger') LIMIT 1").get()) throw new Error("invalid broker schema");
     const version = db.prepare("PRAGMA user_version").get().user_version;
     if (version === 1) {
       db.exec(`ALTER TABLE jobs ADD COLUMN next_check INTEGER NOT NULL DEFAULT 0;
@@ -73,14 +198,18 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
         CREATE INDEX jobs_due ON jobs(state,next_check,id);
         CREATE INDEX jobs_last_notice ON jobs(recipient,provider,instance,last_notice) WHERE last_notice IS NOT NULL;
         PRAGMA user_version=2`);
-    } else if (version !== 2 && version !== 3) throw new Error("invalid job store");
+    } else if (version < 2 || version > BROKER_STORE_VERSION) throw new Error("invalid job store");
     if (version < 3) db.exec(HANDOFF_TABLE + "; ALTER TABLE jobs ADD COLUMN run_only INTEGER NOT NULL DEFAULT 0; PRAGMA user_version=3");
-    // Older brokers ignore this independent table and can still collect jobs
-    // after a package rollback. The job schema and version stay compatible.
     if (schedules) db.exec(scheduleTable);
+    key = readStateKey(file, version < 4);
+    if (version < 4) db.exec(`CREATE TABLE broker_seals (
+      kind TEXT, id TEXT, mac TEXT NOT NULL, PRIMARY KEY(kind,id)
+    ) WITHOUT ROWID; PRAGMA user_version=4`);
+    attachWitness(db, file, key, version);
+    protectState(db, key, schedules);
     db.exec("COMMIT");
-  } catch (error) { db.close(); throw error; }
-  const row = db.prepare("SELECT * FROM jobs WHERE id=?");
+  } catch (error) { key?.fill(0); db.close(); throw error; }
+  const row = db.prepare("SELECT * FROM verified_jobs WHERE id=?");
   function active(id) {
     const job = row.get(id);
     if (!job || job.state === "revoked" || job.valid_until <= now()) return null;
@@ -101,7 +230,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
     if (!validExit(event)) throw new Error("invalid job outcome");
     const stamp = now();
     const wrote = db.prepare(`UPDATE jobs SET code=?,signal=?,state='ready',next_check=max(?,(
-      SELECT coalesce(max(last_notice)+?,0) FROM jobs WHERE recipient=? AND provider=? AND instance=? AND last_notice IS NOT NULL
+      SELECT coalesce(max(last_notice)+?,0) FROM verified_jobs WHERE recipient=? AND provider=? AND instance=? AND last_notice IS NOT NULL
     )) WHERE id=? AND state=? AND valid_until>?`)
       .run(event.code, event.signal, stamp + 750, COOLDOWN_MS, job.recipient, job.provider, job.instance, job.id, initialState, stamp);
     if (!wrote.changes) {
@@ -158,7 +287,8 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
           checkTarget(target);
           const stamp = now();
           for (const job of jobs) db.prepare("UPDATE jobs SET handle=?,state='observing',last_notice=? WHERE id=?").run(handle, stamp, job.id);
-          db.prepare(`UPDATE jobs SET next_check=max(next_check,?) WHERE state='ready' AND recipient=? AND provider=? AND instance=?`)
+          db.prepare(`UPDATE jobs SET next_check=max(next_check,?) WHERE id IN (
+            SELECT id FROM verified_jobs WHERE state='ready' AND recipient=? AND provider=? AND instance=?)`)
             .run(stamp + COOLDOWN_MS, first.recipient, first.provider, first.instance);
         });
       },
@@ -178,10 +308,10 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   function dueBatch() {
     return transaction(() => {
       const stamp = now();
-      const due = db.prepare(`SELECT * FROM jobs WHERE state IN ('ready','observing') AND valid_until>? AND next_check<=?
+      const due = db.prepare(`SELECT * FROM verified_jobs WHERE state IN ('ready','observing') AND valid_until>? AND next_check<=?
         ORDER BY next_check,id LIMIT 1`).get(stamp, stamp);
       if (!due) return [];
-      const related = db.prepare(`SELECT id,attempts FROM jobs WHERE id<>? AND recipient=? AND provider=? AND instance=?
+      const related = db.prepare(`SELECT id,attempts FROM verified_jobs WHERE id<>? AND recipient=? AND provider=? AND instance=?
         AND state=? AND handle IS ? AND valid_until>? AND (next_check<=? OR (state='ready' AND attempts=0))
         ORDER BY next_check,id LIMIT 7`).all(due.id, due.recipient, due.provider, due.instance, due.state, due.handle, stamp, stamp);
       const jobs = [due, ...related];
@@ -194,10 +324,19 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   }
   function projectSubscriptions(scope, ...params) {
     const rows = db.prepare(`SELECT id, recipient AS target, 'job_exit' AS condition,
-      CASE state WHEN 'dispatching' THEN 'unknown' ELSE state END AS state FROM jobs
+      CASE state WHEN 'dispatching' THEN 'unknown' ELSE state END AS state FROM verified_jobs
       WHERE valid_until>? AND state IN ('waiting','claimed','ready','dispatching','observing')
       ${scope} ORDER BY id LIMIT 33`).all(now(), ...params);
-    return { partial: rows.length > 32, subscriptions: rows.slice(0,32) };
+    // An unverified row cannot identify a job or its owner for disclosure.
+    const unverified = db.prepare(`SELECT 1 FROM jobs j WHERE NOT EXISTS
+      (SELECT 1 FROM verified_jobs v WHERE v.id=j.id)
+      UNION ALL SELECT 1 FROM grant_handoffs h WHERE NOT EXISTS
+      (SELECT 1 FROM verified_grant_handoffs v WHERE v.instance=h.instance)
+      UNION ALL SELECT 1 FROM witness.current_seals s WHERE
+      (s.kind='jobs' AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.id=s.id)) OR
+      (s.kind='grant_handoffs' AND NOT EXISTS (SELECT 1 FROM grant_handoffs h WHERE h.instance=s.id))
+      LIMIT 1`).get();
+    return { partial: Boolean(unverified) || rows.length > 32, subscriptions: rows.slice(0,32) };
   }
   function issueBound(session, provider, binding, validUntil, runOnly = false) {
     if (!Number.isSafeInteger(validUntil) || validUntil <= now()) throw new Error("invalid grant expiry");
@@ -211,7 +350,7 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
   const watches = schedules && scheduleWatches(db, transaction, { ...schedules, now, send, status });
   return {
     watches,
-    close: () => db.close(),
+    close() { db.close(); key.fill(0); },
     subscriptions: () => projectSubscriptions(""),
     authorizedSubscriptions(grants) {
       if (!Array.isArray(grants)) throw new Error("missing subscription authority");
@@ -227,20 +366,41 @@ export async function openCompletionJobs(file, { now = Date.now, send = sendProv
           !(provider === "claude" || (provider === "codex" && binding === threadStatusBinding(session))) ||
           permits(session, provider, binding) !== true) throw new Error("handoff denied");
       const batch = transaction(() => {
-        const existing = db.prepare("SELECT * FROM grant_handoffs WHERE instance=?").get(binding);
+        const existing = db.prepare("SELECT * FROM verified_grant_handoffs WHERE instance=?").get(binding);
         if (existing) {
           if (existing.count !== count || existing.valid_until !== validUntil) throw new Error("handoff already allocated");
           return existing;
         }
+        const retained = db.prepare(`SELECT 1 FROM grant_handoffs WHERE instance=?
+          UNION ALL SELECT 1 FROM broker_seals WHERE kind='grant_handoffs' AND id=?
+          UNION ALL SELECT 1 FROM witness.current_seals WHERE kind='grant_handoffs' AND id=? LIMIT 1`).get(binding, binding, binding);
+        if (retained) return null;
         const grants = Array.from({ length: count }, () => issueBound(session, provider, binding, validUntil, true));
         const pending = JSON.stringify({ v: 1, session, instance: binding, validUntil, grants });
         const hash = digest(pending);
         db.prepare("INSERT INTO grant_handoffs VALUES(?,?,?,?,?)").run(binding, count, validUntil, hash, pending);
         return { pending, hash };
       });
-      publish(binding, batch.hash, batch.pending);
-      db.prepare("UPDATE grant_handoffs SET pending=NULL WHERE instance=? AND hash=?").run(binding, batch.hash);
-      return { count, validUntil };
+      if (!batch) return { state: "paused", reason: "stored_state_unverified" };
+      return transaction(() => {
+        // After publication only the digest is retained. Check the exact jobs
+        // named by those authenticated bytes; a consumed job still belongs
+        // to the original allocation and cannot be replaced by an unused one.
+        function checkBatch(contents) {
+          return contents.session === session && contents.instance === binding && contents.validUntil === validUntil &&
+            contents.grants.length === count && contents.grants.every(({ id, capability }) => {
+              const job = row.get(id);
+              return job?.run_only === 1 && job.recipient === session && job.instance === binding && job.provider === provider &&
+                job.valid_until === validUntil && timingSafeEqual(job.token_hash, Buffer.from(digest(capability), "hex"));
+            });
+        }
+        const current = db.prepare("SELECT hash,pending FROM verified_grant_handoffs WHERE instance=?").get(binding);
+        if (current?.hash !== batch.hash || publish(binding, current.hash, current.pending, checkBatch) !== true) {
+          return { state: "paused", reason: "stored_state_unverified" };
+        }
+        if (current.pending !== null) db.prepare("UPDATE grant_handoffs SET pending=NULL WHERE instance=? AND hash=?").run(binding, batch.hash);
+        return { count, validUntil };
+      });
     },
     revoke(id) { db.prepare("UPDATE jobs SET state='revoked', handle=NULL WHERE id=?").run(id); },
     // The wrapper can report a termination once. It cannot select a recipient,

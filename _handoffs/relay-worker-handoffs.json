@@ -1,5 +1,325 @@
 [
   {
+    "id": "i7-package-operator-check",
+    "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "A constrained package operator interprets a refused partial upgrade.",
+    "acceptance": "Identify a safe next action from the staging diagnostic and public setup guide. Confirm the fixture retains the previous package.",
+    "result": {
+      "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+      "verdict": "Passed in source",
+      "evidence": "A low-effort Claude Code Haiku operator used the real staging error and the public setup guide to explain how to recover from a refused partial package. The staging fixture independently confirmed that the original package remained intact and no candidate existed.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
+    "id": "i7-final-recovery-review",
+    "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Independently verify all five reopened recovery findings on the integrated revision.",
+    "acceptance": "Inspect staging and rollback, cold key publication, retained jobs, new grants after upgrade, and paused reservations. Report remaining blockers and evidence.",
+    "result": {
+      "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+      "verdict": "Passed in source",
+      "evidence": "At 6de806a the independent Windows review passed 38 cases with one opt-in skip. Both Plan and Apply refused incompatible formats before scheduler access. Restart, retained and newly issued grants, and reservation accounting passed on disposable state.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
+    "id": "i7-partial-upgrade",
+    "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+    "coordinator": "relay coordinator",
+    "worker": "package maintainer",
+    "state": "accepted",
+    "scope": "Enforce the documented whole-package gate across all partial updater paths.",
+    "acceptance": "A partial update cannot migrate the on-disk database beyond the rollback binary.",
+    "result": {
+      "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+      "verdict": "Passed in source",
+      "evidence": "6de806a checks the rollback format in partial staging and at the PowerShell updater entry point. A missing or different declaration refused the transition. The matching-format control reached the scheduler boundary.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
+    "id": "i7-job-recovery",
+    "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+    "coordinator": "relay coordinator",
+    "worker": "job recovery maintainer",
+    "state": "accepted",
+    "scope": "Check interrupted key creation and retained grant batches.",
+    "acceptance": "Require complete durable key publication, valid retained jobs and an actual new claim on an upgraded store.",
+    "result": {
+      "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+      "verdict": "Passed in source",
+      "evidence": "2279753 covered four interrupted key states, verified retained job members without replacement and claimed a new grant on the upgraded database. Consumed members remained verifiable.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
+    "id": "i7-reservation-scope",
+    "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+    "coordinator": "relay coordinator",
+    "worker": "watcher recovery worker",
+    "state": "accepted",
+    "scope": "Keep a paused verified reservation blocking another wake for the same destination.",
+    "acceptance": "Exercise paused sample with outstanding receipt and confirm another destination can proceed.",
+    "result": {
+      "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+      "verdict": "Passed in source",
+      "evidence": "026818b kept a verified uncertain reservation after a bad observation paused its watch. The same destination stayed occupied and another recipient could proceed.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
+    "id": "i7-integrated-source-review",
+    "revision": "6d5b77952eba7a3deac44db183a1821dd3528b89",
+    "coordinator": "relay coordinator",
+    "worker": "independent integration reviewer",
+    "state": "accepted",
+    "scope": "Review final package staging, interrupted watches and combined I6/I7 source.",
+    "acceptance": "Confirm one effect per relevant grant, no re-delivery of uncertain work, compatible staged package and usable doctor.",
+    "result": {
+      "revision": "6d5b77952eba7a3deac44db183a1821dd3528b89",
+      "verdict": "passed",
+      "evidence": "Independent final review at 6d5b779 passed all 49 combined cases across six suites. Staging checked copied bytes; only authenticated confirmed-unsent reservations without a handle were released. Saved handles remained proof-only across restart. Public doctor and remote receipt recovery passed.",
+      "limitations": "Source integration, staged package and disposable provider fixtures only. Installed migration, simultaneous rollback of both stores and power loss remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Advance to I15 source compatibility after merge. Keep installed activation separate."
+    }
+  },
+  {
+    "id": "i7-stage-byte-check",
+    "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+    "coordinator": "relay coordinator",
+    "worker": "package maintainer",
+    "state": "accepted",
+    "scope": "Check that staged state modules match the compatibility check.",
+    "acceptance": "Deterministically change fixture source between qualification and copy; reject mismatched staged bytes.",
+    "result": {
+      "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+      "verdict": "corrected",
+      "evidence": "A source change during partial staging reproduced the missed rejection. At 96c9802 staged bytes are compared with the original compatibility digest before package publication. Windows package suite passed two tests, including singleton and restart.",
+      "limitations": "Source staging and disposable package only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Final integration review and CI."
+    }
+  },
+  {
+    "id": "i7-confirmed-unsent",
+    "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+    "coordinator": "relay coordinator",
+    "worker": "watcher recovery worker",
+    "state": "accepted",
+    "scope": "Recover authenticated pre-submission cancellation without disrupting unrelated watches.",
+    "acceptance": "Use positive non-submission evidence, preserve uncertain reservations and enforce current grants before retry.",
+    "result": {
+      "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+      "verdict": "corrected",
+      "evidence": "Three regressions failed on previous code. During separate stop and revocation tests the session adapter never reached submit. Confirmed-unsent reservations were released, retry checked current grants, and reserved handles stayed proof-only. Combined regression suite passed all 32.",
+      "limitations": "Local disposable session adapter and staged package."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Verify after integration with main."
+    }
+  },
+  {
+    "id": "i7-schema-final-review",
+    "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+    "coordinator": "relay coordinator",
+    "worker": "independent restore reviewer",
+    "state": "accepted",
+    "scope": "Review final case-insensitive restore check and post-write witness validation.",
+    "acceptance": "Confirm the staged package works and valid rows remain usable after an unrelated refusal.",
+    "result": {
+      "revision": "7c488938e80bc7515175c0db43f122c6690c65cf",
+      "verdict": "passed",
+      "evidence": "On the exact revision an independent two-job restore produced zero sends for the revoked job, one for the unaffected job and partial health. Thirty-five ordinary checks passed with one opt-in skip. The staged package passed reports-only startup, contention and restart.",
+      "limitations": "Source and disposable package only. Hosted review of separate packaging and interruption cases continues."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Complete the staged-byte and interrupted-dispatch checks before merge."
+    }
+  },
+  {
+    "id": "i7-restored-schema",
+    "revision": "32c3a35c540477159c136bddd2c89af65bf9fd6d",
+    "coordinator": "relay coordinator",
+    "worker": "watcher recovery worker",
+    "state": "accepted",
+    "scope": "Reject shadowed witness tables in restored schema.",
+    "acceptance": "Apply the same identifier comparison as SQLite and reject a differently cased reserved name before use.",
+    "result": {
+      "revision": "32c3a35c540477159c136bddd2c89af65bf9fd6d",
+      "verdict": "corrected",
+      "evidence": "On 7c488938e80bc7515175c0db43f122c6690c65cf an ambiguous restored schema now fails closed before use. Each successful change verifies its independent witness before commit. Thirty-six focused tests passed with one installed-port skip.",
+      "limitations": "Source and package fixtures only."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Repeat independent review on final source and reconcile hosted PR comments."
+    }
+  },
+  {
+    "id": "i7-current-witness-review",
+    "revision": "32c3a35c540477159c136bddd2c89af65bf9fd6d",
+    "coordinator": "relay coordinator",
+    "worker": "independent restore reviewer",
+    "state": "accepted",
+    "scope": "Review independent freshness witness, crash consistency and safe legacy handling.",
+    "acceptance": "Verify bounded one-shot counts under partial and missing-store restore, safe migration and package integration.",
+    "result": {
+      "revision": "32c3a35c540477159c136bddd2c89af65bf9fd6d",
+      "verdict": "one source correction requested",
+      "evidence": "Independent subset rollback of a revoked job under a still-permitted instance revived it on the old source. The current witness suppressed it and allowed one unaffected job. Thirty-four focused tests passed with one installed skip. Review found a case-sensitive schema guard on a case-insensitive database identifier.",
+      "limitations": "Disposable stores and actual staged package. No ordinary session had access to protected stores."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the finding and deferred source closure.",
+      "next": "Correct and independently verify the restored-schema rejection before closure."
+    }
+  },
+  {
+    "id": "i7-current-witness-operator",
+    "revision": "32c3a35c540477159c136bddd2c89af65bf9fd6d",
+    "coordinator": "relay coordinator",
+    "worker": "constrained operator",
+    "state": "accepted",
+    "scope": "Inspect a running watcher with paused restored state through the CLI.",
+    "acceptance": "Find the failed subscription and reason and confirm the dated record.",
+    "result": {
+      "revision": "32c3a35c540477159c136bddd2c89af65bf9fd6d",
+      "verdict": "passed",
+      "evidence": "Fresh low-effort CLI operator discovered doctor via help, identified the paused file watch and exact reason, distinguished the waiting schedule and observed partial reporting. Independently read the same subscriptions from the dated readiness file.",
+      "limitations": "Synthetic heartbeat and provider observations. Some rehearsals needed the walkthrough controller to accept a plain-language final answer."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Retain the CLI and read-only MCP regression."
+    }
+  },
+  {
+    "id": "i7-restore-freshness",
+    "revision": "6afcdc16ef46e8a56d69ca9c5b200bd0d23eb54a",
+    "coordinator": "relay coordinator",
+    "worker": "watcher recovery worker",
+    "state": "accepted",
+    "scope": "Address independent review of partial state rollback.",
+    "acceptance": "Measure notice count with old authenticated state and preserve the proven recovery boundary.",
+    "result": {
+      "revision": "6afcdc16ef46e8a56d69ca9c5b200bd0d23eb54a",
+      "verdict": "corrected",
+      "evidence": "At 32c3a35c540477159c136bddd2c89af65bf9fd6d partial restoration of an old authenticated row remained paused with two lifetime file reads, one submission and one proof. An interrupted batch published neither jobs nor witnesses. A competing writer blocked publication until release. Missing witness refused startup.",
+      "limitations": "Restoring both complete stores together remains outside the deployment evidence. The original predicate accepted matching row and MAC by inspection."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Independent final review and recheck of packaged public doctor."
+    }
+  },
+  {
+    "id": "i7-recovery-source-review",
+    "revision": "6afcdc16ef46e8a56d69ca9c5b200bd0d23eb54a",
+    "coordinator": "relay coordinator",
+    "worker": "independent reviewer",
+    "state": "accepted",
+    "scope": "Review package startup, authenticated recovery and revocation through public doctor.",
+    "acceptance": "Identify any state tamper, unauthorized resource access or delivery, restart and upgrade defects.",
+    "result": {
+      "revision": "6afcdc16ef46e8a56d69ca9c5b200bd0d23eb54a",
+      "verdict": "returned with a recovery finding",
+      "evidence": "Independent review passed 33 focused checks with one opt-in skip. A reopened job produced zero proof reads during revocation and one original handle read after reauthorization, with one lifetime submission. Review identified partial row-plus-witness rollback as a separate failure mode.",
+      "limitations": "Disposable stores, package and public doctor only. Matching earlier state and record could still authenticate after restoration."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted the findings. Source acceptance remains open.",
+      "next": "Reproduce the partial rollback case and verify the correction independently."
+    }
+  },
+  {
+    "id": "i7-recovery-operator",
+    "revision": "6afcdc16ef46e8a56d69ca9c5b200bd0d23eb54a",
+    "coordinator": "relay coordinator",
+    "worker": "constrained operator",
+    "state": "accepted",
+    "scope": "Discover and identify a paused watch using the normal CLI.",
+    "acceptance": "Find watcher status and correct pause reason with no delivery or watch change.",
+    "result": {
+      "revision": "6afcdc16ef46e8a56d69ca9c5b200bd0d23eb54a",
+      "verdict": "passed",
+      "evidence": "A low-effort Haiku operator used --help then doctor in the real CLI with a disposable heartbeat. It correctly identified the running watcher, the paused file watch and its stored_state_unverified reason, and the waiting schedule. The dated readiness record matched the fixture.",
+      "limitations": "Agent-operated CLI with synthetic service and provider observations. A programmatic MCP client separately verified read-only behavior."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Retain the public-interface regression."
+    }
+  },
+  {
+    "id": "relay-i7-recovery",
+    "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+    "coordinator": "relay coordinator",
+    "worker": "watcher qualification implementer",
+    "state": "accepted",
+    "scope": "Check watcher package closure, revocation before observation and dispatch, restored state, singleton and doctor projection.",
+    "acceptance": "Exercise the normal broker, watcher and doctor with disposable configuration; prove unauthorized observations and deliveries stay at zero and report deployment limits.",
+    "result": {
+      "revision": "a162b7efaad7e4b7e997957053ea6308f4b596f8",
+      "verdict": "qualified in disposable source environment",
+      "evidence": "The staged package started, refused a competing singleton, and restarted. Source changes preserved unrelated healthy work, recorded pause reasons, and authenticated restored rows. Follow-up at 32c3a35 detected partial coherent rollback before resource or provider access. Windows bridge suite passed 476 with four skips.",
+      "limitations": "Installed desktops supplied reports-only heartbeats. Package migration, power loss and protected local deployment remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted for the stated scope.",
+      "next": "Independently verify current freshness and ACL assumptions before closing the source checkpoint."
+    }
+  },
+  {
     "id": "i6-last-reader-review",
     "revision": "c35cdf9666682c9579f0e0e59bedda5184d3d668",
     "coordinator": "relay coordinator",

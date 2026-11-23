@@ -10,8 +10,12 @@ function validBeat(b) {
     Number.isSafeInteger(b.pid) && b.pid > 0 && date(b.startedAt) && date(b.heartbeat) && b.startedAt <= b.heartbeat &&
     ["watching","reports_only","stopped"].includes(b.mode) && (b.policyRevision === null || matches(/^[a-f0-9]{64}$/, b.policyRevision)) &&
     typeof b.partial === "boolean" && Array.isArray(b.subscriptions) && b.subscriptions.length <= 32 &&
-    b.subscriptions.every(s => exactKeys(s, ["id","target","condition","state"]) && matches(UUID,s.id) &&
-      matches(UUID,s.target) && ["job_exit","schedule","file","branch"].includes(s.condition) && states.includes(s.state));
+    b.subscriptions.every(s => {
+      const paused = s?.state === "paused";
+      return exactKeys(s, paused ? ["id","target","condition","state","reason"] : ["id","target","condition","state"]) &&
+        matches(UUID,s.id) && matches(UUID,s.target) && ["job_exit","schedule","file","branch"].includes(s.condition) &&
+        (paused ? ["grant_changed","stored_state_unverified"].includes(s.reason) : states.includes(s.state));
+    });
 }
 
 function healthDir(root) {

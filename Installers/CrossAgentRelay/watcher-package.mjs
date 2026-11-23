@@ -21,6 +21,10 @@ const fileAdditions = [observationImage, "relay/FileObservation.cs", "relay/file
 const branchModule = "relay/branch-observation.mjs";
 const branchChanges = [branchModule, "relay/completion-acl.ps1"];
 const branchUpdate = [branchModule, "relay/schedule-watch.mjs", "relay/completion-broker.mjs"];
+// These members respectively own the store, its ACL, its watch queries and
+// its readiness projection. A staged change to their shared state format
+// requires the matching implementations from the same reviewed source tree.
+const stateMembers = ["relay/completion-jobs.mjs", "relay/completion-acl.ps1", "relay/schedule-watch.mjs", "relay/watcher-health.mjs"];
 export const packageFiles = Object.freeze([
   ...sources.map(name => "relay/" + name),
   "CompletionChannel.exe", observationImage, "runtime/node.exe", "provider/codex.exe", "provider/claude.exe", "initial/jobs.sqlite",
@@ -66,6 +70,16 @@ function canonicalFile(root, member) {
 function manifest(entries) {
   const body = JSON.stringify({ v: 1, files: entries });
   return { body, digest: createHash("sha256").update(body).digest("hex") };
+}
+
+// Read the reviewed code as data. Starting either broker here would open and
+// potentially migrate the store we need to preserve for rollback.
+function rollbackFormat(file, expectedHash) {
+  const bytes = fs.readFileSync(file);
+  if (createHash("sha256").update(bytes).digest("hex") !== expectedHash) throw Error("Store module changed");
+  const versions = [...bytes.toString("utf8").matchAll(/^const BROKER_STORE_VERSION = ([1-9][0-9]*);\r?$/gm)];
+  if (versions.length !== 1) throw Error("Unknown rollback store format. Build the complete watcher package.");
+  return versions[0][1];
 }
 
 // An expected digest comes from the reviewed plan, never from the bundle.
@@ -119,6 +133,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
     changedMember === "branches" ? [...fileUpdates, ...branchChanges] :
     changedMember === "branch-update" ? branchUpdate : [changedMember]);
   let priorEntries;
+  const checkedStateHashes = new Map();
   if (base !== undefined) {
     if (!["relay/completion-broker.mjs","relay/completion-jobs.mjs","relay/completion-acl.ps1","schedules","files","branches","branch-update"].includes(changedMember)) throw Error("Unsupported broker package member");
     if (!path.isAbsolute(base)) throw Error("Expected an absolute base package");
@@ -126,6 +141,23 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
     const bytes = fs.readFileSync(canonicalFile(base, "package.json"));
     if (createHash("sha256").update(bytes).digest("hex") !== baseDigest) throw Error("Base manifest changed");
     priorEntries = new Map(JSON.parse(bytes).files);
+    if (stateMembers.some(member => changed.has(member))) {
+      const different = [];
+      for (const member of stateMembers) {
+        const hash = await fileHash(inputs.get(member));
+        if (changed.has(member)) checkedStateHashes.set(member, hash);
+        if (priorEntries.get(member) !== hash) different.push(member);
+      }
+      if (different.some(member => changed.has(member)) && different.some(member => !changed.has(member))) {
+        throw Error("Incompatible watcher state modules. Build the complete watcher package.");
+      }
+      const jobs = "relay/completion-jobs.mjs";
+      if (changed.has(jobs) && different.includes(jobs)) {
+        const previous = rollbackFormat(canonicalFile(base, jobs), priorEntries.get(jobs));
+        const next = rollbackFormat(inputs.get(jobs), checkedStateHashes.get(jobs));
+        if (previous !== next) throw Error("Incompatible rollback store format. Build the complete watcher package.");
+      }
+    }
     if (changedMember === "files" && (!priorEntries.has(addedMember) || priorEntries.has(observationImage))) {
       throw Error("Expected a schedule-only base package");
     }
@@ -164,6 +196,7 @@ export async function buildWatcherPackage(out, { node, codex, claude, compile = 
       } else {
         const hash = await fileHash(inputs.get(member), file);
         created.push(file);
+        if (checkedStateHashes.has(member) && checkedStateHashes.get(member) !== hash) throw Error("State module changed during staging");
         if (priorEntries && !changed.has(member) && priorEntries.get(member) !== hash) throw Error("Base member changed");
         entries.push([member, hash]);
       }

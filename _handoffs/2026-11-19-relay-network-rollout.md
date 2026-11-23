@@ -6,16 +6,16 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Rollout checkpoints
 
-Start here to find the next assignment. The [design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) sets the requirements and stage order. This map owns checkpoint IDs, dependencies and status. The dated entries below and the [worker register](relay-worker-handoffs.json) hold the evidence. The active stage is **I/C**. **I7, watcher restore and authorization, is the active qualification.** A/B retains open hardening and live gates.
+Start here to find the next assignment. The [design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) sets the requirements and stage order. This map owns checkpoint IDs, dependencies and status. The dated entries below and the [worker register](relay-worker-handoffs.json) hold the evidence. The active stage is **I/C**. **I15 is the next source checkpoint.** A/B retains open hardening and live gates.
 
 | Stage | Checkpoints | Accepted in stated scope | Remaining |
 | --- | ---: | ---: | ---: |
 | A/B · addressing, proof and health | 8 | 3 | 5 |
-| I/C · watcher and command completion | 18 | 10 | 8 |
+| I/C · watcher and command completion | 18 | 11 | 7 |
 | F/E · registry and names | 4 | 0 | 4 |
 | G/H · capabilities, discovery and setup | 5 | 0 | 5 |
 | D · machine signatures | 4 | 0 | 4 |
-| **Total** | **39** | **13** | **26** |
+| **Total** | **39** | **14** | **25** |
 
 Within the paired stages, A owns 5 checkpoints and B owns 3, I owns 16 and C owns 2, F owns 3 and E owns 1, and G owns 2 and H owns 3. D owns all 4 in its stage.
 
@@ -25,7 +25,7 @@ Work in stage order subject to the dependencies below. Keep the qualified A/B ba
 
 ### Order of work and parallel assignments
 
-**I6 has passed source qualification.** I7 is the active assignment. I5 lookup and A4 private failure storage passed their independent source checks. The table below preserves the original two-checkpoint assignment and its acceptance criteria. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
+**I6 and I7 have passed source qualification.** I15 checks compatibility through the public interfaces. I5 lookup and A4 private failure storage passed their independent source checks. The table below preserves the original two-checkpoint assignment and its acceptance criteria. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
 
 #### First assignments
 
@@ -40,7 +40,7 @@ Give receiver and caller work different file owners once the wire examples agree
 
 #### Remaining I/C assignments
 
-**I7** is underway in a separate worktree. Begin with grant revocation and tampered restore fixtures, then exercise the singleton and doctor projection. Check a paused state using a fixture here. F3 owns the later live name-pause check. In the A/B backlog, **A3** supplies the policy cases for **B3** and **A5**. A3's receiver changes share a boundary with I5/I6, so agree on the wire examples before integrating those edits. **A2** fleet deadline tests can proceed independently and unblock **B2** readiness checks.
+**I15** exercises the shared contract with an independently registered client. I11 attachment and I13 transition evidence can proceed in parallel. Reserve installed trials separately. F3 owns the later live name-pause check. In the A/B backlog, **A3** supplies the policy cases for **B3** and **A5**. A3's receiver changes share a boundary with I5/I6, so agree on the wire examples before integrating those edits. **A2** fleet deadline tests can proceed independently and unblock **B2** readiness checks.
 
 | Assignment order | First worker return | Follow-up and release condition |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | I4 | Accepted | I3 | Existing remote Codex protocol rechecks selection, policy and native eligibility after proof capture. Reviewed receiver cases ran on both desktops. Installed cross-host proof on these bytes belongs to I16. [Receiver recheck](#local-inventory-and-exact-addressing) |
 | I5 | Accepted | I4 | Versioned literal lookup passed through CLI and MCP on a synthetic peer, including qualified and unqualified matches, collisions, partial coverage, refusal and an archived older receiver. Frames contained no message body and produced zero submissions. [Source review and walkthrough](#versioned-remote-lookup) |
 | I6 | Accepted | I5, B3 for sustained use | Versioned sends, probes and status pin one adapter and recipient across retries and upgrades. Both public faces recovered without resubmission. [Independent source review and walkthrough](#bound-remote-effects) |
-| I7 | Partial | B1 | Exercise the singleton logon watcher, broker-issued grants and protected restore. Alter or revoke a grant before observation and before dispatch. Verify zero unauthorized opens or sends and inspect active and paused subscriptions through doctor. [Broker and worker design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#authenticating-the-session-profile-worker) |
+| I7 | Accepted in source | B1 | The staged singleton and restored-state checks passed. Grant loss stopped observation and delivery, the original handle survived uncertain submission and doctor showed the pause reason. Whole-package installed upgrade and rollback remain open. [Recovery evidence](#watcher-restore-qualification) |
 | C1 | Accepted | Broker and worker baseline | Both installed Codex workers proved exit-status delivery for a command started by the relay. Keep coverage scoped to the qualified status-only grant. [Installed job trials](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#local-broker-for-completion-reports) |
 | C2 | Open | C1, I7, I15 | From the normal client, run a long command through tool-call teardown and recover the exit and bounded tail. Release a private tail only to the original authorized instance. Test resume, revocation, missing secure storage and wrong recipient. A5 gates restricted Claude delivery. |
 | I8 | Accepted | Broker and worker baseline | Both installed desktops proved a UTC schedule notice after writer resume through the qualified Codex route. [Clock, restart and installed results](#qualification-history) |
@@ -92,7 +92,7 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | I12 | Open | I11, I15 | Observe a separately started process ending through the installed worker. Exercise overlap, disconnect, restart and lost observation. Prove one permitted notice to the granted logical session with the chosen disclosure scope. |
 | I13 | Partial | I3, I7 | Establish positive evidence of an ordinary eligible completion and a busy-to-idle transition. The existing Codex trial can exclude a notice-bearing turn. Unknown, initial and mixed-cause observations must yield zero wakes. [Turn evidence](#delivery-proof-and-turn-identity) |
 | I14 | Open | I13, I15 | Exercise self and reciprocal watches with a fake clock, restart, coalescing and an outage. Verify one eligible transition produces one proved notice and no subsequent watcher-caused wakes. Qualify each enabled provider and host context. |
-| I15 | Open | I6, I7 | Before connecting a new recipient-facing watch, run the Claude Code and Codex regressions and an independently registered synthetic adapter through CLI, MCP, receive and watch. Cover literal IDs, collision, incomplete lookup, changed-adapter retry, send-only caller, unqualified resume and an older peer. Require zero unauthorized submissions and one proved notice on the supported path. Qualify a real additional client before claiming it. [Adapter contract](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work) |
+| I15 | Next | I6, I7 | Before connecting a new recipient-facing watch, run the Claude Code and Codex regressions and an independently registered synthetic adapter through CLI, MCP, receive and watch. Cover literal IDs, collision, incomplete lookup, changed-adapter retry, send-only caller, unqualified resume and an older peer. Require zero unauthorized submissions and one proved notice on the supported path. Qualify a real additional client before claiming it. [Adapter contract](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work) |
 | I16 | Open | I6, I7, I15, applicable A gates | Stage a restricted peer and use a raw-ID watch across machines. Prove one consumed notice in each qualified direction, recover after an outage with bounded retention, and reconcile broker, worker and doctor after restart. A5 applies to restricted Claude delivery. |
 
 ### F/E · Registry and names
@@ -124,6 +124,18 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | D4 | Open | D3, H3 | Roll out per peer pair with signed and explicitly unsigned peers. Exercise reconnect after revocation and downgrade refusal. Inspect the delivered header and cold receipt for distinct machine and session evidence, then verify the installed pair in both directions. |
 
 ## Current handoff
+
+### Watcher restore qualification
+
+At the I7 baseline both installed watcher heartbeats were fresh in reports-only mode with zero subscriptions. The coordinator read the bounded status projection on each desktop. The new source checks use disposable grants and stores to exercise revocation and restored state.
+
+The staged broker rejected a competing listener and restarted. Restoring one revoked job and its old authentication record reproduced a send on the earlier source. With the separate current witness, the restored job produced zero sends and the unaffected job delivered once. A missing witness stopped startup. A failed pre-submission attempt released its reservation after shutdown or grant loss. An existing receipt stayed available for proof without resending. Staging rejected source bytes that changed after the compatibility check.
+
+A low-effort Claude Code Haiku operator used the normal CLI help and doctor to identify the paused file watch, the reason and the waiting schedule. The dated readiness record confirmed the result. A fresh MCP process read the same result. Independent integration review at `6d5b779` passed all 49 focused tests. The combined Windows bridge suite passed 496 tests with four skips. Focused Linux checks passed 57 with one skip. The staged package used disposable state. Installed migration, physical power loss and a rollback that also restores the independent witness require separate qualification. [Review and operator evidence](relay-worker-handoffs.json)
+
+Hosted review on `8b662f3` reopened source acceptance. Verify schema compatibility for every partial update, interruption during initial state creation, retained job references, a fresh claim on the upgraded database, and the destination reservation for a paused watch. Each assignment is recorded in the worker register.
+
+Independent review of the five reopened findings passed at `6de806a`. Both partial updater entry points refused incompatible packages before scheduler access. Recovery retained the original job authority and destination reservations. A fresh grant worked on the upgraded store. A constrained operator read the staging refusal and setup guide and identified the whole-package procedure. The original package remained intact. The full Windows suite passed 502 with four skips. Focused Windows and Linux suites each passed 39 with one opt-in skip. The local watcher reported zero subscriptions in reports-only mode. The peer was offline during these checks. [Worker evidence](relay-worker-handoffs.json)
 
 ### Bound remote effects
 

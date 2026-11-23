@@ -4,6 +4,16 @@ The completion watcher collects job exit reports in a private local database. It
 
 ## Prepare and review
 
+### Existing watcher state
+
+Job-store schema 5 keeps a key and a separate SQLite witness file in the broker’s private state directory. The witness records one current digest per job, grant handoff, watch or observation. The broker updates that digest in the same transaction as its row. Before observing, checking proof or delivering, the broker requires both the authenticated row and its current witness. Restoring an earlier row along with its old authentication value leaves that work paused, including when only one row was restored.
+
+Stage compatible broker modules together. Before changing versions, stop accepting new work and reconcile outstanding effects using their original receipts and original authority. Opening a pre-5 store preserves its rows. Those rows have no independent witness and stay inert. Earlier broker binaries cannot read the upgraded schema. A distinct grant covers only future events.
+
+The broker requires the original key, the current witness and SQLite's disk-backed rollback journals for both databases. An unavailable witness stops startup. Keep the original state and reconcile its receipts before reenabling delivery. Administrator and broker access includes write authority over both files. Restoring matching old entries in **both** databases, even for one condition, can repeat an observation or doorbell. Keep delivery disabled after such a restore until the affected grants are revoked, previous outcomes are independently reconciled, and distinct grants authorize future work. Installed upgrade and crash recovery require qualification with the deployed package.
+
+For current health, run `relay doctor --json`. In `watcher.record.subscriptions`, a paused condition with reason `grant_changed` indicates that the current grant differs from the stored revision. `stored_state_unverified` means the broker could not authenticate the required state. A revoked grant disappears from the list. The `partial` flag can indicate retained work whose identity cannot be safely displayed, or additional subscriptions beyond the bounded list. The read-only MCP tool `relay_doctor` shows the last dated CLI record.
+
 Use the checked-out package builder with the installed Node runtime and absolute paths to the two native provider executables. Choose a new directory outside the checkout. Each desktop builds its own package.
 
 ```text
@@ -56,7 +66,7 @@ After acquiring its exclusive listener the broker issues one capability through 
 
 Stage the current broker module against the previously reviewed package in a new private directory. Staging checks the previous digest and copies the other members byte for byte. Keep both packages until the update and its recovery window are complete.
 
-For a change to the broker's job store module, use `stage-jobs` and pass `-Component Jobs` to the updater. Each update still replaces one reviewed file. Install a job store API addition before installing a broker that calls it.
+For an independently compatible job store change, `stage-jobs` and `-Component Jobs` update one reviewed file. Every partial staging mode and both updater operations check the rollback format whenever the store module changes. Both reviewed modules must declare the same format. A legacy module without a declaration can be carried forward byte for byte. A schema change needs a complete watcher package and a separately qualified whole-package upgrade and recovery procedure. This includes the schema 5 transition, because its first broker start changes the live database even in reports-only mode. Keep the current installation in reports-only mode until that procedure is qualified.
 
 ```text
 node watcher-package.mjs stage-broker <new-directory> <previous-directory> <previous-digest>

@@ -183,7 +183,7 @@ test("watcher recovers the original handle automatically and cannot overlap a st
   assert.equal(count, 1);
 });
 
-test("an old job database preserves pending work during upgrade", async t => {
+test("an unsigned legacy job retains its record and cannot spend a proof or send after upgrade", async t => {
   const f = await fixture(t);
   const db = new DatabaseSync(f.file);
   db.exec(`DROP TABLE grant_handoffs; ALTER TABLE jobs DROP COLUMN run_only;
@@ -192,12 +192,51 @@ test("an old job database preserves pending work during upgrade", async t => {
   db.prepare("INSERT INTO jobs(id,token_hash,recipient,provider,instance,valid_until,state,handle) VALUES(?,?,?,?,?,?,?,?)")
     .run(other.id, Buffer.alloc(32), first.id, "claude", "instance", 90000, "observing", "original");
   db.close();
-  const store = await f.open({ now: () => 100, send: assert.fail, status: async handle => {
-    assert.equal(handle, "original");
-    return { to: first.id, state: "delivered" };
-  } });
-  assert.equal(await store.dispatchDue(), true);
-  assert.equal(await store.dispatch(other.id), "delivered");
+  const store = await f.open({ now: () => 100, send: assert.fail, status: assert.fail });
+  assert.equal(await store.dispatchDue(), false);
+  assert.equal(await store.dispatch(other.id), "unavailable");
+  assert.deepEqual(store.subscriptions(), { partial: true, subscriptions: [] });
+  const retained = new DatabaseSync(f.file, { readOnly: true });
+  try { assert.equal(retained.prepare("SELECT handle FROM jobs WHERE id=?").get(other.id).handle, "original"); }
+  finally { retained.close(); }
+});
+
+test("a missing broker key cannot initialize an existing store or retry an uncertain dispatch", async t => {
+  const f = await fixture(t);
+  const store = await f.open({ now: () => 0, send: async () => { throw Error("interrupted"); }, status: assert.fail });
+  const id = ready(store, first);
+  await assert.rejects(store.dispatch(id), /interrupted/);
+  const key = f.file + ".key";
+  fs.renameSync(key, key + ".saved");
+  await assert.rejects(f.open({ send: assert.fail, status: assert.fail }));
+  assert.equal(fs.existsSync(key), false);
+  fs.renameSync(key + ".saved", key);
+  const reopened = await f.open({ now: () => 2000, send: assert.fail, status: assert.fail });
+  assert.equal(await reopened.dispatch(id), "unknown");
+  assert.equal(await reopened.dispatchDue(), false);
+});
+
+test("recovery skips a job with inconsistent completion data and dispatches a healthy job", async t => {
+  const f = await fixture(t);
+  let now = 0;
+  const issued = await f.open({ now: () => now });
+  const damaged = ready(issued, first);
+  const good = ready(issued, other);
+  const db = new DatabaseSync(f.file);
+  try { db.prepare("UPDATE jobs SET code=NULL WHERE id=?").run(damaged); }
+  finally { db.close(); }
+  const delivered = [];
+  now = 2000;
+  const reopened = await f.open({ now: () => now, send: async (id, _, options) => {
+    options.onHandle("original", other);
+    delivered.push(id);
+    return { state: "pending" };
+  }, status: async () => ({ to: other.id, state: "delivered" }) });
+  assert.deepEqual(reopened.subscriptions().subscriptions.map(job => job.id), [good]);
+  assert.equal(reopened.subscriptions().partial, true);
+  assert.equal(await reopened.dispatch(damaged), "unavailable");
+  assert.equal(await reopened.dispatchDue(), true);
+  assert.deepEqual(delivered, [other.id]);
 });
 
 test("uncertain dispatch stays out of automatic retries and a permanent denial cannot starve newer jobs", async t => {
