@@ -1,5 +1,23 @@
 [
   {
+    "id": "i11-close-and-disconnect",
+    "revision": "ae64e69110e30d0dcc51fb80aef9b77606dd4309",
+    "coordinator": "relay coordinator",
+    "worker": "worker attachment implementer",
+    "state": "assigned",
+    "scope": "Check partial child startup cleanup and disconnect evidence.",
+    "acceptance": "A failed second launch joins the first child. An expiry before disconnect cannot pass the disconnect proof."
+  },
+  {
+    "id": "i13-cursor-gap",
+    "revision": "ae64e69110e30d0dcc51fb80aef9b77606dd4309",
+    "coordinator": "relay coordinator",
+    "worker": "session transition implementer",
+    "state": "assigned",
+    "scope": "Check a thrown cursor read between busy and completion.",
+    "acceptance": "A cursor read failure breaks continuity and a later sample requires a fresh baseline."
+  },
+  {
     "id": "i11-i13-final-review",
     "revision": "91143c20d0d8654fac5ffa6e5b3bbb529d1c0bd6",
     "coordinator": "relay coordinator",
@@ -69,6 +87,7 @@
     "acceptance": "Keep two grants distinct across reconnect, prove the original process identity and verify that revocation releases only its handle.",
     "result": {
       "revision": "d646db5437023c2759e48d2427be02820d454c6e",
+      "testedRevision": "91143c20d0d8654fac5ffa6e5b3bbb529d1c0bd6",
       "verdict": "Local authenticated fixture passed",
       "evidence": "Two same-account processes remained independently identifiable through reconnect. A per-handle witness detected an intentionally omitted disposal despite the second observer. Both processes exited with the expected code. The initial aggregate handle check was sensitive to unrelated observers.",
       "limitations": "Fixture uses in-memory grants and disposable children. It does not establish durable event accounting or the installed identity boundary."
@@ -89,6 +108,7 @@
     "acceptance": "Count eligible events once and suppress initial, stale, ambiguous, notice-bearing and mixed observations. Distinguish fixture and provider evidence.",
     "result": {
       "revision": "d646db5437023c2759e48d2427be02820d454c6e",
+      "testedRevision": "f708e02d0fb06d4ecd7a894880cb8bb38add998b",
       "verdict": "Candidate regressions passed",
       "evidence": "The focused metadata and candidate suites passed 32 tests with a serialized cursor. A formerly eligible delayed idle after an ambiguous turn yielded zero events. A qualified busy-to-idle transition still recorded once.",
       "limitations": "Independent finalized cause evidence was supplied by the fixture. No automatic notices were sent."

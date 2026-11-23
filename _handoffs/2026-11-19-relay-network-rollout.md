@@ -378,6 +378,8 @@ The [handoff register](relay-worker-handoffs.json) records assignments, returns 
 
 Use a short-lived branch for each independently reviewable relay checkpoint. If the shared checkout contains other work, use a separate worktree and stage only the intended files. The coordinator owns integration and may complete routine pushes and merges under the owner's standing approval.
 
+Group temporary relay worktrees under one local worktree directory. At closeout, verify the branch tip is on main and inspect local changes and ignored files. Remove the checkout with `git worktree remove` once its users have finished and any remaining files are known disposable artifacts. Preserve a checkout that contains unmerged work or unaccounted-for files.
+
 | Decision | When to act | Evidence to keep |
 | --- | --- | --- |
 | Commit locally | A small, coherent change can be explained and verified on its own. Keep its regression coverage with the change. Inspect the staged diff for scope and public suitability. | Record the focused check and its outcome. A deliberately failing test can be a private work-in-progress checkpoint. |
