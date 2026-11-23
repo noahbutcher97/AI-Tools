@@ -20,6 +20,7 @@ function trial(t) {
   const scope = { machine: "local", provider: "fixture", thread: randomUUID(), store: randomUUID(), writer: randomUUID() };
   const candidates = [];
   const state = { allowed: true, sampleScope: scope, writerState: "busy", reads: 0 };
+  const savedCursors = new Map();
   const adapters = {
     authorize: () => state.allowed,
     readSample() {
@@ -27,7 +28,10 @@ function trial(t) {
       return { scope: state.sampleScope, writerState: state.writerState, turn: readTrialTurns(scope.thread, profile).at(-1) };
     },
     readFinalCauses: () => state.receipt,
-    cursors: new Map(),
+    cursors: {
+      get(key) { return savedCursors.has(key) ? JSON.parse(savedCursors.get(key)) : undefined; },
+      set(key, cursor) { savedCursors.set(key, JSON.stringify(cursor)); },
+    },
     record: kind => candidates.push(kind),
   };
   let ordinal = 0, inputOrdinal = 0, turn;
@@ -130,7 +134,6 @@ test("restart baselines a missed completion, rechecks the grant and accepts a fr
   f.attest(f.input());
   f.poll();
   f.complete();
-  f.adapters.cursors = new Map(JSON.parse(JSON.stringify([...f.adapters.cursors])));
   const coldPoll = f.restart();
   f.state.allowed = false;
   coldPoll();

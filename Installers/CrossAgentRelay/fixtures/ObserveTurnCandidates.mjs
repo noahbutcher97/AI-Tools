@@ -48,21 +48,18 @@ export function createCandidateObserver(scope, { authorize, readSample, readFina
     // the busy observation to this turn and discard it across observation gaps.
     const sawBusy = sameTurn && wasContinuous && prior.pendingIdle === true;
     current.pendingIdle = current.writerState === "busy" && (!completed || sawBusy);
+    const ended = completed && wasContinuous && prior && (!sameTurn || !prior.completed);
+    const becameIdle = completed && sawBusy && current.writerState === "idle";
+    let eligible = false;
+    if (ended || becameIdle) {
+      if (authorize(scope) !== true) return;
+      eligible = ordinaryInputs(scope, row, readFinalCauses(scope, row.turn_id));
+      if (authorize(scope) !== true) return;
+      if (!eligible) current.pendingIdle = false;
+    }
     cursors.set(cursorKey, current);
     continuous = true;
-    if (!wasContinuous || !prior || !completed) return;
-    const ended = !sameTurn || !prior.completed;
-    const becameIdle = sawBusy && current.writerState === "idle";
-    if (!ended && !becameIdle) return;
-    continuous = false;
-    if (authorize(scope) !== true) return;
-    const eligible = ordinaryInputs(scope, row, readFinalCauses(scope, row.turn_id));
-    if (authorize(scope) !== true) return;
-    continuous = true;
-    if (!eligible) {
-      current.pendingIdle = false;
-      return;
-    }
+    if (!eligible) return;
     if (ended) record("turn-completed");
     if (becameIdle && authorize(scope) === true) record("busy-to-idle");
   };
