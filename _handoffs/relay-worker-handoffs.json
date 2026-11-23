@@ -1,21 +1,103 @@
 [
   {
+    "id": "i11-i13-final-review",
+    "revision": "91143c20d0d8654fac5ffa6e5b3bbb529d1c0bd6",
+    "coordinator": "relay coordinator",
+    "worker": "independent reviewer",
+    "state": "accepted",
+    "scope": "Recheck the final single-desktop attachment and candidate fixtures after correcting the review findings.",
+    "acceptance": "Reproduce the original cases, verify native and portable checks, and identify remaining limits.",
+    "result": {
+      "revision": "91143c20d0d8654fac5ffa6e5b3bbb529d1c0bd6",
+      "verdict": "Passed for source fixtures",
+      "evidence": "All 41 focused tests passed. Six concurrent native fixtures reported zero remaining lease handles on disconnect and both target exits. All six scratch profiles were removed. Independent replays suppressed idle after an ambiguous completion and invalidated an interrupted status sequence. An absent index produced a bounded error before any stub submission.",
+      "limitations": "Same-account native fixture and synthetic inputs. Installed broker grants, durable event accounting, exhaustive live causation and peer qualification remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Carry the outstanding installed and provider checks forward."
+    }
+  },
+  {
+    "id": "i11-i13-local-source-review",
+    "revision": "be4c05c532abdb8d337b42d79637d750d97e6ca8",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Review the integrated attachment and transition checks on one desktop.",
+    "acceptance": "Verify fixture confinement, actual reconnect and handle closure, causation controls, evidence limits of the live ordinary-input mode, and cleanup.",
+    "result": {
+      "revision": "be4c05c532abdb8d337b42d79637d750d97e6ca8",
+      "verdict": "Findings fixed and independently retested",
+      "evidence": "The reviewer reproduced a false idle from a copied cursor, a confirmed trial across a writer status gap and an index failure that surfaced a private diagnostic after a stub submission. The final review repeated these cases after correction.",
+      "limitations": "No provider calls in the source review."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Keep the three regressions in the focused suite."
+    }
+  },
+  {
+    "id": "i11-i13-local-operator",
+    "revision": "be4c05c532abdb8d337b42d79637d750d97e6ca8",
+    "coordinator": "relay coordinator",
+    "worker": "constrained operator",
+    "state": "accepted",
+    "scope": "Follow the local qualification instructions and interpret the two results.",
+    "acceptance": "Distinguish source and installed qualification, one-input correlation and full turn causation, and identify recovery after a failed live check.",
+    "result": {
+      "revision": "be4c05c532abdb8d337b42d79637d750d97e6ca8",
+      "verdict": "Guide walkthrough passed",
+      "evidence": "A low-effort Claude Code operator given the public instructions identified the local fixture, the separate signed-in one-turn trial and the before-submission and after-submission recovery steps. The operator correctly limited the live result to correlation of one input. The guide now states the use of local named pipes.",
+      "limitations": "Agent interpreted the guide. A human participant and an installed broker were outside this walkthrough."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Use the live cost and archive instructions at the next provider qualification."
+    }
+  },
+  {
     "id": "i11-local-broker-attachment",
     "revision": "d646db5437023c2759e48d2427be02820d454c6e",
     "coordinator": "relay coordinator",
     "worker": "worker attachment implementer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Exercise grant-bound attachment, reconnect and revocation on one desktop.",
-    "acceptance": "Keep two grants distinct across reconnect, prove the original process identity and verify that revocation releases only its handle."
+    "acceptance": "Keep two grants distinct across reconnect, prove the original process identity and verify that revocation releases only its handle.",
+    "result": {
+      "revision": "d646db5437023c2759e48d2427be02820d454c6e",
+      "verdict": "Local authenticated fixture passed",
+      "evidence": "Two same-account processes remained independently identifiable through reconnect. A per-handle witness detected an intentionally omitted disposal despite the second observer. Both processes exited with the expected code. The initial aggregate handle check was sensitive to unrelated observers.",
+      "limitations": "Fixture uses in-memory grants and disposable children. It does not establish durable event accounting or the installed identity boundary."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Qualify the installed broker and worker before closing I11."
+    }
   },
   {
     "id": "i13-local-transition-candidates",
     "revision": "d646db5437023c2759e48d2427be02820d454c6e",
     "coordinator": "relay coordinator",
     "worker": "session transition implementer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Exercise positive ordinary completion and busy-to-idle evidence without delivering a notice.",
-    "acceptance": "Count eligible events once and suppress initial, stale, ambiguous, notice-bearing and mixed observations. Distinguish fixture and provider evidence."
+    "acceptance": "Count eligible events once and suppress initial, stale, ambiguous, notice-bearing and mixed observations. Distinguish fixture and provider evidence.",
+    "result": {
+      "revision": "d646db5437023c2759e48d2427be02820d454c6e",
+      "verdict": "Candidate regressions passed",
+      "evidence": "The focused metadata and candidate suites passed 32 tests with a serialized cursor. A formerly eligible delayed idle after an ambiguous turn yielded zero events. A qualified busy-to-idle transition still recorded once.",
+      "limitations": "Independent finalized cause evidence was supplied by the fixture. No automatic notices were sent."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Determine what cause evidence a passive provider observer can obtain."
+    }
   },
   {
     "id": "i15-final-proof-regression",
