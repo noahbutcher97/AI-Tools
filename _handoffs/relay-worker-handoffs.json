@@ -1,30 +1,103 @@
 [
   {
+    "id": "i7-package-operator-check",
+    "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "A constrained package operator interprets a refused partial upgrade.",
+    "acceptance": "Identify a safe next action from the staging diagnostic and public setup guide. Confirm the fixture retains the previous package.",
+    "result": {
+      "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+      "verdict": "Passed in source",
+      "evidence": "A low-effort Claude Code Haiku operator used the real staging error and the public setup guide to explain how to recover from a refused partial package. The staging fixture independently confirmed that the original package remained intact and no candidate existed.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
+    "id": "i7-final-recovery-review",
+    "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Independently verify all five reopened recovery findings on the integrated revision.",
+    "acceptance": "Inspect staging and rollback, cold key publication, retained jobs, new grants after upgrade, and paused reservations. Report remaining blockers and evidence.",
+    "result": {
+      "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
+      "verdict": "Passed in source",
+      "evidence": "At 6de806a the independent Windows review passed 38 cases with one opt-in skip. Both Plan and Apply refused incompatible formats before scheduler access. Restart, retained and newly issued grants, and reservation accounting passed on disposable state.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
+  },
+  {
     "id": "i7-partial-upgrade",
     "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
     "coordinator": "relay coordinator",
     "worker": "package maintainer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Enforce the documented whole-package gate across all partial updater paths.",
-    "acceptance": "A partial update cannot migrate the on-disk database beyond the rollback binary."
+    "acceptance": "A partial update cannot migrate the on-disk database beyond the rollback binary.",
+    "result": {
+      "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+      "verdict": "Passed in source",
+      "evidence": "6de806a checks the rollback format in partial staging and at the PowerShell updater entry point. A missing or different declaration refused the transition. The matching-format control reached the scheduler boundary.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
   },
   {
     "id": "i7-job-recovery",
     "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
     "coordinator": "relay coordinator",
     "worker": "job recovery maintainer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Check interrupted key creation and retained grant batches.",
-    "acceptance": "Require complete durable key publication, valid retained jobs and an actual new claim on an upgraded store."
+    "acceptance": "Require complete durable key publication, valid retained jobs and an actual new claim on an upgraded store.",
+    "result": {
+      "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+      "verdict": "Passed in source",
+      "evidence": "2279753 covered four interrupted key states, verified retained job members without replacement and claimed a new grant on the upgraded database. Consumed members remained verifiable.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
   },
   {
     "id": "i7-reservation-scope",
     "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
     "coordinator": "relay coordinator",
     "worker": "watcher recovery worker",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Keep a paused verified reservation blocking another wake for the same destination.",
-    "acceptance": "Exercise paused sample with outstanding receipt and confirm another destination can proceed."
+    "acceptance": "Exercise paused sample with outstanding receipt and confirm another destination can proceed.",
+    "result": {
+      "revision": "8b662f3de449fe5eaad4fb0e5f4afdcb23b73601",
+      "verdict": "Passed in source",
+      "evidence": "026818b kept a verified uncertain reservation after a bad observation paused its watch. The same destination stayed occupied and another recipient could proceed.",
+      "limitations": "Disposable source and package qualification. Installed upgrade and rollback remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted after independent review.",
+      "next": "Keep the installed rollout gated on its separate qualification."
+    }
   },
   {
     "id": "i7-integrated-source-review",
