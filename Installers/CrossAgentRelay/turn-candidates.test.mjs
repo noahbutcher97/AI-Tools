@@ -178,6 +178,27 @@ test("revoking observation during the cause lookup suppresses both candidates", 
   assert.deepEqual(f.candidates, []);
 });
 
+test("a failed cursor read breaks continuity until a new baseline is observed", t => {
+  const f = trial(t);
+  f.begin();
+  f.attest(f.input());
+  f.poll();
+  const cursors = f.adapters.cursors;
+  const get = cursors.get;
+  cursors.get = () => { throw Error("cursor unavailable"); };
+  assert.throws(f.poll, /cursor unavailable/);
+  cursors.get = get;
+  f.complete();
+  f.poll();
+  assert.deepEqual(f.candidates, []);
+  f.begin();
+  f.poll();
+  f.attest(f.input());
+  f.complete();
+  f.poll();
+  assert.deepEqual(f.candidates, ["turn-completed", "busy-to-idle"]);
+});
+
 test("an ambiguous completion while busy cannot become an idle candidate on a later poll", t => {
   const f = trial(t);
   f.begin();

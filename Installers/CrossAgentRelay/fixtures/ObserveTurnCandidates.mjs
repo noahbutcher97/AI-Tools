@@ -27,10 +27,10 @@ export function createCandidateObserver(scope, { authorize, readSample, readFina
   const cursorKey = JSON.stringify(scopeFields.map(key => scope[key]));
   let continuous = false;
   return function poll() {
-    const prior = cursors.get(cursorKey);
     const wasContinuous = continuous;
     continuous = false; // Disconnection, read failures and restart all require a fresh baseline.
     if (authorize(scope) !== true) return;
+    const prior = cursors.get(cursorKey);
     const sample = readSample(scope);
     if (!isDeepStrictEqual(sample?.scope, scope) || !["busy", "idle"].includes(sample.writerState)) return;
     const row = sample.turn;
