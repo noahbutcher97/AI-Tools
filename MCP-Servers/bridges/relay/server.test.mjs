@@ -76,7 +76,10 @@ test("MCP schedule registration requires a bound caller and declares its effect"
     const result = await c.callTool({ name: "relay_watch", arguments: {
       target: "00000000-0000-4000-8000-000000000001", condition: "00000000-0000-4000-8000-000000000002",
     } });
-    assert.deepEqual(JSON.parse(result.content[0].text), { ok: false, state: "denied" });
+    const refusal = JSON.parse(result.content[0].text);
+    assert.equal(refusal.ok, false);
+    assert.equal(refusal.state, "denied");
+    assert.match(refusal.detail, /intended Codex thread/);
   });
 });
 

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { newRequestId } from "./delivery-protocol.mjs";
@@ -180,18 +181,41 @@ test("a send-only client can ring a synthetic recipient but cannot activate a Co
     assert.deepEqual(notice.binding, { host: request.host, adapter: request.adapter, id: request.id });
 
     const watch = { target, condition };
-    assert.equal(f.cli("watch", "--notify", target, condition).state, "denied");
+    const refusal = f.cli("watch", "--notify", target, condition);
+    assert.equal(refusal.state, "denied");
+    assert.match(refusal.detail, /intended Codex thread/);
     for (const writer of ["first", "resumed"]) {
-      assert.equal((await f.mcp("relay_watch", watch, unqualifiedWriter(writer))).state, "denied");
+      assert.deepEqual(await f.mcp("relay_watch", watch, unqualifiedWriter(writer)), refusal);
     }
+    const qualified = { "x-codex-turn-metadata": { thread_id: target } };
+    assert.deepEqual(await f.mcp("relay_watch", watch, { threadId: target }), refusal);
+    assert.deepEqual(await f.mcp("relay_watch", watch, { ...qualified, threadId: randomUUID() }), refusal);
+    f.env.CLAUDE_CODE_SESSION_ID = target;
+    assert.deepEqual(await f.mcp("relay_watch", watch, qualified), refusal);
+    f.env.CODEX_THREAD_ID = target;
+    assert.deepEqual(f.cli("watch", "--notify", target, condition), refusal);
+    delete f.env.CLAUDE_CODE_SESSION_ID;
+    assert.deepEqual(await f.mcp("relay_watch", watch, { threadId: target }), refusal);
+    f.env.CODEX_SESSION_ID = randomUUID();
+    assert.deepEqual(f.cli("watch", "--notify", target, condition), refusal);
+    delete f.env.CODEX_SESSION_ID;
     assert.deepEqual(activations, []);
     assert.deepEqual(store.watches.subscriptions(policy), []);
     assert.equal(f.submitted().length, 1);
 
-    // Positive control uses the same grant, public tool, broker and raw ID.
-    const qualified = { "x-codex-turn-metadata": { thread_id: target } };
-    assert.equal((await f.mcp("relay_watch", watch, qualified)).state, "subscribed");
-    assert.deepEqual(activations, ["activate_schedule"]);
+    // Both qualified entry points reach the same broker and idempotent grant.
+    const cli = await promisify(execFile)(process.execPath, [...nodeArgs, "cli.mjs", "watch", "--notify", target, condition],
+      { cwd: bridge, env: f.env, encoding: "utf8", timeout: 15000, windowsHide: true });
+    assert.equal(JSON.parse(cli.stdout).state, "subscribed");
+    delete f.env.CODEX_THREAD_ID;
+    assert.equal((await f.mcp("relay_watch", watch, { ...qualified, threadId: target })).state, "subscribed");
+    assert.deepEqual(activations, ["activate_schedule", "activate_schedule"]);
     assert.deepEqual(store.watches.subscriptions(policy), [{ id: condition, target, condition: "schedule", state: "waiting" }]);
+    assert.equal((await f.mcp("relay_send", request, { threadId: target })).state, "queued");
+    const sent = f.submitted();
+    assert.equal(sent.length, 2);
+    const legacy = JSON.parse(sent[1].text.split("\n", 1)[0].slice("RELAY-META ".length));
+    assert.equal(legacy.from.id, target);
+    assert.equal(legacy.from.session_evidence, "claimed");
   } finally { await listener?.close(); store.close(); }
 });

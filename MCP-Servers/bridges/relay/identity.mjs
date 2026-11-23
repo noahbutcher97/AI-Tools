@@ -118,6 +118,23 @@ export function resolveCallerIdentity({ env = process.env, extra = null } = {}) 
   return fromRequest || fromEnv;
 }
 
+// A watch activates an issued grant. Require the provider-specific evidence
+// for this entry point, and agreement across all populated identity fields.
+export function resolveWatchCaller(channel, { env = process.env, extra } = {}) {
+  const identity = channel === "cli" ? fromEnvironment(env) : detectRequestOrigin(extra);
+  if (!identity) return null;
+  if (channel === "mcp") {
+    const meta = extra?._meta;
+    if (meta?.[CODEX_META_KEY]?.thread_id !== identity.id ||
+        (meta.threadId !== undefined && meta.threadId !== identity.id)) return null;
+  } else if (channel !== "cli") return null;
+  for (const [name, provider] of IDENTITY_VARS) {
+    const id = env?.[name];
+    if (id && (id !== identity.id || provider !== identity.provider)) return null;
+  }
+  return identity;
+}
+
 // The fields observed on 2026-08-26. Anything outside this set is drift worth a
 // human's attention.
 //
