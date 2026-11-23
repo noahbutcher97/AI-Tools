@@ -29,6 +29,7 @@ const fromShell = process.argv[3] === "--from-shell";
 const boundPing = process.argv[3] === "--bound-ping";
 const turnStudy = process.argv[3] === "--turn-metadata";
 const proofStudy = process.argv[3] === "--turn-receipt";
+const ordinaryStudy = process.argv[3] === "--ordinary-input";
 const metadataOnly = turnStudy || proofStudy;
 const schedule = metadataOnly || process.argv[3] === "--schedule";
 const checkMcp = process.argv[3] === "--mcp-watch";
@@ -40,7 +41,7 @@ const exchangeDir = installed ? process.argv[4] : null;
 const preparedTrial = installedMcp || installedBranch ? process.argv[5] : undefined;
 if (installedBranch && !preparedTrial) throw Error("Supply the branch trial condition ID");
 if (preparedTrial !== undefined && !/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(preparedTrial)) throw Error("Invalid trial ID");
-if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp || boundPing ? 4 : 3)) throw Error("Unexpected qualification argument");
+if (process.argv.length !== (installed ? (preparedTrial ? 6 : 5) : fromShell || schedule || checkMcp || boundPing || ordinaryStudy ? 4 : 3)) throw Error("Unexpected qualification argument");
 if (installed && (!path.isAbsolute(exchangeDir) || path.relative(exchangeDir, fs.realpathSync.native(exchangeDir)) !== "" ||
     fs.readdirSync(exchangeDir).length)) throw Error("Supply an empty private trial directory");
 const signals = preparedTrial ? path.join(process.env.ProgramFiles, "RelayWatcherTrial-" + preparedTrial.replaceAll("-", "")) :
@@ -56,6 +57,7 @@ const params = { model, cwd: checkMcp || installedMcp ? mcpWorkspace : workspace
 const sessionName = "relay-check-" + (installedBranch ? preparedTrial : randomUUID());
 let provider, store, listener, id;
 let stopSampling;
+let observeOrdinary;
 const indexedBusy = new Set();
 const startedSignals = new Map();
 const providers = [];
@@ -86,6 +88,10 @@ async function startProvider() {
   lines.on("line", line => {
     const msg = JSON.parse(line);
     if (msg.id && inbox.has(msg.id)) inbox.get(msg.id)(msg);
+    if (ordinaryStudy) {
+      if (id && msg.params?.threadId === id) observeOrdinary?.(msg.method, msg.params);
+      return;
+    }
     if (msg.method === "turn/completed" && ((!metadataOnly && !boundPing) || msg.params.threadId === id)) {
       turns.set(msg.params.turn.id, msg.params.turn.status);
     }
@@ -187,6 +193,13 @@ async function runTrial() {
     assert.equal(started.approvalPolicy, "never");
   }
   await provider.call("thread/name/set", { threadId: id, name: sessionName });
+  if (ordinaryStudy) {
+    const { qualifyOrdinaryInput } = await import("./fixtures/QualifyOrdinaryInput.mjs");
+    const result = await qualifyOrdinaryInput(id, provider.call, observe => { observeOrdinary = observe; });
+    console.log(JSON.stringify(result));
+    if (!result.confirmed) process.exitCode = 1;
+    return;
+  }
   if (turnStudy) {
     const { sampleTurnStatus } = await import("./fixtures/ReadTurnMetadata.mjs");
     const timer = setInterval(() => {
@@ -515,7 +528,7 @@ try {
     try {
       await provider.call("thread/archive", { threadId: id });
       archived = true;
-      if (metadataOnly || boundPing) console.log("Disposable qualification thread archived.");
+      if (metadataOnly || boundPing || ordinaryStudy) console.log("Disposable qualification thread archived.");
     } catch { console.error("The disposable thread could not be archived."); process.exitCode = 1; }
   }
   for (const p of providers) await p.close();
