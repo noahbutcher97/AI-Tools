@@ -43,7 +43,7 @@ jobs:
         run: npm test -- remote-effect.test.mjs addressed-effect.test.mjs delegate.test.mjs completion-jobs.test.mjs
       - name: Verify receipt migration
         run: node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test Installers/CrossAgentRelay/receipt-migration.test.mjs
-      - run: node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs Installers/CrossAgentRelay/turn-metadata.test.mjs MCP-Servers/bridges/relay/proof.test.mjs
+      - run: node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test Installers/CrossAgentRelay/operator-walkthrough.test.mjs Installers/CrossAgentRelay/trial-input-count.test.mjs Installers/CrossAgentRelay/turn-metadata.test.mjs Installers/CrossAgentRelay/turn-candidates.test.mjs Installers/CrossAgentRelay/ordinary-input.test.mjs MCP-Servers/bridges/relay/proof.test.mjs
       - name: Verify watcher package and health reporting
         run: node MCP-Servers/bridges/relay/fixtures/run-with-test-profile.mjs -- node --test Installers/CrossAgentRelay/watcher-package.test.mjs MCP-Servers/bridges/relay/watcher-health.test.mjs MCP-Servers/bridges/relay/watcher-doctor.test.mjs MCP-Servers/bridges/relay/completion-watch.test.mjs MCP-Servers/bridges/relay/schedule-watch.test.mjs MCP-Servers/bridges/relay/run-handoff.test.mjs
 
