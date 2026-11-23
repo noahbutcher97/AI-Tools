@@ -125,6 +125,7 @@ test("body-free refusals and interrupted remote probes recover through a fresh p
   assert.equal(f.submitted().length, 1);
 
   f.configure({ dropReply: "ping" });
+  f.write("peer/inbound.json", [f.submitted()[0]]);
   const requestId = newRequestId();
   const attempt = await f.mcp("relay_ping", { ...target, request_id: requestId });
   assert.equal(attempt.cause, "unknown", JSON.stringify(attempt));
@@ -139,9 +140,10 @@ test("body-free refusals and interrupted remote probes recover through a fresh p
     { ...notice, binding: { ...notice.binding, host: "host-a" } },
     { ...notice, text: "Unrelated inbound notice." },
   ];
-  f.write("peer/inbound.json", unrelated);
+  // Even identical bytes in the slot before the saved cursor cannot prove this ping.
+  f.write("peer/inbound.json", [notice, ...unrelated]);
   assert.equal((await f.mcp("relay_ping", { status: attempt.handle })).state, "pending");
-  f.write("peer/inbound.json", [...unrelated, notice]);
+  f.write("peer/inbound.json", [notice, ...unrelated, notice]);
   assert.equal(f.cli("ping", "--status", attempt.handle).state, "delivered");
   assert.equal(f.cli("ping", "--id=" + shared, "--adapter", "other", "--host", "host-b", "--request-id", requestId).state, "delivered");
   assert.equal(f.submitted().length, 2);
