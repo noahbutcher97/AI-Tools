@@ -1,21 +1,66 @@
 [
   {
+    "id": "i11-i13-pr-review",
+    "revision": "499e241cc3d0ce8ccb290ca8dff59e71f64a1258",
+    "coordinator": "relay coordinator",
+    "worker": "independent reviewer",
+    "state": "accepted",
+    "scope": "Review the PR corrections to disconnect proof, partial startup cleanup and cursor continuity.",
+    "acceptance": "Repeat the focused fixture checks on the corrected source. Identify any remaining blocker.",
+    "result": {
+      "revision": "499e241cc3d0ce8ccb290ca8dff59e71f64a1258",
+      "testedRevision": "499e241cc3d0ce8ccb290ca8dff59e71f64a1258",
+      "verdict": "Independent review passed",
+      "evidence": "At 499e241 all 42 portable tests and four concurrent authenticated Windows trials passed. Every partial-start control joined its first target. Expired leases gave zero disconnect closures. The reviewer verified both testedRevision entries against implementation history.",
+      "limitations": "Installed grants, durable reconnect accounting, live all-input attribution and peer checks remain open."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Retain the source evidence and perform the installed checks separately."
+    }
+  },
+  {
     "id": "i11-close-and-disconnect",
     "revision": "ae64e69110e30d0dcc51fb80aef9b77606dd4309",
     "coordinator": "relay coordinator",
     "worker": "worker attachment implementer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Check partial child startup cleanup and disconnect evidence.",
-    "acceptance": "A failed second launch joins the first child. An expiry before disconnect cannot pass the disconnect proof."
+    "acceptance": "A failed second launch joins the first child. An expiry before disconnect cannot pass the disconnect proof.",
+    "result": {
+      "revision": "ae64e69110e30d0dcc51fb80aef9b77606dd4309",
+      "testedRevision": "499e241cc3d0ce8ccb290ca8dff59e71f64a1258",
+      "verdict": "Fixed and retested",
+      "evidence": "The failure control showed the first target could survive a failed second start. The corrected worker joins that child. With expired leases on a connected pipe, disconnect was credited with zero. Three normal runs credited two and one across their two epochs.",
+      "limitations": "Same-account Windows source trials."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Retain these controls for changes to the lease fixture."
+    }
   },
   {
     "id": "i13-cursor-gap",
     "revision": "ae64e69110e30d0dcc51fb80aef9b77606dd4309",
     "coordinator": "relay coordinator",
     "worker": "session transition implementer",
-    "state": "assigned",
+    "state": "accepted",
     "scope": "Check a thrown cursor read between busy and completion.",
-    "acceptance": "A cursor read failure breaks continuity and a later sample requires a fresh baseline."
+    "acceptance": "A cursor read failure breaks continuity and a later sample requires a fresh baseline.",
+    "result": {
+      "revision": "ae64e69110e30d0dcc51fb80aef9b77606dd4309",
+      "testedRevision": "499e241cc3d0ce8ccb290ca8dff59e71f64a1258",
+      "verdict": "Fixed and retested",
+      "evidence": "A cursor read failure after busy produced two false candidates. Breaking continuity before the read suppressed both. The following fully observed ordinary turn still produced both expected candidates. The focused metadata and candidate suites passed 33 tests.",
+      "limitations": "Synthetic receipts and a recording adapter."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded scope.",
+      "next": "Keep provider attribution open until observed independently."
+    }
   },
   {
     "id": "i11-i13-final-review",
