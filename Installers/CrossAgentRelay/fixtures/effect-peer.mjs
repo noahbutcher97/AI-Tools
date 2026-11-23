@@ -13,7 +13,8 @@ import { createRemoteLookup } from "../../../MCP-Servers/bridges/relay/remote-lo
 const dir = path.join(process.env.RELAY_FIXTURE_ROOT, "peer");
 const config = JSON.parse(fs.readFileSync(path.join(process.env.RELAY_FIXTURE_ROOT, "fixture-effects.json"), "utf8"));
 const log = path.join(dir, "submitted.jsonl");
-const submissions = () => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trimEnd().split("\n").map(JSON.parse) : [];
+const inbox = path.join(dir, "inbound.json");
+const inbound = () => fs.existsSync(inbox) ? JSON.parse(fs.readFileSync(inbox, "utf8")) : [];
 const adapters = ["sample", "other"].map(kind => ({
   kind, validId: () => true, ready: () => true,
   enumerate: () => ({ complete: true, targets: config[kind].map(id => ({ id })) }),
@@ -23,10 +24,10 @@ const adapters = ["sample", "other"].map(kind => ({
   },
   proof: {
     validateId: () => true,
-    capture(binding) { return { kind, id: binding.id, offset: submissions().length }; },
-    verify(cursor, expected) {
-      return submissions().slice(cursor.offset).some(row => row.binding.id === cursor.id &&
-        row.binding.adapter === kind && digest(row.text) === expected) ? "delivered" : "pending";
+    capture(binding) { return { kind, id: binding.id, offset: inbound().length }; },
+    verify(cursor, expected, { binding }) {
+      return inbound().slice(cursor.offset).some(row => row.binding.host === binding.host &&
+        row.binding.id === cursor.id && row.binding.adapter === kind && digest(row.text) === expected) ? "delivered" : "pending";
     },
   },
 }));

@@ -6,16 +6,16 @@ Resume from the first open gate in the active phase. Update this record when imp
 
 ## Rollout checkpoints
 
-Start here to find the next assignment. The [design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) sets the requirements and stage order. This map owns checkpoint IDs, dependencies and status. The dated entries below and the [worker register](relay-worker-handoffs.json) hold the evidence. The active stage is **I/C**. **I15 is the next source checkpoint.** A/B retains open hardening and live gates.
+Start here to find the next assignment. The [design](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#11-rollout) sets the requirements and stage order. This map owns checkpoint IDs, dependencies and status. The dated entries below and the [worker register](relay-worker-handoffs.json) hold the evidence. The active stage is **I/C**. **I11 worker attachment and I13 session transitions are the next parallel assignments.** A/B retains open hardening and live gates.
 
 | Stage | Checkpoints | Accepted in stated scope | Remaining |
 | --- | ---: | ---: | ---: |
 | A/B · addressing, proof and health | 8 | 3 | 5 |
-| I/C · watcher and command completion | 18 | 11 | 7 |
+| I/C · watcher and command completion | 18 | 12 | 6 |
 | F/E · registry and names | 4 | 0 | 4 |
 | G/H · capabilities, discovery and setup | 5 | 0 | 5 |
 | D · machine signatures | 4 | 0 | 4 |
-| **Total** | **39** | **14** | **25** |
+| **Total** | **39** | **15** | **24** |
 
 Within the paired stages, A owns 5 checkpoints and B owns 3, I owns 16 and C owns 2, F owns 3 and E owns 1, and G owns 2 and H owns 3. D owns all 4 in its stage.
 
@@ -25,7 +25,7 @@ Work in stage order subject to the dependencies below. Keep the qualified A/B ba
 
 ### Order of work and parallel assignments
 
-**I6 and I7 have passed source qualification.** I15 checks compatibility through the public interfaces. I5 lookup and A4 private failure storage passed their independent source checks. The table below preserves the original two-checkpoint assignment and its acceptance criteria. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
+**I6, I7 and I15 have passed source qualification.** Installed worker attachment and positive session-transition evidence remain open. I5 lookup and A4 private failure storage passed their independent source checks. The table below preserves the original two-checkpoint assignment and its acceptance criteria. Record an actual assignee and revision in the [worker register](relay-worker-handoffs.json) at dispatch. The sequence below subdivides the existing checkpoints and leaves the totals above unchanged.
 
 #### First assignments
 
@@ -92,7 +92,7 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | I12 | Open | I11, I15 | Observe a separately started process ending through the installed worker. Exercise overlap, disconnect, restart and lost observation. Prove one permitted notice to the granted logical session with the chosen disclosure scope. |
 | I13 | Partial | I3, I7 | Establish positive evidence of an ordinary eligible completion and a busy-to-idle transition. The existing Codex trial can exclude a notice-bearing turn. Unknown, initial and mixed-cause observations must yield zero wakes. [Turn evidence](#delivery-proof-and-turn-identity) |
 | I14 | Open | I13, I15 | Exercise self and reciprocal watches with a fake clock, restart, coalescing and an outage. Verify one eligible transition produces one proved notice and no subsequent watcher-caused wakes. Qualify each enabled provider and host context. |
-| I15 | Next | I6, I7 | Before connecting a new recipient-facing watch, run the Claude Code and Codex regressions and an independently registered synthetic adapter through CLI, MCP, receive and watch. Cover literal IDs, collision, incomplete lookup, changed-adapter retry, send-only caller, unqualified resume and an older peer. Require zero unauthorized submissions and one proved notice on the supported path. Qualify a real additional client before claiming it. [Adapter contract](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work) |
+| I15 | Accepted in source | I6, I7 | Before connecting a new recipient-facing watch, run the Claude Code and Codex regressions and an independently registered synthetic adapter through CLI, MCP, receive and watch. Cover literal IDs, collision, incomplete lookup, changed-adapter retry, send-only caller, unqualified resume and an older peer. Require zero unauthorized submissions and one proved notice on the supported path. Qualify a real additional client before claiming it. [Adapter contract](../docs/superpowers/specs/2026-11-18-cross-agent-relay-network-design.md#adapter-contract-before-provider-facing-watcher-work) |
 | I16 | Open | I6, I7, I15, applicable A gates | Stage a restricted peer and use a raw-ID watch across machines. Prove one consumed notice in each qualified direction, recover after an outage with bounded retention, and reconcile broker, worker and doctor after restart. A5 applies to restricted Claude delivery. |
 
 ### F/E · Registry and names
@@ -124,6 +124,12 @@ I4 through I6 preserve the three previously sequenced remote checkpoints. I1 thr
 | D4 | Open | D3, H3 | Roll out per peer pair with signed and explicitly unsigned peers. Exercise reconnect after revocation and downgrade refusal. Inspect the delivered header and cold receipt for distinct machine and session evidence, then verify the installed pair in both directions. |
 
 ## Current handoff
+
+### Provider compatibility through the public interfaces
+
+At `b4b3744`, a synthetic remote adapter recorded submission separately from the recipient’s inbound record. An exact notice before the saved position left the receipt pending. A later match confirmed delivery with one submission across retries. Send-only callers and unqualified resumed writers made zero watch activations. Qualified Codex CLI and MCP callers activated the same issued grant. A synthetic ping was proved; the watch reached the waiting state. A real additional client, newly triggered watcher delivery and installed cross-host operation remain open.
+
+A constrained terminal operator used the refusal message to identify the intended thread for watch activation. The combined Windows suite passed 503 tests with four skips. Public receiver and caller checks on Linux passed 17 with zero skips. Independent reviewers and operator results are in the [worker register](relay-worker-handoffs.json). The initiating source checkout reached the I7 merge. The peer was offline when sync was attempted.
 
 ### Watcher restore qualification
 

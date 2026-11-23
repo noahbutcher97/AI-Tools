@@ -22,7 +22,7 @@ import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { addressedEffect } from "./addressed-effect.mjs";
 import { dispatchRemote } from "./remote-delivery.mjs";
 import { checkReadiness, fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
-import { resolveCallerIdentity } from "./identity.mjs";
+import { resolveCallerIdentity, resolveWatchCaller } from "./identity.mjs";
 import { receive } from "./receive.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 
@@ -134,7 +134,7 @@ async function main() {
   }
   if (options.command === "watch") {
     const { subscribeWatch } = await import("./watch-client.mjs");
-    const result = await subscribeWatch(options.to, options.condition, resolveCallerIdentity());
+    const result = await subscribeWatch(options.to, options.condition, resolveWatchCaller("cli"));
     console.log(JSON.stringify(result));
     process.exitCode = result.ok ? 0 : 1;
     return;

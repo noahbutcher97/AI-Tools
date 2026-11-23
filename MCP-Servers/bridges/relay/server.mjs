@@ -8,7 +8,7 @@ import { listInstalledTargets } from "./local-address.mjs";
 import { resolveAddress } from "./resolve-address.mjs";
 import { pingTarget, sendAddressed, sendStatus } from "./addressed-send.mjs";
 import { addressedEffect } from "./addressed-effect.mjs";
-import { resolveCallerIdentity } from "./identity.mjs";
+import { resolveCallerIdentity, resolveWatchCaller } from "./identity.mjs";
 import { inventory, queryFleet } from "./fleet.mjs";
 import { fleetReadiness, loadedBuild, readReadiness } from "./readiness.mjs";
 
@@ -42,7 +42,7 @@ server.tool(
   { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   async ({ target, condition }, extra) => {
     const { subscribeWatch } = await import("./watch-client.mjs");
-    return toolJsonResult(await subscribeWatch(target, condition, resolveCallerIdentity({ extra })));
+    return toolJsonResult(await subscribeWatch(target, condition, resolveWatchCaller("mcp", { extra })));
   },
 );
 

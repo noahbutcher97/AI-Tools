@@ -6,7 +6,8 @@ import { branchBinding, fileBinding, scheduleBinding } from "./schedule-watch.mj
 
 export async function subscribeWatch(to, condition, identity, { root = installationRoot(), port } = {}) {
   if (!matches(UUID, to) || !matches(UUID, condition) || identity?.id !== to || identity.provider !== "codex") {
-    return { ok: false, state: "denied" };
+    return { ok: false, state: "denied",
+      detail: "Activate the watch from the intended Codex thread, using its shell or its relay_watch MCP tool." };
   }
   try {
     const bindings = [[scheduleBinding, "activate_schedule"], [fileBinding, "activate_file"], [branchBinding, "activate_branch"]];

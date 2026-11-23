@@ -7,6 +7,10 @@ const lookupCaller = new URL("resolve-address.mjs", bridge).href;
 const effectCaller = new URL("addressed-effect.mjs", bridge).href;
 
 export function resolve(specifier, context, nextResolve) {
+  if (context.parentURL === new URL("watch-client.mjs", bridge).href &&
+      ["./fleet.mjs", "./completion-broker.mjs"].includes(specifier)) {
+    return nextResolve(new URL("./watch-install.mjs", import.meta.url).href, context);
+  }
   if (specifier === "./local-address.mjs" && (publicFaces.includes(context.parentURL) || [lookupCaller, effectCaller].includes(context.parentURL))) {
     return nextResolve(fixture, context);
   }

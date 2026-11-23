@@ -1,5 +1,105 @@
 [
   {
+    "id": "i15-final-proof-regression",
+    "revision": "b4b37447c8679f89cd9b0b4fa36688ef4accc43d",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Verify the independent earlier-record case is preserved in the committed compatibility test.",
+    "acceptance": "Review the test-only delta to the previously reviewed code and repeat the public probe cases.",
+    "result": {
+      "revision": "b4b37447c8679f89cd9b0b4fa36688ef4accc43d",
+      "verdict": "Passed in source",
+      "evidence": "Independent review of b4b3744 verified an identical record before the saved position left proof pending. A later match confirmed delivery with one submission across retries. The focused public suite passed three tests.",
+      "limitations": "Synthetic adapters, local broker and source fixtures. Actual additional clients and installed cross-host watcher delivery remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded source scope.",
+      "next": "Use these compatibility tests for subsequent recipient-facing changes."
+    }
+  },
+  {
+    "id": "i15-denial-walkthrough",
+    "revision": "68e6852ad72a37dc11ec37bde0cc81ffe5c4880d",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Repeat the refused CLI watch task after the diagnostic change.",
+    "acceptance": "Identify the next action from the on-screen result and verify that denial produced zero watcher activations.",
+    "result": {
+      "revision": "68e6852ad72a37dc11ec37bde0cc81ffe5c4880d",
+      "verdict": "Passed in source",
+      "evidence": "A low-effort Claude Code Haiku operator interpreted a normal CLI watch refusal in a disposable environment. With the earlier denial alone the operator could only suggest checking with the administrator. With the new hint the operator identified the intended thread and its shell or MCP tool. Separate recording-broker checks counted zero activations for the refused callers.",
+      "limitations": "Synthetic adapters, local broker and source fixtures. Actual additional clients and installed cross-host watcher delivery remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded source scope.",
+      "next": "Use these compatibility tests for subsequent recipient-facing changes."
+    }
+  },
+  {
+    "id": "i15-baseline-review",
+    "revision": "68e6852ad72a37dc11ec37bde0cc81ffe5c4880d",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Review adapter proof, grant activation evidence, existing send compatibility and simulated versus live coverage.",
+    "acceptance": "Test first and resumed callers, stale or conflicting evidence, old client compatibility and independent consumed proof through the public interfaces.",
+    "result": {
+      "revision": "68e6852ad72a37dc11ec37bde0cc81ffe5c4880d",
+      "verdict": "Passed in source",
+      "evidence": "Seven focused Windows suites passed 86 tests on 68e6852. The independent review verified distinct submission and consumption, stale or mismatched metadata, and pre-submission refusal on an older peer.",
+      "limitations": "Synthetic adapters, local broker and source fixtures. Actual additional clients and installed cross-host watcher delivery remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded source scope.",
+      "next": "Use these compatibility tests for subsequent recipient-facing changes."
+    }
+  },
+  {
+    "id": "i15-watch-caller-evidence",
+    "revision": "e4a9d999048fc4b78053c57c9630fd0853210491",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Apply the existing distinction between send provenance and authority to activate an issued watch.",
+    "acceptance": "Require provider-specific caller evidence and the existing grant for watch activation. Preserve ordinary sending and qualified existing watcher entry points.",
+    "result": {
+      "revision": "e4a9d999048fc4b78053c57c9630fd0853210491",
+      "verdict": "Passed in source",
+      "evidence": "At 68e6852 activation required provider-specific evidence and an issued grant. Unsupported callers and conflicting identities made zero broker calls. Qualified MCP and CLI calls activated one idempotent grant. Ordinary sending retained its legacy origin handling.",
+      "limitations": "Synthetic adapters, local broker and source fixtures. Actual additional clients and installed cross-host watcher delivery remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded source scope.",
+      "next": "Use these compatibility tests for subsequent recipient-facing changes."
+    }
+  },
+  {
+    "id": "i15-public-interface-baseline",
+    "revision": "bb20d9b7981215c0fe2e4b59fe81b84bd4c0d52f",
+    "coordinator": "relay coordinator",
+    "worker": "independent source reviewer",
+    "state": "accepted",
+    "scope": "Measure the public adapter contract through the CLI, MCP, receiver and watcher with an independently registered synthetic provider.",
+    "acceptance": "Exercise a permitted notice with proof, send-only watch refusals, unsupported resume and an older peer. Identify remaining support gaps before adding any new authority.",
+    "result": {
+      "revision": "bb20d9b7981215c0fe2e4b59fe81b84bd4c0d52f",
+      "verdict": "Passed in source",
+      "evidence": "At c3cd852 a new inbound-record fixture exposed submission and consumption independently. The addressed CLI and MCP cases checked literal and colliding IDs, incomplete lookup, receipt recovery, a changed adapter and an older peer.",
+      "limitations": "Synthetic adapters, local broker and source fixtures. Actual additional clients and installed cross-host watcher delivery remain unqualified."
+    },
+    "acknowledgment": {
+      "by": "relay coordinator",
+      "disposition": "Accepted within the recorded source scope.",
+      "next": "Use these compatibility tests for subsequent recipient-facing changes."
+    }
+  },
+  {
     "id": "i7-package-operator-check",
     "revision": "6de806a245d8a40bd4ed4b3852bedca2f9c3f42b",
     "coordinator": "relay coordinator",
