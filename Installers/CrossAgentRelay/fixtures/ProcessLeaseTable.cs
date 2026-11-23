@@ -23,14 +23,19 @@ public sealed class ProcessLeaseTable : IDisposable
     private readonly Dictionary<Guid, Lease> reserved = new Dictionary<Guid, Lease>();
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private readonly Func<Guid, int, string, bool> allowed;
+    private readonly Action<SafeProcessHandle> observeOpen;
     private readonly Timer timer;
     private bool disposed;
     private int attempts, opened, closed;
 
     public ProcessLeaseTable(Func<Guid, int, string, bool> allowed)
+        : this(allowed, null) {}
+
+    internal ProcessLeaseTable(Func<Guid, int, string, bool> allowed, Action<SafeProcessHandle> observeOpen)
     {
         if (allowed == null) throw new ArgumentNullException("allowed");
         this.allowed = allowed;
+        this.observeOpen = observeOpen;
         timer = new Timer(Expire, null, 25, 25);
     }
 
@@ -73,6 +78,7 @@ public sealed class ProcessLeaseTable : IDisposable
                 attempts++;
                 lease.Handle = ProcessEndObservationFixture.Open(child);
                 opened++;
+                if (observeOpen != null) observeOpen(lease.Handle);
                 lease.Creation = ProcessEndObservationFixture.CreationFileTime(lease.Handle);
                 if (unchecked((ulong)lease.Creation).ToString(CultureInfo.InvariantCulture) != creation) return "unknown";
             }

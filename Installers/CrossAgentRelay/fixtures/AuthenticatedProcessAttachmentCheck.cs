@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -15,18 +16,53 @@ internal static class AuthenticatedProcessAttachmentCheck
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool GetNamedPipeServerProcessId(SafePipeHandle pipe, out uint pid);
 
-    // PUBLIC_OBJECT_BASIC_INFORMATION has 14 ULONG fields, with HandleCount at index 2.
-    [DllImport("ntdll.dll")]
-    private static extern int NtQueryObject(SafeProcessHandle handle, int infoClass,
-        [Out] uint[] basicInfo, int byteCount, out int returned);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint GetProcessId(IntPtr handle);
 
-    private static int HandleCount(SafeProcessHandle process)
+    // Record the exact handle opened by the lease table. A managed reference does not duplicate
+    // the native handle or prevent its owner from explicitly disposing it.
+    private sealed class OpenedHandle
     {
-        var info = new uint[14];
-        int size = info.Length * sizeof(uint), returned;
-        if (NtQueryObject(process, 0, info, size, out returned) != 0 || returned != size)
-            throw new IOException("Process object handle count unavailable.");
-        return checked((int)info[2]);
+        private readonly SafeProcessHandle handle;
+        private readonly IntPtr value;
+        public readonly uint Target;
+        private bool checkedClosure;
+
+        public OpenedHandle(SafeProcessHandle handle)
+        {
+            this.handle = handle;
+            value = handle.DangerousGetHandle();
+            Target = GetProcessId(value);
+            Require(Target != 0, "Cannot identify fixture lease handle.");
+        }
+
+        public bool IsLive()
+        {
+            if (checkedClosure) return false;
+            uint target = GetProcessId(value);
+            int error = Marshal.GetLastWin32Error();
+            if (!handle.IsClosed) {
+                Require(target == Target, "Open lease handle no longer identifies the fixture target.");
+                return true;
+            }
+            // Verify each close before a new attachment may reuse this numeric slot.
+            Require(target != Target && (target != 0 || error == 6 /* ERROR_INVALID_HANDLE */),
+                "Native fixture handle closure unconfirmed.");
+            checkedClosure = true;
+            return false;
+        }
+    }
+
+    private static string HandleEvidence(List<OpenedHandle> handles, Process[] children)
+    {
+        int first = 0, second = 0;
+        foreach (var handle in handles) {
+            if (!handle.IsLive()) continue;
+            if (handle.Target == children[0].Id) first++;
+            else if (handle.Target == children[1].Id) second++;
+            else throw new InvalidOperationException("Unexpected process in fixture lease table.");
+        }
+        return handles.Count + " " + first + " " + second;
     }
 
     private static void Require(bool condition, string message)
@@ -73,7 +109,8 @@ internal static class AuthenticatedProcessAttachmentCheck
         return "denied";
     }
 
-    private static void ConnectWorker(string epoch, uint brokerPid, SecurityIdentifier sid, Process[] children)
+    private static void ConnectWorker(string epoch, uint brokerPid, SecurityIdentifier sid, Process[] children,
+        List<OpenedHandle> handles)
     {
         using (var pipe = CompletionChannel.Connect("relay-process-check-" + epoch, sid)) {
             uint server;
@@ -81,11 +118,12 @@ internal static class AuthenticatedProcessAttachmentCheck
                 throw new UnauthorizedAccessException("Unexpected fixture broker.");
             using (var leases = new ProcessLeaseTable(delegate(Guid id, int pid, string token) {
                 return Array.Exists(children, child => child.Id == pid && Creation(child.SafeHandle) == token);
-            })) {
+            }, handle => handles.Add(new OpenedHandle(handle)))) {
                 for (int n = 0; n < 32; n++) {
                     string frame;
                     try { frame = Read(pipe); } catch (IOException) { return; }
-                    Write(pipe, Apply(leases, children, epoch, frame));
+                    Write(pipe, frame == epoch + " handles" ? HandleEvidence(handles, children) :
+                        Apply(leases, children, epoch, frame));
                 }
             }
         }
@@ -96,6 +134,7 @@ internal static class AuthenticatedProcessAttachmentCheck
         using (var first = Start("target " + gateName + "a"))
         using (var second = Start("target " + gateName + "b")) {
             var children = new[] { first, second };
+            var handles = new List<OpenedHandle>();
             try {
                 foreach (var child in children) {
                     Require(child.StandardOutput.ReadLine() == "ready", "Fixture child unavailable.");
@@ -105,8 +144,8 @@ internal static class AuthenticatedProcessAttachmentCheck
                 while ((epoch = Console.ReadLine()) != null) {
                     Guid parsed;
                     Require(Guid.TryParseExact(epoch, "N", out parsed), "Invalid fixture epoch.");
-                    ConnectWorker(epoch, brokerPid, sid, children);
-                    Console.WriteLine("disconnected");
+                    ConnectWorker(epoch, brokerPid, sid, children, handles);
+                    Console.WriteLine(HandleEvidence(handles, children));
                 }
             } finally {
                 foreach (var child in children) child.StandardInput.Close();
@@ -122,7 +161,6 @@ internal static class AuthenticatedProcessAttachmentCheck
         private readonly SafeProcessHandle witness;
         private readonly long creation;
         public readonly string Binding;
-        public readonly int Baseline;
         public string Attachment;
         public bool Revoked;
 
@@ -135,7 +173,6 @@ internal static class AuthenticatedProcessAttachmentCheck
             Require(fields.Length == 2 && creation.ToString(CultureInfo.InvariantCulture) == fields[1],
                 "Wrong witness process.");
             Binding = ready;
-            Baseline = HandleCount(witness);
         }
 
         public string Issue(string epoch)
@@ -145,11 +182,11 @@ internal static class AuthenticatedProcessAttachmentCheck
             return epoch + " attach " + Attachment + " " + Binding;
         }
 
-        public void Check(int extra)
+        public SafeProcessHandle AdditionalObserver()
         {
-            Require(HandleCount(witness) == Baseline + extra, "Unexpected target handle count.");
+            using (var child = Process.GetProcessById(Int32.Parse(Binding.Split(' ')[0], CultureInfo.InvariantCulture)))
+                return ProcessEndObservationFixture.Open(child);
         }
-
         public string Observe(uint waitMs) { return ProcessEndObservationFixture.Observe(witness, creation, waitMs); }
         public void Dispose() { witness.Dispose(); }
     }
@@ -160,7 +197,21 @@ internal static class AuthenticatedProcessAttachmentCheck
         Require(Read(pipe) == expected, "Unexpected " + frame.Split(' ')[1] + " outcome.");
     }
 
-    private static void Exchange(Process worker, SecurityIdentifier sid, bool admit,
+    private static void CheckEvidence(string phase, string expected, string observed)
+    {
+        if (observed == null || !System.Text.RegularExpressions.Regex.IsMatch(observed, @"\A\d{1,2} \d{1,2} \d{1,2}\z"))
+            observed = "missing or invalid evidence";
+        Require(observed == expected, phase + " (opens, first live, second live): expected " +
+            expected + ", observed " + observed + ".");
+    }
+
+    private static void CheckLive(Stream pipe, string epoch, string phase, string expected)
+    {
+        Write(pipe, epoch + " handles");
+        CheckEvidence(phase, expected, Read(pipe));
+    }
+
+    private static void Exchange(Process worker, SecurityIdentifier sid, bool admit, string afterDisconnect,
         Action<Stream, string> operations)
     {
         string epoch = Guid.NewGuid().ToString("N");
@@ -175,7 +226,7 @@ internal static class AuthenticatedProcessAttachmentCheck
                 operations(server, epoch);
             } catch (UnauthorizedAccessException) { if (admit) throw; }
         }
-        Require(worker.StandardOutput.ReadLine() == "disconnected", "Missing disconnect cleanup.");
+        CheckEvidence("disconnect cleanup", afterDisconnect, worker.StandardOutput.ReadLine());
     }
 
     private static void Broker(SecurityIdentifier sid)
@@ -187,30 +238,31 @@ internal static class AuthenticatedProcessAttachmentCheck
             try {
                 using (var first = new Grant(worker.StandardOutput.ReadLine()))
                 using (var second = new Grant(worker.StandardOutput.ReadLine())) {
-                    Exchange(worker, sid, false, null);
-                    first.Check(0); second.Check(0);
+                    Exchange(worker, sid, false, "0 0 0", null);
                     string previous = null, previousId = null;
-                    Exchange(worker, sid, true, delegate(Stream pipe, string epoch) {
+                    Exchange(worker, sid, true, "2 0 0", delegate(Stream pipe, string epoch) {
                         previous = first.Issue(epoch);
                         previousId = first.Attachment;
                         Expect(pipe, previous, "attached");
                         Expect(pipe, second.Issue(epoch), "attached");
-                        first.Check(1); second.Check(1);
+                        CheckLive(pipe, epoch, "first attachment", "2 1 1");
                     });
-                    first.Check(0); second.Check(0);
-                    Exchange(worker, sid, true, delegate(Stream pipe, string epoch) {
+                    Exchange(worker, sid, true, "4 0 0", delegate(Stream pipe, string epoch) {
                         Expect(pipe, previous, "denied");
                         Expect(pipe, epoch + " sample " + previousId, "unknown");
-                        first.Check(0); second.Check(0);
+                        CheckLive(pipe, epoch, "stale request", "2 0 0");
                         Expect(pipe, first.Issue(epoch), "attached");
                         string secondFrame = second.Issue(epoch);
                         Expect(pipe, secondFrame, "attached");
-                        first.Check(1); second.Check(1);
+                        CheckLive(pipe, epoch, "fresh attachment", "4 1 1");
                         second.Revoked = true;
-                        Expect(pipe, epoch + " revoke " + second.Attachment, "revoked");
-                        Require(second.Issue(epoch) == null, "Revoked grant issued a fresh attachment.");
-                        Expect(pipe, secondFrame, "duplicate");
-                        first.Check(1); second.Check(0);
+                        using (var observer = second.AdditionalObserver()) {
+                            Expect(pipe, epoch + " revoke " + second.Attachment, "revoked");
+                            Require(second.Issue(epoch) == null, "Revoked grant issued a fresh attachment.");
+                            Expect(pipe, secondFrame, "duplicate");
+                            CheckLive(pipe, epoch, "revocation with independent observer", "4 1 0");
+                            Require(second.Observe(0) == "running", "Revoked fixture target ended prematurely.");
+                        }
                         Expect(pipe, epoch + " sample " + second.Attachment, "unknown");
                         Expect(pipe, epoch + " sample " + first.Attachment, "running");
                         endFirst.Set(); endSecond.Set();
@@ -238,7 +290,8 @@ internal static class AuthenticatedProcessAttachmentCheck
                     Broker(identity.User);
                     Console.WriteLine("Two authenticated connections to one worker and the same two fixture processes.");
                     Console.WriteLine("Wrong client PID and stale epoch denied. Disconnect released both observed handles.");
-                    Console.WriteLine("Revocation released one handle. Peer observed exit 259; revoked grant returned unknown.");
+                    Console.WriteLine("Worker lease handles: 4 opens; 1 live after revocation; 0 live after final disconnect.");
+                    Console.WriteLine("Broker witnesses observed both exits at 259. Live grant reported 259; revoked grant returned unknown.");
                 } else if (args.Length == 3 && args[0] == "worker") {
                     Worker(args[1], UInt32.Parse(args[2], CultureInfo.InvariantCulture), identity.User);
                 } else if (args.Length == 2 && args[0] == "target") {
